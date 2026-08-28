@@ -41,7 +41,7 @@ bool MidiFileData::load (const std::string& path, std::string& error)
     clear();
 
     std::FILE* file = std::fopen (path.c_str(), "rb");
-    if (file == nullptr) { error = "開けません: " + path; return false; }
+    if (file == nullptr) { error = "Cannot open: " + path; return false; }
 
     std::fseek (file, 0, SEEK_END);
     const long size = std::ftell (file);
@@ -49,15 +49,15 @@ bool MidiFileData::load (const std::string& path, std::string& error)
     std::vector<uint8_t> data (static_cast<size_t> (std::max (0L, size)));
     const bool read = ! data.empty() && std::fread (data.data(), 1, data.size(), file) == data.size();
     std::fclose (file);
-    if (! read) { error = "読み込めません: " + path; return false; }
+    if (! read) { error = "Cannot load: " + path; return false; }
 
     if (data.size() < 14 || std::memcmp (data.data(), "MThd", 4) != 0)
-    { error = "MIDI ファイルではありません"; return false; }
+    { error = "Not as standard MIDI file"; return false; }
 
     const uint16_t trackCount = static_cast<uint16_t> ((data[10] << 8) | data[11]);
     const uint16_t division   = static_cast<uint16_t> ((data[12] << 8) | data[13]);
     if (division == 0 || (division & 0x8000) != 0)
-    { error = "SMPTE タイムベースには未対応です"; return false; }
+    { error = "SMPTE is not supported"; return false; }
 
     std::vector<RawEvent> raw;
     size_t pos = 8 + ((data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]);
