@@ -36,6 +36,7 @@ class LcdDisplay;
                                                                     //[/Comments]
 */
 class NukedSC55AudioProcessorEditor  : public juce::AudioProcessorEditor,
+                                       public juce::FileDragAndDropTarget,
                                        public juce::Button::Listener
 {
 public:
@@ -45,6 +46,10 @@ public:
 
     //==============================================================================
     //[UserMethods]     -- You can add your own custom methods in this section.
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void fileDragEnter (const juce::StringArray& files, int x, int y) override;
+    void fileDragExit (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -59,6 +64,7 @@ private:
     // access the processor object that created it.
     NukedSC55AudioProcessor& audioProcessor;
     std::unique_ptr<LcdDisplay> lcdDisplay;
+    bool fileDragActive = false;
     //[/UserVariables]
 
     //==============================================================================
@@ -66,7 +72,16 @@ private:
     std::unique_ptr<juce::Component> lcd;
     std::unique_ptr<juce::Component> acrylPanel;
     std::unique_ptr<juce::TextButton> buttonLevelDec;
-    std::unique_ptr<juce::TextButton> buttonLevelDec2;
+    std::unique_ptr<juce::TextButton> buttonLevelInc;
+    std::unique_ptr<juce::TextButton> buttonReverbDec;
+    std::unique_ptr<juce::TextButton> buttonReverbInc;
+    std::unique_ptr<juce::TextButton> buttonPartDec;
+    std::unique_ptr<juce::TextButton> buttonPartInc;
+    std::unique_ptr<juce::TextButton> buttonKeyShiftDec;
+    std::unique_ptr<juce::TextButton> buttonKeyShiftInc;
+    std::unique_ptr<juce::TextButton> buttonAll;
+    std::unique_ptr<juce::TextButton> buttonAll2;
+    juce::Image cachedImage_BinaryData_Background_png_1;
 
 
     //==============================================================================

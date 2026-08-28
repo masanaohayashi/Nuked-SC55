@@ -145,15 +145,70 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     buttonLevelDec->setButtonText (TRANS ("<"));
     buttonLevelDec->addListener (this);
 
-    buttonLevelDec->setBounds (768, 70, 54, 20);
+    buttonLevelDec->setBounds (768, 67, 54, 20);
 
-    buttonLevelDec2.reset (new juce::TextButton (juce::String()));
-    contentComponent.addAndMakeVisible (buttonLevelDec2.get());
-    buttonLevelDec2->setButtonText (TRANS (">"));
-    buttonLevelDec2->addListener (this);
+    buttonLevelInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonLevelInc.get());
+    buttonLevelInc->setButtonText (TRANS (">"));
+    buttonLevelInc->addListener (this);
 
-    buttonLevelDec2->setBounds (822, 70, 54, 20);
+    buttonLevelInc->setBounds (822, 67, 54, 20);
 
+    buttonReverbDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonReverbDec.get());
+    buttonReverbDec->setButtonText (TRANS ("<"));
+    buttonReverbDec->addListener (this);
+
+    buttonReverbDec->setBounds (768, 110, 54, 20);
+
+    buttonReverbInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonReverbInc.get());
+    buttonReverbInc->setButtonText (TRANS (">"));
+    buttonReverbInc->addListener (this);
+
+    buttonReverbInc->setBounds (822, 110, 54, 20);
+
+    buttonPartDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonPartDec.get());
+    buttonPartDec->setButtonText (TRANS ("<"));
+    buttonPartDec->addListener (this);
+
+    buttonPartDec->setBounds (768, 24, 54, 20);
+
+    buttonPartInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonPartInc.get());
+    buttonPartInc->setButtonText (TRANS (">"));
+    buttonPartInc->addListener (this);
+
+    buttonPartInc->setBounds (822, 24, 54, 20);
+
+    buttonKeyShiftDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonKeyShiftDec.get());
+    buttonKeyShiftDec->setButtonText (TRANS ("<"));
+    buttonKeyShiftDec->addListener (this);
+
+    buttonKeyShiftDec->setBounds (768, 154, 54, 20);
+
+    buttonKeyShiftInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonKeyShiftInc.get());
+    buttonKeyShiftInc->setButtonText (TRANS (">"));
+    buttonKeyShiftInc->addListener (this);
+
+    buttonKeyShiftInc->setBounds (822, 154, 54, 20);
+
+    buttonAll.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonAll.get());
+    buttonAll->addListener (this);
+
+    buttonAll->setBounds (696, 22, 24, 24);
+
+    buttonAll2.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonAll2.get());
+    buttonAll2->addListener (this);
+
+    buttonAll2->setBounds (696, 65, 24, 24);
+
+    cachedImage_BinaryData_Background_png_1 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
     //[/UserPreSize]
@@ -178,7 +233,15 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     lcd = nullptr;
     acrylPanel = nullptr;
     buttonLevelDec = nullptr;
-    buttonLevelDec2 = nullptr;
+    buttonLevelInc = nullptr;
+    buttonReverbDec = nullptr;
+    buttonReverbInc = nullptr;
+    buttonPartDec = nullptr;
+    buttonPartInc = nullptr;
+    buttonKeyShiftDec = nullptr;
+    buttonKeyShiftInc = nullptr;
+    buttonAll = nullptr;
+    buttonAll2 = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -201,7 +264,24 @@ void NukedSC55AudioProcessorEditor::paint (juce::Graphics& g)
 
     g.fillAll (juce::Colour (0xff323e44));
 
+    {
+        int x = 0, y = 0, width = 1024, height = 200;
+        //[UserPaintCustomArguments] Customize the painting arguments here..
+        //[/UserPaintCustomArguments]
+        g.setColour (juce::Colours::black);
+        g.drawImage (cachedImage_BinaryData_Background_png_1,
+                     x, y, width, height,
+                     0, 0, cachedImage_BinaryData_Background_png_1.getWidth(), cachedImage_BinaryData_Background_png_1.getHeight());
+    }
+
     //[UserPaint] Add your own custom painting code here..
+    if (fileDragActive)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.fillAll();
+        g.setColour (juce::Colours::white);
+        g.drawRect (getLocalBounds(), 3);
+    }
     //[/UserPaint]
 }
 
@@ -234,10 +314,50 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         //[UserButtonCode_buttonLevelDec] -- add your button handler code here..
         //[/UserButtonCode_buttonLevelDec]
     }
-    else if (buttonThatWasClicked == buttonLevelDec2.get())
+    else if (buttonThatWasClicked == buttonLevelInc.get())
     {
-        //[UserButtonCode_buttonLevelDec2] -- add your button handler code here..
-        //[/UserButtonCode_buttonLevelDec2]
+        //[UserButtonCode_buttonLevelInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonLevelInc]
+    }
+    else if (buttonThatWasClicked == buttonReverbDec.get())
+    {
+        //[UserButtonCode_buttonReverbDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonReverbDec]
+    }
+    else if (buttonThatWasClicked == buttonReverbInc.get())
+    {
+        //[UserButtonCode_buttonReverbInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonReverbInc]
+    }
+    else if (buttonThatWasClicked == buttonPartDec.get())
+    {
+        //[UserButtonCode_buttonPartDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonPartDec]
+    }
+    else if (buttonThatWasClicked == buttonPartInc.get())
+    {
+        //[UserButtonCode_buttonPartInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonPartInc]
+    }
+    else if (buttonThatWasClicked == buttonKeyShiftDec.get())
+    {
+        //[UserButtonCode_buttonKeyShiftDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonKeyShiftDec]
+    }
+    else if (buttonThatWasClicked == buttonKeyShiftInc.get())
+    {
+        //[UserButtonCode_buttonKeyShiftInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonKeyShiftInc]
+    }
+    else if (buttonThatWasClicked == buttonAll.get())
+    {
+        //[UserButtonCode_buttonAll] -- add your button handler code here..
+        //[/UserButtonCode_buttonAll]
+    }
+    else if (buttonThatWasClicked == buttonAll2.get())
+    {
+        //[UserButtonCode_buttonAll2] -- add your button handler code here..
+        //[/UserButtonCode_buttonAll2]
     }
 
     //[UserbuttonClicked_Post]
@@ -247,6 +367,58 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
 
 
 //[MiscUserCode] You can add your own definitions of your custom methods or any other code here...
+
+//==============================================================================
+// Drop a Standard MIDI File on the window to play it.  The file goes straight
+// into the emulator in file order, which is the point: no sequencer sits in
+// between to sort or de-duplicate the controllers.
+bool NukedSC55AudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (f.endsWithIgnoreCase (".mid") || f.endsWithIgnoreCase (".midi") || f.endsWithIgnoreCase (".smf"))
+            return true;
+
+    return false;
+}
+
+void NukedSC55AudioProcessorEditor::fileDragEnter (const juce::StringArray&, int, int)
+{
+    fileDragActive = true;
+    repaint();
+}
+
+void NukedSC55AudioProcessorEditor::fileDragExit (const juce::StringArray&)
+{
+    fileDragActive = false;
+    repaint();
+}
+
+void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
+{
+    fileDragActive = false;
+    repaint();
+
+    for (const auto& f : files)
+    {
+        const juce::File file (f);
+        if (! isInterestedInFileDrag ({ f }))
+            continue;
+
+        if (audioProcessor.isPlayingMidiFile())
+            audioProcessor.stopMidiFile();
+
+        if (! audioProcessor.startMidiFile (file))
+        {
+            const auto options = juce::MessageBoxOptions::makeOptionsOk (
+                juce::AlertWindow::WarningIcon, "SC-55",
+                "この MIDI ファイルを再生できませんでした:\n" + file.getFileName());
+            juce::AlertWindow::showAsync (options, nullptr);
+        }
+
+        return;
+    }
+}
+
 //[/MiscUserCode]
 
 
@@ -260,12 +432,15 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
 BEGIN_JUCER_METADATA
 
 <JUCER_COMPONENT documentType="Component" className="NukedSC55AudioProcessorEditor"
-                 componentName="" parentClasses="public juce::AudioProcessorEditor"
+                 componentName="" parentClasses="public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget"
                  constructorParams="NukedSC55AudioProcessor&amp; p" variableInitialisers="AudioProcessorEditor (&amp;p), audioProcessor (p)"
                  scaleOnResize="1" scaleMode="keepAspect" snapPixels="8" snapActive="1"
                  snapShown="1" overlayOpacity="0.330" fixedSize="1" initialWidth="1024"
                  initialHeight="200">
-  <BACKGROUND backgroundColour="ff323e44"/>
+  <BACKGROUND backgroundColour="ff323e44">
+    <IMAGE pos="0 0 1024 200" resource="BinaryData::Background_png" opacity="1.0"
+           mode="0"/>
+  </BACKGROUND>
   <GENERICCOMPONENT name="" id="c4c91c74bed6da56" memberName="lcd" virtualName=""
                     explicitFocusOrder="0" pos="260 36 344 124" class="juce::Component"
                     params=""/>
@@ -273,10 +448,34 @@ BEGIN_JUCER_METADATA
                     virtualName="" explicitFocusOrder="0" pos="640 0 102 200" class="juce::Component"
                     params=""/>
   <TEXTBUTTON name="" id="791b54d63a59beec" memberName="buttonLevelDec" virtualName=""
-              explicitFocusOrder="0" pos="768 70 54 20" buttonText="&lt;" connectedEdges="0"
+              explicitFocusOrder="0" pos="768 67 54 20" buttonText="&lt;" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
-  <TEXTBUTTON name="" id="b0fabff2cff12ab0" memberName="buttonLevelDec2" virtualName=""
-              explicitFocusOrder="0" pos="822 70 54 20" buttonText="&gt;" connectedEdges="0"
+  <TEXTBUTTON name="" id="b0fabff2cff12ab0" memberName="buttonLevelInc" virtualName=""
+              explicitFocusOrder="0" pos="822 67 54 20" buttonText="&gt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="434dde801941ad4a" memberName="buttonReverbDec" virtualName=""
+              explicitFocusOrder="0" pos="768 110 54 20" buttonText="&lt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="bd114b5368c9afc1" memberName="buttonReverbInc" virtualName=""
+              explicitFocusOrder="0" pos="822 110 54 20" buttonText="&gt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="4e736adc3d682aca" memberName="buttonPartDec" virtualName=""
+              explicitFocusOrder="0" pos="768 24 54 20" buttonText="&lt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="a8024d435ae254f2" memberName="buttonPartInc" virtualName=""
+              explicitFocusOrder="0" pos="822 24 54 20" buttonText="&gt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="3dcc4df2d569df1d" memberName="buttonKeyShiftDec"
+              virtualName="" explicitFocusOrder="0" pos="768 154 54 20" buttonText="&lt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="ef425c2d36a9db79" memberName="buttonKeyShiftInc"
+              virtualName="" explicitFocusOrder="0" pos="822 154 54 20" buttonText="&gt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="25a57efa074a0574" memberName="buttonAll" virtualName=""
+              explicitFocusOrder="0" pos="696 22 24 24" buttonText="" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="71f4c1e8344b8976" memberName="buttonAll2" virtualName=""
+              explicitFocusOrder="0" pos="696 65 24 24" buttonText="" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
 </JUCER_COMPONENT>
 

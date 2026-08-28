@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <exception>
 
 #if defined (__APPLE__)
@@ -409,6 +410,8 @@ void NukedSC55Emulator::release()
     lastLoggedMidiPacketCount = 0;
     sourcePosition = 0.0;
     midiDropMessage = false;
+    midiGateOpen = false;
+    lastUartReadPtr = 0;
     releaseClaim();
 }
 
@@ -427,8 +430,45 @@ void NukedSC55Emulator::clearPendingMidi() noexcept
     midiRead.store (write, std::memory_order_release);
 }
 
+namespace
+{
+// Opt-in raw capture of what the host actually hands over, message by message.
+// Enabled only while ~/.sc55_midi_trace exists, so it costs nothing normally.
+std::FILE* midiTraceFile()
+{
+    static std::FILE* file = []() -> std::FILE*
+    {
+        const auto* home = std::getenv ("HOME");
+        if (home == nullptr)
+            return nullptr;
+
+        char marker[1024];
+        std::snprintf (marker, sizeof (marker), "%s/.sc55_midi_trace", home);
+        if (std::FILE* probe = std::fopen (marker, "rb"))
+            std::fclose (probe);
+        else
+            return nullptr;
+
+        char path[1024];
+        std::snprintf (path, sizeof (path), "%s/Library/Logs/SC-55-midi.log", home);
+        return std::fopen (path, "w");
+    }();
+
+    return file;
+}
+}
+
 void NukedSC55Emulator::sendMidi (const uint8_t* data, int size)
 {
+    if (std::FILE* trace = midiTraceFile(); trace != nullptr && data != nullptr && size > 0)
+    {
+        for (int i = 0; i < size; ++i)
+            std::fprintf (trace, "%02X ", data[i]);
+
+        std::fputc ('\n', trace);
+        std::fflush (trace);
+    }
+
     if (data == nullptr || size <= 0)
     {
         sc55debug::log ("MIDI rejected: invalid packet data=%p size=%d", data, size);
@@ -543,6 +583,16 @@ void NukedSC55Emulator::drainMidi()
     // not draining its UART - during the boot sequence, mainly - the bytes are
     // dropped rather than queued, which is what the hardware does when you play
     // during power-on.
+    // The firmware reads nothing while it boots, so anything sent then would
+    // pile up and arrive as one burst.  The moment it consumes its first byte
+    // the gate opens for good: after that nothing may be dropped for being
+    // merely late, because losing one CC out of an RPN sequence (101/100/6/38)
+    // silently loses the setting.
+    if (! midiGateOpen && uart_read_ptr != lastUartReadPtr)
+        midiGateOpen = true;
+
+    lastUartReadPtr = uart_read_ptr;
+
     auto read = midiRead.load (std::memory_order_relaxed);
     const auto write = midiWrite.load (std::memory_order_acquire);
     while (read != write)
@@ -557,13 +607,12 @@ void NukedSC55Emulator::drainMidi()
         if (byte >= 0x80 && byte < 0xf7)
         {
             const uint32_t backlog = (uart_write_ptr - uart_read_ptr) % uart_buffer_size;
+            const bool ringNearlyFull = backlog >= uart_buffer_size - uartRingHeadroom;
 
-            // SysEx carries the SC-55's entire configuration and one missing
-            // byte invalidates the whole message, so it is never dropped for
-            // being merely late - only if the ring itself is about to wrap.
-            midiDropMessage = byte == 0xf0
-                            ? backlog >= uart_buffer_size - uartRingHeadroom
-                            : backlog >= maxUartBacklog;
+            // SysEx survives even the closed gate: a host sends its setup bank
+            // while the module is still booting, and that has to arrive.
+            midiDropMessage = byte == 0xf0 ? ringNearlyFull
+                                           : (! midiGateOpen || ringNearlyFull);
         }
 
         if (! midiDropMessage)

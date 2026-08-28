@@ -51,6 +51,9 @@ public:
     void render (float* left, float* right, int numSamples);
 
     bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
+
+    /** Frames waiting in the FIFO; offline renderers use it to pace themselves. */
+    uint32_t availableFrames() const noexcept { return availableSourceFrames(); }
     DebugState getDebugState() const noexcept;
     const std::string& getError() const noexcept { return error; }
 
@@ -62,9 +65,8 @@ private:
         midiFifoBytes = 8192,
         // A few MIDI messages' worth of emulated UART backlog.  Beyond this the
         // firmware is not consuming, so queueing more only delays notes.
-        maxUartBacklog = 64,
-        // SysEx ignores that limit, but not the ring itself: past this the ring
-        // would wrap and overwrite bytes the firmware has not read yet.
+        // Past this the emulated UART ring would wrap and overwrite bytes the
+        // firmware has not read yet.
         uartRingHeadroom = 256
     };
 
@@ -93,6 +95,8 @@ private:
     std::atomic<uint32_t> sourceWrite { 0 };
 
     bool midiDropMessage = false;
+    bool midiGateOpen = false;
+    uint32_t lastUartReadPtr = 0;
     uint8_t midiFifo[midiFifoBytes] {};
     std::atomic<uint32_t> midiRead { 0 };
     std::atomic<uint32_t> midiWrite { 0 };

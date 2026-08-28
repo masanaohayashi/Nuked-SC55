@@ -13,6 +13,10 @@
             file="Source/PluginProcessor.cpp"/>
       <FILE id="jAY9Bz" name="PluginProcessor.h" compile="0" resource="0"
             file="Source/PluginProcessor.h"/>
+      <FILE id="NScMfC" name="MidiFilePlayer.cpp" compile="1" resource="0"
+            file="Source/MidiFilePlayer.cpp"/>
+      <FILE id="NScMfH" name="MidiFilePlayer.h" compile="0" resource="0"
+            file="Source/MidiFilePlayer.h"/>
       <FILE id="NScEmC" name="NukedSC55Emulator.cpp" compile="1" resource="0"
             file="Source/NukedSC55Emulator.cpp"/>
       <FILE id="NScEmH" name="NukedSC55Emulator.h" compile="0" resource="0"
@@ -52,6 +56,9 @@
     </GROUP>
     <GROUP id="{E1A1D3F7-0F6C-4E9C-9E0F-9A2B7430D2F7}" name="Resources">
       <FILE id="NScBackD" name="back.data" compile="0" resource="1" file="../data/back.data"/>
+    </GROUP>
+    <GROUP id="{2332326A-53B6-108E-8E08-9CEE12B684CC}" name="Images">
+      <FILE id="YnkdNZ" name="Background.png" compile="0" resource="1" file="Images/Background.png"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>

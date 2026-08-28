@@ -14,6 +14,7 @@
 
 #include <JuceHeader.h>
 
+#include "MidiFilePlayer.h"
 #include "NukedSC55Emulator.h"
 
 //==============================================================================
@@ -72,6 +73,12 @@ public:
     /** Requests the standalone app's first-run ROM selection dialog. */
     void requestRomSelection();
 
+    /** Plays a Standard MIDI File straight into the emulator, in file order. */
+    bool startMidiFile (const juce::File& file);
+    void stopMidiFile();
+    bool isPlayingMidiFile() const noexcept { return midiFilePlaying.load (std::memory_order_acquire); }
+    juce::String getMidiFileName() const { return midiFileName; }
+
     /** Returns a message-thread-readable snapshot for the editor LCD. */
     UiStatus getUiStatus() const;
 
@@ -88,6 +95,12 @@ private:
 
     // Accessed by the message-thread chooser and the message-thread editor.
     juce::String uiError;
+    MidiFileData midiFile;
+    std::atomic<bool> midiFilePlaying { false };
+    double midiFilePosition = 0.0;
+    size_t midiFileNext = 0;
+    juce::String midiFileName;
+
     juce::File selectedRomDirectory;
     std::unique_ptr<juce::FileChooser> romChooser;
     std::shared_ptr<int> lifetimeToken { std::make_shared<int> (0) };

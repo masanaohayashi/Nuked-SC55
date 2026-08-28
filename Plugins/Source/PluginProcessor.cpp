@@ -324,6 +324,24 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int channel = 0; channel < numChannels; ++channel)
         buffer.clear (channel, 0, numSamples);
 
+    if (midiFilePlaying.load (std::memory_order_relaxed))
+    {
+        // File order is preserved exactly; nothing here sorts or merges events.
+        while (midiFileNext < midiFile.events.size()
+               && midiFile.events[midiFileNext].seconds <= midiFilePosition)
+        {
+            const auto& e = midiFile.events[midiFileNext++];
+            emulator.sendMidi (e.bytes.data(), static_cast<int> (e.bytes.size()));
+        }
+
+        const auto rate = currentSampleRate.load (std::memory_order_relaxed);
+        if (rate > 0.0)
+            midiFilePosition += numSamples / rate;
+
+        if (midiFilePosition > midiFile.totalSeconds())
+            midiFilePlaying.store (false, std::memory_order_release);
+    }
+
     const bool ready = audioReady.load (std::memory_order_acquire);
     auto* left = numChannels > 0 ? buffer.getWritePointer (0) : nullptr;
     auto* right = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
@@ -360,6 +378,41 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         sc55debug::log ("processBlock #%llu rendered=%d outputPeak=%.7f",
                         static_cast<unsigned long long> (processBlockCount),
                         numSamples, outputPeak);
+    }
+}
+
+bool NukedSC55AudioProcessor::startMidiFile (const juce::File& file)
+{
+    MidiFileData loaded;
+    std::string error;
+    if (! loaded.load (file.getFullPathName().toStdString(), error))
+    {
+        sc55debug::log ("MIDI file rejected: %s", error.c_str());
+        return false;
+    }
+
+    sc55debug::log ("MIDI file loaded: %s (%zu events, %.1f s)",
+                    file.getFileName().toRawUTF8(), loaded.events.size(), loaded.totalSeconds());
+
+    const juce::ScopedLock callbackLock (getCallbackLock());
+    midiFile = std::move (loaded);
+    midiFileName = file.getFileName();
+    midiFilePosition = 0.0;
+    midiFileNext = 0;
+    midiFilePlaying.store (true, std::memory_order_release);
+    return true;
+}
+
+void NukedSC55AudioProcessor::stopMidiFile()
+{
+    const juce::ScopedLock callbackLock (getCallbackLock());
+    midiFilePlaying.store (false, std::memory_order_release);
+
+    // Leaving notes hanging after a stop is worse than a hard reset.
+    for (int channel = 0; channel < 16; ++channel)
+    {
+        const uint8_t allOff[3] = { static_cast<uint8_t> (0xb0 | channel), 123, 0 };
+        emulator.sendMidi (allOff, 3);
     }
 }
 
