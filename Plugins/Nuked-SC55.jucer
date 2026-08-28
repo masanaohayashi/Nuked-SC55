@@ -81,8 +81,7 @@
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX" applicationCategory="public.app-category.music"
-               appSandbox="0" hardenedRuntime="0" iosBluetoothPermissionNeeded="1"
-               iosDevelopmentTeamID="P5G28RMWUN">
+               appSandbox="0" hardenedRuntime="0" iosBluetoothPermissionNeeded="1">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="SC-55" enablePluginBinaryCopyStep="0"/>
         <CONFIGURATION isDebug="0" name="Release" targetName="SC-55" enablePluginBinaryCopyStep="0"/>
