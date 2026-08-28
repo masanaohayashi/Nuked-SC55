@@ -435,6 +435,11 @@ void NukedSC55AudioProcessor::requestRomSelection()
     triggerAsyncUpdate();
 }
 
+void NukedSC55AudioProcessor::pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button)
+{
+    emulator.pressFrontPanelButton (button);
+}
+
 void NukedSC55AudioProcessor::handleAsyncUpdate()
 {
 #if JUCE_STANDALONE_APPLICATION

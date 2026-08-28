@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 template <typename SampleType>
 struct AudioFrame;
@@ -46,6 +48,30 @@ public:
         uint64_t sourceNonZeroSamples = 0;
         uint64_t sourceDroppedSamples = 0;
         uint64_t sourceUnderruns = 0;
+        bool allLed = false;
+        bool muteLed = false;
+    };
+
+    enum class FrontPanelButton : uint8_t
+    {
+        partDec,
+        partInc,
+        instrumentDec,
+        instrumentInc,
+        levelDec,
+        levelInc,
+        panDec,
+        panInc,
+        reverbDec,
+        reverbInc,
+        chorusDec,
+        chorusInc,
+        keyShiftDec,
+        keyShiftInc,
+        midiChannelDec,
+        midiChannelInc,
+        all,
+        mute
     };
 
     NukedSC55Emulator();
@@ -59,6 +85,7 @@ public:
     static bool hasRomSet (const std::string& romDirectory);
 
     void sendMidi (const uint8_t* data, int size);
+    void pressFrontPanelButton (FrontPanelButton button);
     void render (float* left, float* right, int numSamples);
 
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
@@ -89,6 +116,8 @@ private:
 
     void emulationThreadMain();
     void drainMidi();
+    void updateFrontPanelButtons() noexcept;
+    void clearFrontPanelButtons() noexcept;
     void publishDebugState() noexcept;
     void pushSample (const AudioFrame<int32_t>& sample);
     bool enqueueMidiByte (uint8_t byte) noexcept;
@@ -134,6 +163,17 @@ private:
     std::mutex emulationMutex;
     std::condition_variable emulationCondition;
 
+    struct FrontPanelPulse
+    {
+        uint32_t mask = 0;
+        std::chrono::steady_clock::time_point releaseAt;
+    };
+
+    std::mutex frontPanelMutex;
+    std::vector<FrontPanelPulse> frontPanelPulses;
+    std::atomic<bool> frontPanelPulsesActive { false };
+    std::atomic<uint64_t> frontPanelGeneration { 0 };
+
     std::atomic<uint8_t> debugCp { 0 };
     std::atomic<uint16_t> debugPc { 0 };
     std::atomic<uint64_t> debugCycles { 0 };
@@ -146,6 +186,8 @@ private:
     std::atomic<uint8_t> debugPcmConfig3d { 0 };
     std::atomic<uint32_t> debugUartWrite { 0 };
     std::atomic<uint32_t> debugUartRead { 0 };
+    std::atomic<bool> debugAllLed { false };
+    std::atomic<bool> debugMuteLed { false };
 
     // The jcmoyer backend is per-instance. The mutex only protects the object
     // lifetime while the message-thread LCD snapshot is taken.

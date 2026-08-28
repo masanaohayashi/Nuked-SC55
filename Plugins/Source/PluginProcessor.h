@@ -74,6 +74,9 @@ public:
     /** Requests the standalone app's first-run ROM selection dialog. */
     void requestRomSelection();
 
+    /** Sends one momentary press through the SC-55's physical front-panel matrix. */
+    void pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button);
+
     /** Plays a Standard MIDI File straight into the emulator, in file order. */
     bool startMidiFile (const juce::File& file);
     void stopMidiFile();

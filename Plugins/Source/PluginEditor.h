@@ -37,7 +37,8 @@ class LcdDisplay;
 */
 class NukedSC55AudioProcessorEditor  : public juce::AudioProcessorEditor,
                                        public juce::FileDragAndDropTarget,
-                                       public juce::Button::Listener
+                                       public juce::Button::Listener,
+                                       public juce::Slider::Listener
 {
 public:
     //==============================================================================
@@ -50,11 +51,13 @@ public:
     void fileDragEnter (const juce::StringArray& files, int x, int y) override;
     void fileDragExit (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
+    void syncFrontPanelIndicators();
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
     void resized() override;
     void buttonClicked (juce::Button* buttonThatWasClicked) override;
+    void sliderValueChanged (juce::Slider* sliderThatWasMoved) override;
 
 
 
@@ -89,6 +92,8 @@ private:
     std::unique_ptr<juce::TextButton> buttonInstInc;
     std::unique_ptr<juce::TextButton> buttonMidiChDec;
     std::unique_ptr<juce::TextButton> buttonMidiChInc;
+    std::unique_ptr<juce::TextButton> buttonPower;
+    std::unique_ptr<juce::Slider> sliderMasterVolume;
     juce::Image cachedImage_BinaryData_Background_png_1;
 
 
@@ -98,4 +103,3 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-

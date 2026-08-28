@@ -19,6 +19,8 @@
 
 //[Headers] You can add your own extra header files here...
 #include <array>
+#include <functional>
+#include <utility>
 #include "BinaryData.h"
 #include "SC55Lcd.h"
 //[/Headers]
@@ -31,8 +33,10 @@ class LcdDisplay final : public juce::Component,
                          private juce::Timer
 {
 public:
-    explicit LcdDisplay (NukedSC55AudioProcessor& processorToUse)
+    explicit LcdDisplay (NukedSC55AudioProcessor& processorToUse,
+                         std::function<void()> refreshCallbackToUse = {})
         : processor (processorToUse),
+          refreshCallback (std::move (refreshCallbackToUse)),
           background (juce::Image::RGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, false),
           glyphLayer (juce::Image::ARGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, true)
     {
@@ -113,9 +117,12 @@ private:
         }
 
         repaint();
+        if (refreshCallback)
+            refreshCallback();
     }
 
     NukedSC55AudioProcessor& processor;
+    std::function<void()> refreshCallback;
     juce::Image background;
     juce::Image glyphLayer;
     std::array<uint8_t, LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT> displayMask {};
@@ -266,6 +273,21 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     buttonMidiChInc->setBounds (946, 154, 52, 20);
 
+    buttonPower.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonPower.get());
+    buttonPower->addListener (this);
+
+    buttonPower->setBounds (24, 24, 72, 24);
+
+    sliderMasterVolume.reset (new juce::Slider (juce::String()));
+    contentComponent.addAndMakeVisible (sliderMasterVolume.get());
+    sliderMasterVolume->setRange (0, 100, 1);
+    sliderMasterVolume->setSliderStyle (juce::Slider::RotaryVerticalDrag);
+    sliderMasterVolume->setTextBoxStyle (juce::Slider::NoTextBox, false, 80, 20);
+    sliderMasterVolume->addListener (this);
+
+    sliderMasterVolume->setBounds (128, 24, 64, 64);
+
     cachedImage_BinaryData_Background_png_1 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -274,11 +296,13 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     setSize (1024, 200);
 
 
-    //[Constructor] You can add your own custom stuff here..
-    lcdDisplay.reset (new LcdDisplay (audioProcessor));
+//[Constructor] You can add your own custom stuff here..
+    lcdDisplay.reset (new LcdDisplay (audioProcessor,
+                                      [this] { syncFrontPanelIndicators(); }));
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
     audioProcessor.requestRomSelection();
+    syncFrontPanelIndicators();
     //[/Constructor]
 }
 
@@ -308,6 +332,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonInstInc = nullptr;
     buttonMidiChDec = nullptr;
     buttonMidiChInc = nullptr;
+    buttonPower = nullptr;
+    sliderMasterVolume = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -378,101 +404,161 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     if (buttonThatWasClicked == buttonLevelDec.get())
     {
         //[UserButtonCode_buttonLevelDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::levelDec);
         //[/UserButtonCode_buttonLevelDec]
     }
     else if (buttonThatWasClicked == buttonLevelInc.get())
     {
         //[UserButtonCode_buttonLevelInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::levelInc);
         //[/UserButtonCode_buttonLevelInc]
     }
     else if (buttonThatWasClicked == buttonReverbDec.get())
     {
         //[UserButtonCode_buttonReverbDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::reverbDec);
         //[/UserButtonCode_buttonReverbDec]
     }
     else if (buttonThatWasClicked == buttonReverbInc.get())
     {
         //[UserButtonCode_buttonReverbInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::reverbInc);
         //[/UserButtonCode_buttonReverbInc]
     }
     else if (buttonThatWasClicked == buttonPartDec.get())
     {
         //[UserButtonCode_buttonPartDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::partDec);
         //[/UserButtonCode_buttonPartDec]
     }
     else if (buttonThatWasClicked == buttonPartInc.get())
     {
         //[UserButtonCode_buttonPartInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::partInc);
         //[/UserButtonCode_buttonPartInc]
     }
     else if (buttonThatWasClicked == buttonKeyShiftDec.get())
     {
         //[UserButtonCode_buttonKeyShiftDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::keyShiftDec);
         //[/UserButtonCode_buttonKeyShiftDec]
     }
     else if (buttonThatWasClicked == buttonKeyShiftInc.get())
     {
         //[UserButtonCode_buttonKeyShiftInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::keyShiftInc);
         //[/UserButtonCode_buttonKeyShiftInc]
     }
     else if (buttonThatWasClicked == buttonAll.get())
     {
         //[UserButtonCode_buttonAll] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::all);
+        syncFrontPanelIndicators();
         //[/UserButtonCode_buttonAll]
     }
     else if (buttonThatWasClicked == buttonAll2.get())
     {
         //[UserButtonCode_buttonAll2] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::mute);
+        syncFrontPanelIndicators();
         //[/UserButtonCode_buttonAll2]
     }
     else if (buttonThatWasClicked == buttonPanDec.get())
     {
         //[UserButtonCode_buttonPanDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::panDec);
         //[/UserButtonCode_buttonPanDec]
     }
     else if (buttonThatWasClicked == buttonPanInc.get())
     {
         //[UserButtonCode_buttonPanInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::panInc);
         //[/UserButtonCode_buttonPanInc]
     }
     else if (buttonThatWasClicked == buttonChorusDec.get())
     {
         //[UserButtonCode_buttonChorusDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::chorusDec);
         //[/UserButtonCode_buttonChorusDec]
     }
     else if (buttonThatWasClicked == buttonChorusInc.get())
     {
         //[UserButtonCode_buttonChorusInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::chorusInc);
         //[/UserButtonCode_buttonChorusInc]
     }
     else if (buttonThatWasClicked == buttonInstDec.get())
     {
         //[UserButtonCode_buttonInstDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::instrumentDec);
         //[/UserButtonCode_buttonInstDec]
     }
     else if (buttonThatWasClicked == buttonInstInc.get())
     {
         //[UserButtonCode_buttonInstInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::instrumentInc);
         //[/UserButtonCode_buttonInstInc]
     }
     else if (buttonThatWasClicked == buttonMidiChDec.get())
     {
         //[UserButtonCode_buttonMidiChDec] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::midiChannelDec);
         //[/UserButtonCode_buttonMidiChDec]
     }
     else if (buttonThatWasClicked == buttonMidiChInc.get())
     {
         //[UserButtonCode_buttonMidiChInc] -- add your button handler code here..
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::midiChannelInc);
         //[/UserButtonCode_buttonMidiChInc]
+    }
+    else if (buttonThatWasClicked == buttonPower.get())
+    {
+        //[UserButtonCode_buttonPower] -- add your button handler code here..
+        //[/UserButtonCode_buttonPower]
     }
 
     //[UserbuttonClicked_Post]
     //[/UserbuttonClicked_Post]
 }
 
+void NukedSC55AudioProcessorEditor::sliderValueChanged (juce::Slider* sliderThatWasMoved)
+{
+    //[UsersliderValueChanged_Pre]
+    //[/UsersliderValueChanged_Pre]
+
+    if (sliderThatWasMoved == sliderMasterVolume.get())
+    {
+        //[UserSliderCode_sliderMasterVolume] -- add your slider handling code here..
+        //[/UserSliderCode_sliderMasterVolume]
+    }
+
+    //[UsersliderValueChanged_Post]
+    //[/UsersliderValueChanged_Post]
+}
+
 
 
 //[MiscUserCode] You can add your own definitions of your custom methods or any other code here...
+
+void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
+{
+    const auto state = audioProcessor.getUiStatus().emulator;
+    const auto applyIndicatorColour = [] (juce::TextButton* button, bool isLit)
+    {
+        if (button == nullptr)
+            return;
+
+        const auto colour = isLit ? juce::Colour (0xffff5f0f)
+                                  : juce::Colours::black;
+        button->setColour (juce::TextButton::buttonColourId, colour);
+        button->setColour (juce::TextButton::buttonOnColourId, colour);
+        button->setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+        button->setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+    };
+
+    applyIndicatorColour (buttonAll.get(), state.allLed);
+    applyIndicatorColour (buttonAll2.get(), state.muteLed);
+}
 
 //==============================================================================
 // Drop a Standard MIDI File on the window to play it.  The file goes straight
@@ -607,6 +693,14 @@ BEGIN_JUCER_METADATA
   <TEXTBUTTON name="" id="f023098fa71e0d7" memberName="buttonMidiChInc" virtualName=""
               explicitFocusOrder="0" pos="946 154 52 20" buttonText="&gt;"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="92aaef5f50d547a5" memberName="buttonPower" virtualName=""
+              explicitFocusOrder="0" pos="24 24 72 24" buttonText="" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <SLIDER name="" id="56f744301daef134" memberName="sliderMasterVolume"
+          virtualName="" explicitFocusOrder="0" pos="128 24 64 64" min="0.0"
+          max="100.0" int="1.0" style="RotaryVerticalDrag" textBoxPos="NoTextBox"
+          textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
+          needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
@@ -616,4 +710,3 @@ END_JUCER_METADATA
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-

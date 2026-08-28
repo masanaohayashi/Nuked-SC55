@@ -54,6 +54,64 @@ void installBackendDiagnostics()
     static std::once_flag flag;
     std::call_once (flag, [] { Diag_SetCallback (&backendDiagnostic); });
 }
+
+uint32_t frontPanelButtonMask (NukedSC55Emulator::FrontPanelButton button) noexcept
+{
+    using Button = NukedSC55Emulator::FrontPanelButton;
+
+    switch (button)
+    {
+        case Button::partDec:          return 1u << MCU_BUTTON_PART_L;
+        case Button::partInc:          return 1u << MCU_BUTTON_PART_R;
+        case Button::instrumentDec:    return 1u << MCU_BUTTON_INST_L;
+        case Button::instrumentInc:    return 1u << MCU_BUTTON_INST_R;
+        case Button::levelDec:         return 1u << MCU_BUTTON_LEVEL_L;
+        case Button::levelInc:         return 1u << MCU_BUTTON_LEVEL_R;
+        case Button::panDec:           return 1u << MCU_BUTTON_PAN_L;
+        case Button::panInc:           return 1u << MCU_BUTTON_PAN_R;
+        case Button::reverbDec:        return 1u << MCU_BUTTON_REVERB_L;
+        case Button::reverbInc:        return 1u << MCU_BUTTON_REVERB_R;
+        case Button::chorusDec:        return 1u << MCU_BUTTON_CHORUS_L;
+        case Button::chorusInc:        return 1u << MCU_BUTTON_CHORUS_R;
+        case Button::keyShiftDec:      return 1u << MCU_BUTTON_KEY_SHIFT_L;
+        case Button::keyShiftInc:      return 1u << MCU_BUTTON_KEY_SHIFT_R;
+        case Button::midiChannelDec:   return 1u << MCU_BUTTON_MIDI_CH_L;
+        case Button::midiChannelInc:   return 1u << MCU_BUTTON_MIDI_CH_R;
+        case Button::all:              return 1u << MCU_BUTTON_INST_ALL;
+        case Button::mute:             return 1u << MCU_BUTTON_INST_MUTE;
+    }
+
+    return 0;
+}
+
+const char* frontPanelButtonName (NukedSC55Emulator::FrontPanelButton button) noexcept
+{
+    using Button = NukedSC55Emulator::FrontPanelButton;
+
+    switch (button)
+    {
+        case Button::partDec:          return "part-dec";
+        case Button::partInc:          return "part-inc";
+        case Button::instrumentDec:    return "instrument-dec";
+        case Button::instrumentInc:    return "instrument-inc";
+        case Button::levelDec:         return "level-dec";
+        case Button::levelInc:         return "level-inc";
+        case Button::panDec:           return "pan-dec";
+        case Button::panInc:           return "pan-inc";
+        case Button::reverbDec:        return "reverb-dec";
+        case Button::reverbInc:        return "reverb-inc";
+        case Button::chorusDec:        return "chorus-dec";
+        case Button::chorusInc:        return "chorus-inc";
+        case Button::keyShiftDec:      return "key-shift-dec";
+        case Button::keyShiftInc:      return "key-shift-inc";
+        case Button::midiChannelDec:   return "midi-channel-dec";
+        case Button::midiChannelInc:   return "midi-channel-inc";
+        case Button::all:              return "all";
+        case Button::mute:             return "mute";
+    }
+
+    return "unknown";
+}
 }
 
 // The backend's LCD renderer is intentionally callback based. This adapter
@@ -410,6 +468,7 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     }
 
     nextCore->Reset();
+    nextCore->GetMCU().button_pressed.store (0, std::memory_order_relaxed);
     nextCore->SetSampleCallback (&NukedSC55Emulator::sampleSink, this);
     if (! nextCore->StartLCD())
     {
@@ -509,6 +568,8 @@ void NukedSC55Emulator::release()
         loadedRoms.reset();
     }
 
+    clearFrontPanelButtons();
+
     sourceRead.store (0, std::memory_order_relaxed);
     sourceWrite.store (0, std::memory_order_relaxed);
     renderCallCount = 0;
@@ -523,12 +584,25 @@ void NukedSC55Emulator::release()
     midiDropMessage = false;
     midiGateOpen = false;
     lastUartReadPtr = 0;
+    debugAllLed.store (false, std::memory_order_relaxed);
+    debugMuteLed.store (false, std::memory_order_relaxed);
 }
 
 void NukedSC55Emulator::clearPendingMidi() noexcept
 {
     const auto write = midiWrite.load (std::memory_order_acquire);
     midiRead.store (write, std::memory_order_release);
+}
+
+void NukedSC55Emulator::clearFrontPanelButtons() noexcept
+{
+    {
+        const std::lock_guard lock (frontPanelMutex);
+        frontPanelPulses.clear();
+        frontPanelPulsesActive.store (false, std::memory_order_release);
+    }
+
+    frontPanelGeneration.fetch_add (1, std::memory_order_release);
 }
 
 namespace
@@ -589,6 +663,25 @@ void NukedSC55Emulator::sendMidi (const uint8_t* data, int size)
             break;
         }
     }
+}
+
+void NukedSC55Emulator::pressFrontPanelButton (FrontPanelButton button)
+{
+    const auto mask = frontPanelButtonMask (button);
+    if (mask == 0)
+        return;
+
+    {
+        const std::lock_guard lock (frontPanelMutex);
+        frontPanelPulses.push_back ({ mask,
+            std::chrono::steady_clock::now() + std::chrono::milliseconds (50) });
+        frontPanelPulsesActive.store (true, std::memory_order_release);
+    }
+
+    frontPanelGeneration.fetch_add (1, std::memory_order_release);
+    emulationCondition.notify_all();
+    sc55debug::log ("front-panel button=%s mask=%08x",
+                    frontPanelButtonName (button), mask);
 }
 
 float NukedSC55Emulator::blockDc (int channel, float input) noexcept
@@ -667,6 +760,34 @@ void NukedSC55Emulator::consumeSourceFrames (uint32_t count) noexcept
     sourceRead.store ((read + count) % sourceFifoFrames, std::memory_order_release);
 }
 
+void NukedSC55Emulator::updateFrontPanelButtons() noexcept
+{
+    if (! frontPanelPulsesActive.load (std::memory_order_acquire))
+        return;
+
+    uint32_t pressedMask = 0;
+    const auto now = std::chrono::steady_clock::now();
+
+    {
+        const std::lock_guard lock (frontPanelMutex);
+        frontPanelPulses.erase (
+            std::remove_if (frontPanelPulses.begin(), frontPanelPulses.end(),
+                            [now] (const FrontPanelPulse& pulse)
+                            {
+                                return pulse.releaseAt <= now;
+                            }),
+            frontPanelPulses.end());
+
+        for (const auto& pulse : frontPanelPulses)
+            pressedMask |= pulse.mask;
+
+        frontPanelPulsesActive.store (! frontPanelPulses.empty(), std::memory_order_release);
+    }
+
+    if (core != nullptr)
+        core->GetMCU().button_pressed.store (pressedMask, std::memory_order_relaxed);
+}
+
 void NukedSC55Emulator::drainMidi()
 {
     if (core == nullptr)
@@ -724,6 +845,13 @@ void NukedSC55Emulator::publishDebugState() noexcept
     debugPcmConfig3d.store (pcm.config_reg_3d, std::memory_order_relaxed);
     debugUartWrite.store (mcu.uart_write_ptr, std::memory_order_relaxed);
     debugUartRead.store (mcu.uart_read_ptr, std::memory_order_relaxed);
+
+    // The SC-55 front-panel indicators are active-low outputs. The original
+    // Nuked frontend exposed these as mcu_led; the backend keeps the raw port
+    // values, so derive the two indicators from the same hardware outputs.
+    const auto ledPort = mcu.is_mk1 ? mcu.io_sd : mcu.p0_data;
+    debugAllLed.store ((ledPort & 0x40) == 0, std::memory_order_relaxed);
+    debugMuteLed.store ((ledPort & 0x20) == 0, std::memory_order_relaxed);
 }
 
 NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
@@ -743,6 +871,8 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
     state.pcmConfig3d = debugPcmConfig3d.load (std::memory_order_relaxed);
     state.uartWrite = debugUartWrite.load (std::memory_order_relaxed);
     state.uartRead = debugUartRead.load (std::memory_order_relaxed);
+    state.allLed = debugAllLed.load (std::memory_order_relaxed);
+    state.muteLed = debugMuteLed.load (std::memory_order_relaxed);
     state.sourceFrames = availableSourceFrames();
     state.midiPackets = midiPacketCount.load (std::memory_order_relaxed);
     state.midiDroppedBytes = midiDroppedBytes.load (std::memory_order_relaxed);
@@ -769,6 +899,7 @@ void NukedSC55Emulator::emulationThreadMain()
             break;
 
         auto& mcu = core->GetMCU();
+        updateFrontPanelButtons();
         if (! gsResetSent
             && (((mcu.dev_register[DEV_SCR] & 0x10) != 0 && mcu.sleep != 0)
                 || mcu.cycles > gsResetFallbackCycles))
@@ -783,12 +914,16 @@ void NukedSC55Emulator::emulationThreadMain()
 
         if (availableSourceFrames() >= sourceTargetFrames)
         {
+            const auto frontPanelGenerationAtWait = frontPanelGeneration.load (std::memory_order_acquire);
             std::unique_lock lock (emulationMutex);
-            emulationCondition.wait_for (lock, std::chrono::milliseconds (1), [this]
+            emulationCondition.wait_for (lock, std::chrono::milliseconds (1),
+                                         [this, frontPanelGenerationAtWait]
             {
                 return ! emulationThreadRunning.load (std::memory_order_acquire)
                     || availableSourceFrames() < sourceTargetFrames
-                    || midiPending();
+                    || midiPending()
+                    || frontPanelGeneration.load (std::memory_order_acquire)
+                           != frontPanelGenerationAtWait;
             });
             continue;
         }
