@@ -89,3 +89,8 @@ CMakeSettings.json
 
 # ビルド済みツール
 /tools/sc55render
+
+# ROM は絶対にコミットしない
+*.bin
+*.BIN
+*.rom

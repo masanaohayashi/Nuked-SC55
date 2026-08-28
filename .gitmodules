@@ -1,3 +1,7 @@
 [submodule "3rdparty/rtmidi"]
 	path = 3rdparty/rtmidi
 	url = https://github.com/Wohlstand/rtmidi.git
+[submodule "3rdparty/JUCE"]
+	path = 3rdparty/JUCE
+	url = https://github.com/juce-framework/JUCE.git
+	shallow = true

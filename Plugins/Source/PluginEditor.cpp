@@ -145,56 +145,56 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     buttonLevelDec->setButtonText (TRANS ("<"));
     buttonLevelDec->addListener (this);
 
-    buttonLevelDec->setBounds (768, 67, 54, 20);
+    buttonLevelDec->setBounds (768, 67, 52, 20);
 
     buttonLevelInc.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonLevelInc.get());
     buttonLevelInc->setButtonText (TRANS (">"));
     buttonLevelInc->addListener (this);
 
-    buttonLevelInc->setBounds (822, 67, 54, 20);
+    buttonLevelInc->setBounds (820, 67, 52, 20);
 
     buttonReverbDec.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonReverbDec.get());
     buttonReverbDec->setButtonText (TRANS ("<"));
     buttonReverbDec->addListener (this);
 
-    buttonReverbDec->setBounds (768, 110, 54, 20);
+    buttonReverbDec->setBounds (768, 110, 52, 20);
 
     buttonReverbInc.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonReverbInc.get());
     buttonReverbInc->setButtonText (TRANS (">"));
     buttonReverbInc->addListener (this);
 
-    buttonReverbInc->setBounds (822, 110, 54, 20);
+    buttonReverbInc->setBounds (820, 110, 52, 20);
 
     buttonPartDec.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonPartDec.get());
     buttonPartDec->setButtonText (TRANS ("<"));
     buttonPartDec->addListener (this);
 
-    buttonPartDec->setBounds (768, 24, 54, 20);
+    buttonPartDec->setBounds (768, 24, 52, 20);
 
     buttonPartInc.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonPartInc.get());
     buttonPartInc->setButtonText (TRANS (">"));
     buttonPartInc->addListener (this);
 
-    buttonPartInc->setBounds (822, 24, 54, 20);
+    buttonPartInc->setBounds (820, 24, 52, 20);
 
     buttonKeyShiftDec.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonKeyShiftDec.get());
     buttonKeyShiftDec->setButtonText (TRANS ("<"));
     buttonKeyShiftDec->addListener (this);
 
-    buttonKeyShiftDec->setBounds (768, 154, 54, 20);
+    buttonKeyShiftDec->setBounds (768, 154, 52, 20);
 
     buttonKeyShiftInc.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonKeyShiftInc.get());
     buttonKeyShiftInc->setButtonText (TRANS (">"));
     buttonKeyShiftInc->addListener (this);
 
-    buttonKeyShiftInc->setBounds (822, 154, 54, 20);
+    buttonKeyShiftInc->setBounds (820, 154, 52, 20);
 
     buttonAll.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonAll.get());
@@ -207,6 +207,62 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     buttonAll2->addListener (this);
 
     buttonAll2->setBounds (696, 65, 24, 24);
+
+    buttonPanDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonPanDec.get());
+    buttonPanDec->setButtonText (TRANS ("<"));
+    buttonPanDec->addListener (this);
+
+    buttonPanDec->setBounds (894, 67, 52, 20);
+
+    buttonPanInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonPanInc.get());
+    buttonPanInc->setButtonText (TRANS (">"));
+    buttonPanInc->addListener (this);
+
+    buttonPanInc->setBounds (946, 67, 52, 20);
+
+    buttonChorusDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonChorusDec.get());
+    buttonChorusDec->setButtonText (TRANS ("<"));
+    buttonChorusDec->addListener (this);
+
+    buttonChorusDec->setBounds (894, 110, 52, 20);
+
+    buttonChorusInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonChorusInc.get());
+    buttonChorusInc->setButtonText (TRANS (">"));
+    buttonChorusInc->addListener (this);
+
+    buttonChorusInc->setBounds (946, 110, 52, 20);
+
+    buttonInstDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonInstDec.get());
+    buttonInstDec->setButtonText (TRANS ("<"));
+    buttonInstDec->addListener (this);
+
+    buttonInstDec->setBounds (894, 24, 52, 20);
+
+    buttonInstInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonInstInc.get());
+    buttonInstInc->setButtonText (TRANS (">"));
+    buttonInstInc->addListener (this);
+
+    buttonInstInc->setBounds (946, 24, 52, 20);
+
+    buttonMidiChDec.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonMidiChDec.get());
+    buttonMidiChDec->setButtonText (TRANS ("<"));
+    buttonMidiChDec->addListener (this);
+
+    buttonMidiChDec->setBounds (894, 154, 52, 20);
+
+    buttonMidiChInc.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonMidiChInc.get());
+    buttonMidiChInc->setButtonText (TRANS (">"));
+    buttonMidiChInc->addListener (this);
+
+    buttonMidiChInc->setBounds (946, 154, 52, 20);
 
     cachedImage_BinaryData_Background_png_1 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
@@ -242,6 +298,14 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonKeyShiftInc = nullptr;
     buttonAll = nullptr;
     buttonAll2 = nullptr;
+    buttonPanDec = nullptr;
+    buttonPanInc = nullptr;
+    buttonChorusDec = nullptr;
+    buttonChorusInc = nullptr;
+    buttonInstDec = nullptr;
+    buttonInstInc = nullptr;
+    buttonMidiChDec = nullptr;
+    buttonMidiChInc = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -359,6 +423,46 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         //[UserButtonCode_buttonAll2] -- add your button handler code here..
         //[/UserButtonCode_buttonAll2]
     }
+    else if (buttonThatWasClicked == buttonPanDec.get())
+    {
+        //[UserButtonCode_buttonPanDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonPanDec]
+    }
+    else if (buttonThatWasClicked == buttonPanInc.get())
+    {
+        //[UserButtonCode_buttonPanInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonPanInc]
+    }
+    else if (buttonThatWasClicked == buttonChorusDec.get())
+    {
+        //[UserButtonCode_buttonChorusDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonChorusDec]
+    }
+    else if (buttonThatWasClicked == buttonChorusInc.get())
+    {
+        //[UserButtonCode_buttonChorusInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonChorusInc]
+    }
+    else if (buttonThatWasClicked == buttonInstDec.get())
+    {
+        //[UserButtonCode_buttonInstDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonInstDec]
+    }
+    else if (buttonThatWasClicked == buttonInstInc.get())
+    {
+        //[UserButtonCode_buttonInstInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonInstInc]
+    }
+    else if (buttonThatWasClicked == buttonMidiChDec.get())
+    {
+        //[UserButtonCode_buttonMidiChDec] -- add your button handler code here..
+        //[/UserButtonCode_buttonMidiChDec]
+    }
+    else if (buttonThatWasClicked == buttonMidiChInc.get())
+    {
+        //[UserButtonCode_buttonMidiChInc] -- add your button handler code here..
+        //[/UserButtonCode_buttonMidiChInc]
+    }
 
     //[UserbuttonClicked_Post]
     //[/UserbuttonClicked_Post]
@@ -448,28 +552,28 @@ BEGIN_JUCER_METADATA
                     virtualName="" explicitFocusOrder="0" pos="640 0 102 200" class="juce::Component"
                     params=""/>
   <TEXTBUTTON name="" id="791b54d63a59beec" memberName="buttonLevelDec" virtualName=""
-              explicitFocusOrder="0" pos="768 67 54 20" buttonText="&lt;" connectedEdges="0"
+              explicitFocusOrder="0" pos="768 67 52 20" buttonText="&lt;" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="b0fabff2cff12ab0" memberName="buttonLevelInc" virtualName=""
-              explicitFocusOrder="0" pos="822 67 54 20" buttonText="&gt;" connectedEdges="0"
+              explicitFocusOrder="0" pos="820 67 52 20" buttonText="&gt;" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="434dde801941ad4a" memberName="buttonReverbDec" virtualName=""
-              explicitFocusOrder="0" pos="768 110 54 20" buttonText="&lt;"
+              explicitFocusOrder="0" pos="768 110 52 20" buttonText="&lt;"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="bd114b5368c9afc1" memberName="buttonReverbInc" virtualName=""
-              explicitFocusOrder="0" pos="822 110 54 20" buttonText="&gt;"
+              explicitFocusOrder="0" pos="820 110 52 20" buttonText="&gt;"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="4e736adc3d682aca" memberName="buttonPartDec" virtualName=""
-              explicitFocusOrder="0" pos="768 24 54 20" buttonText="&lt;" connectedEdges="0"
+              explicitFocusOrder="0" pos="768 24 52 20" buttonText="&lt;" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="a8024d435ae254f2" memberName="buttonPartInc" virtualName=""
-              explicitFocusOrder="0" pos="822 24 54 20" buttonText="&gt;" connectedEdges="0"
+              explicitFocusOrder="0" pos="820 24 52 20" buttonText="&gt;" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="3dcc4df2d569df1d" memberName="buttonKeyShiftDec"
-              virtualName="" explicitFocusOrder="0" pos="768 154 54 20" buttonText="&lt;"
+              virtualName="" explicitFocusOrder="0" pos="768 154 52 20" buttonText="&lt;"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="ef425c2d36a9db79" memberName="buttonKeyShiftInc"
-              virtualName="" explicitFocusOrder="0" pos="822 154 54 20" buttonText="&gt;"
+              virtualName="" explicitFocusOrder="0" pos="820 154 52 20" buttonText="&gt;"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="25a57efa074a0574" memberName="buttonAll" virtualName=""
               explicitFocusOrder="0" pos="696 22 24 24" buttonText="" connectedEdges="0"
@@ -477,6 +581,30 @@ BEGIN_JUCER_METADATA
   <TEXTBUTTON name="" id="71f4c1e8344b8976" memberName="buttonAll2" virtualName=""
               explicitFocusOrder="0" pos="696 65 24 24" buttonText="" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="8feae8b2907afa7c" memberName="buttonPanDec" virtualName=""
+              explicitFocusOrder="0" pos="894 67 52 20" buttonText="&lt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="c4a4f333bc4f6077" memberName="buttonPanInc" virtualName=""
+              explicitFocusOrder="0" pos="946 67 52 20" buttonText="&gt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="3ce8ae39f180f7d6" memberName="buttonChorusDec" virtualName=""
+              explicitFocusOrder="0" pos="894 110 52 20" buttonText="&lt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="fe30299cdb825a6e" memberName="buttonChorusInc" virtualName=""
+              explicitFocusOrder="0" pos="946 110 52 20" buttonText="&gt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="2311080f88afd3be" memberName="buttonInstDec" virtualName=""
+              explicitFocusOrder="0" pos="894 24 52 20" buttonText="&lt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="d2c4415527b1cc32" memberName="buttonInstInc" virtualName=""
+              explicitFocusOrder="0" pos="946 24 52 20" buttonText="&gt;" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="bdf6a93618a72da4" memberName="buttonMidiChDec" virtualName=""
+              explicitFocusOrder="0" pos="894 154 52 20" buttonText="&lt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="f023098fa71e0d7" memberName="buttonMidiChInc" virtualName=""
+              explicitFocusOrder="0" pos="946 154 52 20" buttonText="&gt;"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA

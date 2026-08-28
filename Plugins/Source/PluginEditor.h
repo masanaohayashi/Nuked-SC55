@@ -81,6 +81,14 @@ private:
     std::unique_ptr<juce::TextButton> buttonKeyShiftInc;
     std::unique_ptr<juce::TextButton> buttonAll;
     std::unique_ptr<juce::TextButton> buttonAll2;
+    std::unique_ptr<juce::TextButton> buttonPanDec;
+    std::unique_ptr<juce::TextButton> buttonPanInc;
+    std::unique_ptr<juce::TextButton> buttonChorusDec;
+    std::unique_ptr<juce::TextButton> buttonChorusInc;
+    std::unique_ptr<juce::TextButton> buttonInstDec;
+    std::unique_ptr<juce::TextButton> buttonInstInc;
+    std::unique_ptr<juce::TextButton> buttonMidiChDec;
+    std::unique_ptr<juce::TextButton> buttonMidiChInc;
     juce::Image cachedImage_BinaryData_Background_png_1;
 
 
