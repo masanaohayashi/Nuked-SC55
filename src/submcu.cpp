@@ -33,7 +33,6 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include "SDL_audio.h"
 #include "mcu.h"
 #include "submcu.h"
 
@@ -333,6 +332,15 @@ void SM_Reset(void)
 {
     memset(&sm, 0, sizeof(sm));
     sm.pc = SM_GetVectorAddress(SM_VECTOR_RESET);
+
+    // Same reasoning as MCU_Init: these outlive sm and hold absolute cycles.
+    sm_cts = 0;
+    sm_timer_cycles = 0;
+    sm_timer_prescaler = 0;
+    sm_timer_counter = 0;
+    uart_rx_gotbyte = 0;
+    uart_rx_byte = 0;
+    uart_rx_delay = 0;
 }
 
 uint8_t SM_ReadAdvance(void)
@@ -1423,6 +1431,9 @@ void SM_UpdateUART(void)
 
 void SM_Update(uint64_t cycles)
 {
+    if (cycles * 5 > sm.cycles + catch_up_limit)
+        sm.cycles = cycles * 5 - catch_up_limit;
+
     while (sm.cycles < cycles * 5)
     {
         SM_HandleInterrupt();

@@ -222,6 +222,9 @@ uint8_t TIMER_Read2(uint32_t address)
 void TIMER_Clock(uint64_t cycles)
 {
     uint32_t i;
+    if (cycles / 2 > timer_cycles + catch_up_limit)
+        timer_cycles = cycles / 2 - catch_up_limit;
+
     while (timer_cycles*2 < cycles) // FIXME
     {
         for (i = 0; i < 3; i++)

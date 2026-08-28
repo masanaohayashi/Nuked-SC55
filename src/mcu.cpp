@@ -33,8 +33,10 @@
  */
 #include <stdio.h>
 #include <string.h>
+#ifndef NUKED_SC55_NO_MAIN
 #define SDL_MAIN_HANDLED
 #include "SDL.h"
+#endif
 #include "mcu.h"
 #include "mcu_opcodes.h"
 #include "mcu_interrupt.h"
@@ -149,7 +151,11 @@ static short *sample_buffer;
 static int sample_read_ptr;
 static int sample_write_ptr;
 
+#ifndef NUKED_SC55_NO_MAIN
 static SDL_AudioDeviceID sdl_audio;
+#endif
+static MCU_SampleSink sample_sink;
+static void *sample_sink_user_data;
 
 void MCU_ErrorTrap(void)
 {
@@ -176,7 +182,7 @@ static uint8_t ad_nibble = 0x00;
 static uint8_t sw_pos = 3;
 static uint8_t io_sd = 0x00;
 
-SDL_atomic_t mcu_button_pressed = { 0 };
+std::atomic<uint32_t> mcu_button_pressed { 0 };
 
 uint8_t RCU_Read(void)
 {
@@ -462,7 +468,7 @@ uint8_t MCU_DeviceRead(uint32_t address)
         if (!mcu_jv880) return 0xff;
 
         uint8_t data = 0xff;
-        uint32_t button_pressed = (uint32_t)SDL_AtomicGet(&mcu_button_pressed);
+        uint32_t button_pressed = mcu_button_pressed.load(std::memory_order_relaxed);
 
         if (io_sd == 0b11111011)
             data &= ((button_pressed >> 0) & 0b11111) ^ 0xFF;
@@ -640,7 +646,7 @@ uint8_t MCU_Read(uint32_t address)
                     LCD_Enable((io_sd & 8) != 0);
 
                     uint8_t data = 0xff;
-                    uint32_t button_pressed = (uint32_t)SDL_AtomicGet(&mcu_button_pressed);
+                    uint32_t button_pressed = mcu_button_pressed.load(std::memory_order_relaxed);
 
                     if ((io_sd & 1) == 0)
                         data &= ((button_pressed >> 0) & 255) ^ 255;
@@ -919,6 +925,26 @@ void MCU_ReadInstruction(void)
 void MCU_Init(void)
 {
     memset(&mcu, 0, sizeof(mcu_t));
+
+    // Everything below lives outside mcu_t and would otherwise survive a second
+    // initialisation.  The delays in particular hold absolute cycle counts, so
+    // stale values block the UART until the restarted clock catches up.
+    memset(ga_int, 0, sizeof(ga_int));
+    ga_int_enable = 0;
+    ga_int_trigger = 0;
+    ga_lcd_counter = 0;
+
+    memset(ad_val, 0, sizeof(ad_val));
+    ad_nibble = 0x00;
+    sw_pos = 3;
+    io_sd = 0x00;
+    adf_rd = 0;
+    ssr_rd = 0;
+    analog_end_time = 0;
+
+    uart_rx_byte = 0;
+    uart_rx_delay = 0;
+    uart_tx_delay = 0;
 }
 
 void MCU_Reset(void)
@@ -999,6 +1025,47 @@ void MCU_UpdateUART_TX(void)
     // printf("tx:%x\n", dev_register[DEV_TDR]);
 }
 
+void MCU_RunOneInstruction(void)
+{
+    if (!mcu.ex_ignore)
+        MCU_Interrupt_Handle();
+    else
+        mcu.ex_ignore = 0;
+
+    if (!mcu.sleep)
+        MCU_ReadInstruction();
+
+    mcu.cycles += 12; // FIXME: assume 12 cycles per instruction
+
+    PCM_Update(mcu.cycles);
+
+    TIMER_Clock(mcu.cycles);
+
+    if (!mcu_mk1 && !mcu_jv880 && !mcu_scb55)
+        SM_Update(mcu.cycles);
+    else
+    {
+        MCU_UpdateUART_RX();
+        MCU_UpdateUART_TX();
+    }
+
+    MCU_UpdateAnalog(mcu.cycles);
+
+    if (mcu_mk1)
+    {
+        if (ga_lcd_counter)
+        {
+            ga_lcd_counter--;
+            if (ga_lcd_counter == 0)
+            {
+                MCU_GA_SetGAInt(1, 0);
+                MCU_GA_SetGAInt(1, 1);
+            }
+        }
+    }
+}
+
+#ifndef NUKED_SC55_NO_MAIN
 static bool work_thread_run = false;
 
 static SDL_mutex *work_thread_lock;
@@ -1015,6 +1082,7 @@ void MCU_WorkThread_Unlock(void)
 
 int SDLCALL work_thread(void* data)
 {
+    (void)data;
     work_thread_lock = SDL_CreateMutex();
 
     MCU_WorkThread_Lock();
@@ -1034,45 +1102,7 @@ int SDLCALL work_thread(void* data)
             MCU_WorkThread_Lock();
         }
 
-        if (!mcu.ex_ignore)
-            MCU_Interrupt_Handle();
-        else
-            mcu.ex_ignore = 0;
-
-        if (!mcu.sleep)
-            MCU_ReadInstruction();
-
-        mcu.cycles += 12; // FIXME: assume 12 cycles per instruction
-
-        // if (mcu.cycles % 24000000 == 0)
-        //     printf("seconds: %i\n", (int)(mcu.cycles / 24000000));
-
-        PCM_Update(mcu.cycles);
-
-        TIMER_Clock(mcu.cycles);
-
-        if (!mcu_mk1 && !mcu_jv880 && !mcu_scb55)
-            SM_Update(mcu.cycles);
-        else
-        {
-            MCU_UpdateUART_RX();
-            MCU_UpdateUART_TX();
-        }
-
-        MCU_UpdateAnalog(mcu.cycles);
-
-        if (mcu_mk1)
-        {
-            if (ga_lcd_counter)
-            {
-                ga_lcd_counter--;
-                if (ga_lcd_counter == 0)
-                {
-                    MCU_GA_SetGAInt(1, 0);
-                    MCU_GA_SetGAInt(1, 1);
-                }
-            }
-        }
+        MCU_RunOneInstruction();
     }
     MCU_WorkThread_Unlock();
 
@@ -1100,6 +1130,7 @@ static void MCU_Run()
     work_thread_run = false;
     SDL_WaitThread(thread, 0);
 }
+#endif // NUKED_SC55_NO_MAIN
 
 void MCU_PatchROM(void)
 {
@@ -1119,7 +1150,7 @@ uint8_t MCU_ReadP0(void)
 uint8_t MCU_ReadP1(void)
 {
     uint8_t data = 0xff;
-    uint32_t button_pressed = (uint32_t)SDL_AtomicGet(&mcu_button_pressed);
+    uint32_t button_pressed = mcu_button_pressed.load(std::memory_order_relaxed);
 
     if ((mcu_p0_data & 1) == 0)
         data &= ((button_pressed >> 0) & 255) ^ 255;
@@ -1172,6 +1203,7 @@ void unscramble(uint8_t *src, uint8_t *dst, int len)
     }
 }
 
+#ifndef NUKED_SC55_NO_MAIN
 void audio_callback(void* /*userdata*/, Uint8* stream, int len)
 {
     len /= 2;
@@ -1279,6 +1311,14 @@ void MCU_CloseAudio(void)
     if (sample_buffer) free(sample_buffer);
 }
 
+#endif // NUKED_SC55_NO_MAIN
+
+void MCU_SetSampleSink(MCU_SampleSink sink, void *user_data)
+{
+    sample_sink = sink;
+    sample_sink_user_data = user_data;
+}
+
 void MCU_PostSample(int *sample)
 {
     sample[0] >>= 15;
@@ -1291,6 +1331,15 @@ void MCU_PostSample(int *sample)
         sample[1] = INT16_MAX;
     else if (sample[1] < INT16_MIN)
         sample[1] = INT16_MIN;
+    if (sample_sink)
+    {
+        sample_sink(sample, sample_sink_user_data);
+        return;
+    }
+
+    if (!sample_buffer || audio_buffer_size <= 0)
+        return;
+
     sample_buffer[sample_write_ptr + 0] = sample[0];
     sample_buffer[sample_write_ptr + 1] = sample[1];
     sample_write_ptr = (sample_write_ptr + 2) % audio_buffer_size;
@@ -1364,6 +1413,7 @@ void MIDI_Reset(ResetType resetType)
 
 }
 
+#ifndef NUKED_SC55_NO_MAIN
 int main(int argc, char *argv[])
 {
     (void)argc;
@@ -1773,3 +1823,4 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+#endif

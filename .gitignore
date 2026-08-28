@@ -63,6 +63,10 @@ build-*
 
 build/
 
+# Projucer-generated project files and JUCE amalgamation sources
+/Plugins/Builds/
+/Plugins/JuceLibraryCode/
+
 # MinGW generated files
 *.Debug
 *.Release
@@ -82,3 +86,11 @@ CMakeSettings.json
 
 # Vendored assets packages shouldn't appear at the GIT history
 /assets/
+
+# ビルド済みツール
+/tools/sc55render
+
+# ROM は絶対にコミットしない
+*.bin
+*.BIN
+*.rom

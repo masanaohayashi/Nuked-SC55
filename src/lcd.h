@@ -34,6 +34,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 #include <string>
 
 extern int lcd_width;
@@ -41,6 +42,9 @@ extern int lcd_height;
 
 extern uint32_t lcd_col1;
 extern uint32_t lcd_col2;
+
+static const int LCD_DISPLAY_WIDTH = 741;
+static const int LCD_DISPLAY_HEIGHT = 268;
 
 void LCD_SetBackPath(const std::string &path);
 void LCD_Init(void);
@@ -50,3 +54,11 @@ void LCD_Enable(uint32_t enable);
 bool LCD_QuitRequested();
 void LCD_Sync(void);
 void LCD_Update(void);
+
+/**
+ * Renders the active LCD segments using the same layout as LCD_Update().
+ * Each destination byte is zero for an untouched pixel, 1 for a lit segment,
+ * or 2 for an unlit segment. The destination is a row-major
+ * LCD_DISPLAY_WIDTH x LCD_DISPLAY_HEIGHT buffer owned by the caller.
+ */
+bool LCD_GetDisplayMask(uint8_t* destination, size_t destination_stride);

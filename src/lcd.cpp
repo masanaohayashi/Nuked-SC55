@@ -35,8 +35,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef NUKED_SC55_NO_MAIN
 #include "SDL.h"
 #include "SDL_mutex.h"
+#else
+#include <mutex>
+#endif
 #include "lcd.h"
 #include "lcd_font.h"
 #include "mcu.h"
@@ -53,8 +57,15 @@ static uint8_t LCD_CG[64];
 static uint8_t lcd_enable = 1;
 static bool lcd_quit_requested = false;
 
+#ifdef NUKED_SC55_NO_MAIN
+static std::mutex lcd_state_mutex;
+#endif
+
 void LCD_Enable(uint32_t enable)
 {
+#ifdef NUKED_SC55_NO_MAIN
+    const std::lock_guard<std::mutex> lock (lcd_state_mutex);
+#endif
     lcd_enable = enable;
 }
 
@@ -65,6 +76,9 @@ bool LCD_QuitRequested()
 
 void LCD_Write(uint32_t address, uint8_t data)
 {
+#ifdef NUKED_SC55_NO_MAIN
+    const std::lock_guard<std::mutex> lock (lcd_state_mutex);
+#endif
     if (address == 0)
     {
         if ((data & 0xe0) == 0x20)
@@ -164,6 +178,219 @@ void LCD_Write(uint32_t address, uint8_t data)
 
 int lcd_width = 741;
 int lcd_height = 268;
+
+#ifdef NUKED_SC55_NO_MAIN
+
+// The plugin draws no panel, so everything below - window, renderer, key map -
+// is SDL-only and is replaced by these no-ops.  LCD_Write above still tracks the
+// controller state, so an editor can render it later without touching SDL.
+uint32_t lcd_col1 = 0;
+uint32_t lcd_col2 = 0;
+void LCD_SetBackPath(const std::string &) {}
+void LCD_Init(void) {}
+void LCD_UnInit(void) {}
+void LCD_Sync(void) {}
+void LCD_Update(void) {}
+
+static const uint8_t lcd_lr_pattern[2][12][11] =
+{
+    {
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,0,0,0,0,0,0,0,0,0,
+        1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,
+    },
+    {
+        1,1,1,1,1,1,1,1,1,0,0,
+        1,1,1,1,1,1,1,1,1,1,0,
+        1,1,0,0,0,0,0,0,1,1,0,
+        1,1,0,0,0,0,0,0,1,1,0,
+        1,1,0,0,0,0,0,0,1,1,0,
+        1,1,1,1,1,1,1,1,1,1,0,
+        1,1,1,1,1,1,1,1,1,0,0,
+        1,1,0,0,0,0,0,1,1,0,0,
+        1,1,0,0,0,0,0,0,1,1,0,
+        1,1,0,0,0,0,0,0,1,1,0,
+        1,1,0,0,0,0,0,0,0,1,1,
+        1,1,0,0,0,0,0,0,0,1,1,
+    }
+};
+
+static const int lcd_lr_origin[2][2] =
+{
+    { 70, 264 },
+    { 232, 264 }
+};
+
+static const uint8_t* lcd_get_glyph (uint8_t character)
+{
+    if (character >= 16)
+        return &lcd_font[character - 16][0];
+
+    return &LCD_CG[(character & 7) * 8];
+}
+
+static void lcd_set_mask_rectangle (uint8_t* destination, size_t stride,
+                                    int screen_y, int screen_x,
+                                    int height, int width, uint8_t value)
+{
+    for (int y = 0; y < height; ++y)
+    {
+        if (screen_y + y < 0 || screen_y + y >= LCD_DISPLAY_HEIGHT)
+            continue;
+
+        for (int x = 0; x < width; ++x)
+        {
+            if (screen_x + x >= 0 && screen_x + x < LCD_DISPLAY_WIDTH)
+                destination[(screen_y + y) * stride + screen_x + x] = value;
+        }
+    }
+}
+
+/*
+ * The original SDL renderer stores lcd_buffer[screen_y][screen_x], even
+ * though its local variables are named xx/yy. Keep that ordering here so the
+ * plugin shows the same display as Nuked's standalone window.
+ */
+static void lcd_render_standard_mask (uint8_t* destination, size_t stride,
+                                       int x, int y, uint8_t character)
+{
+    const auto* glyph = lcd_get_glyph (character);
+
+    for (int i = 0; i < 7; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            const auto value = (glyph[i] & (1 << (4 - j))) != 0 ? 1 : 2;
+            lcd_set_mask_rectangle (destination, stride,
+                                    x + i * 6, y + j * 6, 5, 5, value);
+        }
+    }
+}
+
+static void lcd_render_level_mask (uint8_t* destination, size_t stride,
+                                    int x, int y, uint8_t character, int width)
+{
+    const auto* glyph = lcd_get_glyph (character);
+
+    for (int i = 0; i < 8; ++i)
+    {
+        for (int j = 0; j < width; ++j)
+        {
+            const auto value = (glyph[i] & (1 << (4 - j))) != 0 ? 1 : 2;
+            lcd_set_mask_rectangle (destination, stride,
+                                    x + i * 11, y + j * 26, 9, 24, value);
+        }
+    }
+}
+
+static void lcd_render_lr_mask (uint8_t* destination, size_t stride,
+                                 uint8_t character)
+{
+    const auto* glyph = lcd_get_glyph (character);
+    const auto value = (glyph[0] & 1) != 0 ? 1 : 2;
+
+    for (int f = 0; f < 2; ++f)
+    {
+        for (int i = 0; i < 12; ++i)
+        {
+            for (int j = 0; j < 11; ++j)
+            {
+                if (lcd_lr_pattern[f][i][j] != 0)
+                    lcd_set_mask_rectangle (destination, stride,
+                                            lcd_lr_origin[f][0] + i,
+                                            lcd_lr_origin[f][1] + j, 1, 1,
+                                            value);
+            }
+        }
+    }
+}
+
+bool LCD_GetDisplayMask (uint8_t* destination, size_t destination_stride)
+{
+    if (destination == nullptr || destination_stride < LCD_DISPLAY_WIDTH)
+        return false;
+
+    const std::lock_guard<std::mutex> lock (lcd_state_mutex);
+    for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
+        memset (destination + y * destination_stride, 0, LCD_DISPLAY_WIDTH);
+
+    if (! lcd_enable || mcu_cm300 || mcu_st || mcu_scb55)
+        return false;
+
+    if (mcu_jv880)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            for (int j = 0; j < 24; ++j)
+                lcd_render_standard_mask (destination, destination_stride,
+                                           4 + i * 50, 4 + j * 34,
+                                           LCD_Data[i * 40 + j]);
+        }
+
+        const int j = LCD_DD_RAM % 0x40;
+        const int i = LCD_DD_RAM / 0x40;
+        if (i < 2 && j < 24 && LCD_C)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       4 + i * 50, 4 + j * 34, '_');
+    }
+    else
+    {
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       11, 34 + i * 35, LCD_Data[0 + i]);
+        for (int i = 0; i < 16; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       11, 153 + i * 35, LCD_Data[3 + i]);
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       75, 34 + i * 35, LCD_Data[40 + i]);
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       75, 153 + i * 35, LCD_Data[43 + i]);
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       139, 34 + i * 35, LCD_Data[49 + i]);
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       139, 153 + i * 35, LCD_Data[46 + i]);
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       203, 34 + i * 35, LCD_Data[52 + i]);
+        for (int i = 0; i < 3; ++i)
+            lcd_render_standard_mask (destination, destination_stride,
+                                       203, 153 + i * 35, LCD_Data[55 + i]);
+
+        lcd_render_lr_mask (destination, destination_stride, LCD_Data[58]);
+
+        for (int i = 0; i < 2; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+                lcd_render_level_mask (destination, destination_stride,
+                                       71 + i * 88, 293 + j * 130,
+                                       LCD_Data[20 + j + i * 40],
+                                       j == 3 ? 1 : 5);
+        }
+    }
+
+    return true;
+}
+
+#else
+
+bool LCD_GetDisplayMask (uint8_t*, size_t)
+{
+    return false;
+}
+
 static const int lcd_width_max = 1024;
 static const int lcd_height_max = 1024;
 static SDL_Window *window;
@@ -661,3 +888,4 @@ void LCD_Update(void)
     }
 }
 
+#endif // NUKED_SC55_NO_MAIN

@@ -527,6 +527,9 @@ inline void eram_pack(int addr, int val)
 
 void PCM_Update(uint64_t cycles)
 {
+    if (cycles > pcm.cycles + catch_up_limit)
+        pcm.cycles = cycles - catch_up_limit;
+
     int reg_slots = (pcm.config_reg_3d & 31) + 1;
     int voice_active = pcm.voice_mask & pcm.voice_mask_pending;
     while (pcm.cycles < cycles)
