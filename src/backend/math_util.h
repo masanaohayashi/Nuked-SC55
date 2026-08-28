@@ -33,6 +33,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <type_traits>

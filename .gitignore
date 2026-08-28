@@ -86,3 +86,13 @@ CMakeSettings.json
 # clangd settings and cache
 .clangd
 .cache
+
+# JUCE/Projucer generated projects and build products
+/Plugins/Builds/
+/Plugins/JuceLibraryCode/
+
+# Local ROM dumps must never enter the repository
+*.bin
+*.BIN
+*.rom
+*.ROM
