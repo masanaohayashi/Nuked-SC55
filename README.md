@@ -29,6 +29,14 @@ cd Nuked-SC55/Plugins
 JUCE 9.0.0 is pinned as a submodule at `3rdparty/JUCE`. JUCE 9 modules can only be
 saved by a matching Projucer, which is why `build.sh` builds it first.
 
+Signing is ad-hoc by default, which is all a local build needs - including running the
+AUv3 in a host. To sign with your own team for distribution, pass it in rather than
+putting it in the project:
+
+```
+SC55_TEAM_ID=XXXXXXXXXX ./build.sh
+```
+
 **ROMs are not included and never will be.** Supply your own SC-55 ROM set; the
 standalone app asks for the folder on first run.
 

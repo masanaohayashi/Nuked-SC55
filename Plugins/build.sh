@@ -28,11 +28,21 @@ fi
 echo "==> Xcode プロジェクトを生成"
 "$PROJUCER" --resave Nuked-SC55.jucer
 
+# 署名は既定でアドホック（誰でもビルドできる）。配布用に自分のチームで署名したい
+# ときだけ、リポジトリを汚さずに外から渡す:
+#   SC55_TEAM_ID=XXXXXXXXXX ./build.sh
+SIGN_ARGS=()
+if [ -n "${SC55_TEAM_ID:-}" ]; then
+    echo "==> Team $SC55_TEAM_ID で署名"
+    SIGN_ARGS=(DEVELOPMENT_TEAM="$SC55_TEAM_ID" CODE_SIGN_STYLE=Automatic)
+fi
+
 echo "==> ビルド ($CONFIG)"
 # 前回の archive が残したシンボリックリンクがあると出力先を作れない
 find "Builds/MacOSX/build/$CONFIG" -maxdepth 1 -type l -delete 2>/dev/null || true
 xcodebuild -project Builds/MacOSX/SC-55.xcodeproj \
-           -target "SC-55 - Standalone Plugin" -configuration "$CONFIG" build | tail -1
+           -target "SC-55 - Standalone Plugin" -configuration "$CONFIG" \
+           ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build | tail -1
 
 echo
 echo "完了: Plugins/Builds/MacOSX/build/$CONFIG/SC-55.app"
