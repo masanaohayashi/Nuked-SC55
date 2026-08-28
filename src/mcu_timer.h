@@ -55,8 +55,8 @@ struct mcu_timer_t {
 
 void TIMER_Write(uint32_t address, uint8_t data);
 uint8_t TIMER_Read(uint32_t address);
+void TIMER_Reset(void);
 void TIMER_Clock(uint64_t cycles);
 
 void TIMER2_Write(uint32_t address, uint8_t data);
 uint8_t TIMER_Read2(uint32_t address);
-

@@ -35,7 +35,7 @@
 
 #include <stdint.h>
 #include "mcu_interrupt.h"
-#include "SDL_atomic.h"
+#include <atomic>
 
 enum {
     DEV_P1DDR = 0x00,
@@ -446,6 +446,11 @@ extern const char* rs_name[ROM_SET_COUNT];
 
 extern int romset;
 
+// Never grind through more than this much emulated time in one update call: a
+// counter left inconsistent would otherwise spin PCM_Update / TIMER_Clock /
+// SM_Update until the host process is killed.  Normal callers are ~12 behind.
+static const uint64_t catch_up_limit = 1000000;
+
 extern int mcu_mk1;
 extern int mcu_cm300;
 extern int mcu_st;
@@ -453,7 +458,15 @@ extern int mcu_jv880;
 extern int mcu_scb55;
 extern int mcu_sc155;
 
-extern SDL_atomic_t mcu_button_pressed;
+extern std::atomic<uint32_t> mcu_button_pressed;
+
+extern uint8_t rom1[0x8000];
+extern uint8_t rom2[0x80000];
+extern int rom2_mask;
+extern uint8_t tempbuf[0x800000];
+
+void unscramble(uint8_t *src, uint8_t *dst, int len);
+void MCU_PatchROM(void);
 
 static const uint32_t uart_buffer_size = 8192;
 extern uint32_t uart_write_ptr;
@@ -468,6 +481,13 @@ void MCU_GA_SetGAInt(int line, int value);
 
 void MCU_EncoderTrigger(int dir);
 
+void MCU_Init(void);
+void MCU_Reset(void);
+
+typedef void (*MCU_SampleSink)(const int *sample, void *user_data);
+
+void MCU_SetSampleSink(MCU_SampleSink sink, void *user_data);
+void MCU_RunOneInstruction(void);
 void MCU_PostSample(int *sample);
 void MCU_PostUART(uint8_t data);
 
