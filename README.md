@@ -1,4 +1,48 @@
-# Nuked SC-55
+# Nuked SC-55 — JUCE plugin fork
+
+A fork of [nukeykt/Nuked-SC55](https://github.com/nukeykt/Nuked-SC55) that wraps the
+emulator as an audio plugin, plus tooling for playing Standard MIDI Files through it.
+
+**What this fork adds**
+
+- **Plugin builds**: Standalone, AU, AUv3 and VST3 (macOS), in `Plugins/`.
+- **Drop a `.mid` on the window and it plays.** The file is fed to the emulator in
+  file order, so nothing sorts or de-duplicates same-tick controllers on the way in.
+  That matters: RPN and NRPN are a state machine (a select, then a data entry), and a
+  sequencer that reorders them silently loses settings such as pitch bend range.
+- **`tools/sc55render`**: renders a `.mid` to WAV offline, song plus one bar, at
+  roughly 5x real time.
+- SDL is no longer required for the plugin build, and a number of fixes to the
+  emulator core that only surface when it is initialised more than once per process.
+
+Every difference from upstream, and why, is recorded in **[DEVIATIONS.md](DEVIATIONS.md)**
+(written in Japanese).
+
+**Building**
+
+```
+git clone --recurse-submodules https://github.com/masanaohayashi/Nuked-SC55.git
+cd Nuked-SC55/Plugins
+./build.sh              # builds the Projucer from the JUCE submodule, then the plugin
+```
+
+JUCE 9.0.0 is pinned as a submodule at `3rdparty/JUCE`. JUCE 9 modules can only be
+saved by a matching Projucer, which is why `build.sh` builds it first.
+
+**ROMs are not included and never will be.** Supply your own SC-55 ROM set; the
+standalone app asks for the folder on first run.
+
+**Licence**
+
+Unchanged from upstream: the modified MAME licence in [LICENSE](LICENSE).
+Redistributions **may not be sold, nor used in a commercial product or activity**.
+This applies to everything here, including the plugin. Note also that JUCE itself is
+AGPLv3 or commercial - see the JUCE licence for what that means for anything you
+distribute.
+
+---
+
+# Nuked SC-55 (upstream README)
 Roland SC-55 emulator, by nukeykt.
 
 Supported models:
