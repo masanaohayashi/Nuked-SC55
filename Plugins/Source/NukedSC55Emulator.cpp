@@ -1022,7 +1022,7 @@ void NukedSC55Emulator::render (float* left, float* right, int numSamples)
     const double sourceStep = sourceSampleRate / hostSampleRate;
     const double lastSourcePosition = sourcePosition
                                     + sourceStep * static_cast<double> (numSamples - 1);
-    const auto minimumSourceFrames = static_cast<uint32_t> (std::floor (lastSourcePosition)) + 2u;
+    const auto minimumSourceFrames = static_cast<uint32_t> (std::floor (lastSourcePosition)) + 4u;
 
     // The audio callback is the owner of the emulator clock. This call may
     // execute many H8 instructions, but it never advances beyond the source
@@ -1035,13 +1035,28 @@ void NukedSC55Emulator::render (float* left, float* right, int numSamples)
         float leftSample = lastSourceFrame[0];
         float rightSample = lastSourceFrame[1];
 
-        if (availableSourceFrames() >= base + 2)
+        if (availableSourceFrames() >= base + 4)
         {
-            const float* first = sourceFrame (base);
-            const float* second = sourceFrame (base + 1);
-            const float fraction = static_cast<float> (sourcePosition - base);
-            leftSample = first[0] + (second[0] - first[0]) * fraction;
-            rightSample = first[1] + (second[1] - first[1]) * fraction;
+            // Catmull-Rom across four frames rather than a straight line
+            // between two. The source is 32 kHz now that the chip's
+            // oversampling is gone, so a linear interpolator would fold
+            // everything near the top of the band back down.
+            const float* p0 = sourceFrame (base);
+            const float* p1 = sourceFrame (base + 1);
+            const float* p2 = sourceFrame (base + 2);
+            const float* p3 = sourceFrame (base + 3);
+            const float t = static_cast<float> (sourcePosition - base);
+
+            const auto interpolate = [t] (float y0, float y1, float y2, float y3)
+            {
+                const float a = -0.5f * y0 + 1.5f * y1 - 1.5f * y2 + 0.5f * y3;
+                const float b = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+                const float c = -0.5f * y0 + 0.5f * y2;
+                return ((a * t + b) * t + c) * t + y1;
+            };
+
+            leftSample = interpolate (p0[0], p1[0], p2[0], p3[0]);
+            rightSample = interpolate (p0[1], p1[1], p2[1], p3[1]);
             lastSourceFrame[0] = leftSample;
             lastSourceFrame[1] = rightSample;
         }

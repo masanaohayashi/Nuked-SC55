@@ -32,6 +32,11 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 #include "pcm.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <cstdio>
+#include <string>
 #include "mcu.h"
 #include "mcu_interrupt.h"
 #include <cstdint>
@@ -267,6 +272,24 @@ uint8_t PCM_Read(pcm_t& pcm, uint32_t address)
 void PCM_Init(pcm_t& pcm, mcu_t& mcu)
 {
     pcm.mcu = &mcu;
+
+    // The simulated voice engine is the default. An environment variable is no
+    // use inside a plug-in -- a host does not pass one -- so the way back to the
+    // emulated path is a file the user can drop in their home directory, plus
+    // the variable for command line tools.
+    bool simulate = true;
+
+    if (const char* home = std::getenv("HOME"))
+    {
+        std::string flag(home);
+        flag += "/.sc55_no_sim";
+        if (FILE* f = std::fopen(flag.c_str(), "rb")) { std::fclose(f); simulate = false; }
+    }
+
+    if (const char* enable = std::getenv("SC55_SIM"))
+        simulate = enable[0] != '0';
+
+    PCM_UseSimulation(pcm, simulate);
 }
 
 // Sign-extends a 20-bit signed integer to a 32-bit signed integer.
@@ -285,7 +308,8 @@ inline int32_t multi(int32_t val1, int8_t val2)
     return sx20(val1) * val2;
 }
 
-static const int interp_lut[3][128] = {
+extern const int interp_lut[3][128];
+extern const int interp_lut[3][128] = {
     {
         3385, 3401, 3417, 3432, 3448, 3463, 3478, 3492, 3506, 3521, 3534, 3548, 3562, 3575, 3588, 3601,
         3614, 3626, 3638, 3650, 3662, 3673, 3685, 3696, 3707, 3718, 3728, 3739, 3749, 3759, 3768, 3778,
@@ -582,11 +606,145 @@ void PCM_GetConfig(PCM_Config& config, uint8_t config_byte)
     }
 }
 
+
+// Runs the voice slots through pcm_sim instead of the transcribed pipeline, and
+// puts the results back where the rest of the chip and the firmware expect
+// them: the mix and send buses, the per-voice registers the firmware reads, and
+// the end-of-sample interrupt that drives its envelope segments. The effect
+// network and the output stage above are untouched.
+static void PCM_UpdateVoicesSimulated(pcm_t& pcm, const int rcadd[6], const int rcadd2[6])
+{
+    PCMSimVoices& sim = pcm.sim;
+    sim.voice_count = pcm.config.reg_slots;
+
+    const uint32_t keys = pcm.voice_mask & pcm.voice_mask_pending;
+
+    for (int slot = 0; slot < sim.voice_count; slot++)
+    {
+        uint16_t* ram2 = pcm.ram2[slot];
+        const bool okey = (ram2[7] & 0x20) != 0;
+        const bool key = ((keys >> slot) & 1) != 0;
+
+        PCMSim_SyncVoice(sim, pcm, slot);
+
+        if (key && !okey)
+            PCMSim_KeyOn(sim, pcm, slot);
+    }
+
+    float out[4];
+    PCMSim_RenderFrame(sim, pcm, out);
+
+    for (int slot = 0; slot < sim.voice_count; slot++)
+    {
+        uint32_t* ram1 = pcm.ram1[slot];
+        uint16_t* ram2 = pcm.ram2[slot];
+        const bool okey = (ram2[7] & 0x20) != 0;
+        const bool key = ((keys >> slot) & 1) != 0;
+        const bool active = okey && key;
+
+        if (active)
+        {
+            ram1[4] = (uint32_t)(sim.address[slot] & 0xfffff);
+            ram1[5] = (uint32_t)((int32_t)lrintf(sim.reference[slot]) & 0xfffff);
+            ram1[1] = (uint32_t)((int32_t)lrintf(sim.svf_band[slot]) & 0xfffff);
+            ram1[3] = (uint32_t)((int32_t)lrintf(sim.svf_low[slot]) & 0xfffff);
+
+            ram2[8] = (uint16_t)((ram2[8] & 0x4000)
+                                 | (sim.sub_phase[slot] & 0x3fff)
+                                 | (sim.reverse_mask[slot] ? 0x8000u : 0u));
+            ram2[9]  = (uint16_t)((int)lrintf(sim.env_level[0][slot]) & 0x7fff);
+            ram2[10] = (uint16_t)((int)lrintf(sim.env_level[1][slot]) & 0x7fff);
+            ram2[11] = (uint16_t)((int)lrintf(sim.env_level[2][slot]) & 0x7fff);
+
+            // The sample has run past its loop point. The chip latches this so
+            // it only interrupts once, and the firmware answers by writing the
+            // next envelope segment.
+            const int32_t loop = sim.address_loop[slot];
+            bool irq_flag = ((sim.address[slot] + ((-loop) & 0xfffff)) & 0x100000) != 0;
+            irq_flag ^= (ram2[7] & 0x80) != 0;
+
+            if ((ram2[6] & 1) != 0 && (ram2[8] & 0x4000) == 0 && !pcm.irq_assert && irq_flag)
+            {
+                if (pcm.nfs)
+                    ram2[8] |= 0x4000;
+                pcm.irq_assert = true;
+                pcm.irq_channel = (uint8_t)slot;
+                if (pcm.mcu->is_jv880)
+                    MCU_GA_SetGAInt(*pcm.mcu, 5, 1);
+                else
+                    MCU_Interrupt_SetRequest(*pcm.mcu, INTERRUPT_SOURCE_IRQ0, 1);
+            }
+        }
+        else
+        {
+            if (pcm.nfs)
+            {
+                ram1[1] = 0;
+                ram1[3] = 0;
+                ram1[5] = 0;
+            }
+            ram2[8] = 0;
+            ram2[9] = 0;
+            ram2[10] = 0;
+        }
+
+        // The chip latches the key bit at the end of the pass; without it a
+        // voice never leaves its key-on state and never starts sounding.
+        if (key && pcm.nfs)
+            ram2[7] |= 0x20;
+    }
+
+    // The effect returns are injected into the buses at fixed slot positions.
+    // Folding them in one go changes the order the saturation sees, which only
+    // shows once the bus is actually clipping.
+    int32_t dry_l = (int32_t)lrintf(out[0]);
+    int32_t dry_r = (int32_t)lrintf(out[1]);
+    int32_t rev = (int32_t)lrintf(out[2]);
+    int32_t cho = (int32_t)lrintf(out[3]);
+
+    dry_l = addclip20(dry_l, rcadd[0] >> 1, rcadd[0] & 1);
+    dry_l = addclip20(dry_l, rcadd[2] >> 1, rcadd[2] & 1);
+    dry_l = addclip20(dry_l, rcadd[4] >> 1, rcadd[4] & 1);
+    dry_r = addclip20(dry_r, rcadd[1] >> 1, rcadd[1] & 1);
+    dry_r = addclip20(dry_r, rcadd[3] >> 1, rcadd[3] & 1);
+    dry_r = addclip20(dry_r, rcadd[5] >> 1, rcadd[5] & 1);
+
+    cho = addclip20(cho, rcadd2[0] >> 1, rcadd2[0] & 1);
+    cho = addclip20(cho, rcadd2[1] >> 1, rcadd2[1] & 1);
+    rev = addclip20(rev, rcadd2[2] >> 1, rcadd2[2] & 1);
+    cho = addclip20(cho, rcadd2[3] >> 1, rcadd2[3] & 1);
+    rev = addclip20(rev, rcadd2[4] >> 1, rcadd2[4] & 1);
+    cho = addclip20(cho, rcadd2[5] >> 1, rcadd2[5] & 1);
+
+    pcm.accum_l = dry_l;
+    pcm.accum_r = dry_r;
+    pcm.rcsum[0] = rev;
+    pcm.rcsum[1] = cho;
+}
+
+void PCM_UseSimulation(pcm_t& pcm, bool enable)
+{
+    PCMSim_Init();
+    pcm.use_simulation = enable;
+}
+
 void PCM_Update(pcm_t& pcm, uint64_t cycles)
 {
     while (pcm.cycles < cycles)
     {
         const uint32_t voice_active = pcm.voice_mask & pcm.voice_mask_pending;
+        if (pcm.use_simulation)
+        {
+            // The output stage below squeezes the 20 bit mix into 16 by feeding
+            // the truncation error back and dithering it -- a way to get more
+            // out of a cheap DAC, and a problem that does not exist once the
+            // mix leaves here as float. So: one frame per pass, straight off
+            // the bus, no dither, no DC bias, and no oversampling to carry the
+            // shaped noise. The output rate halves accordingly; see
+            // PCM_GetOutputFrequency.
+            MCU_PostSample(*pcm.mcu, {pcm.accum_l << 12, pcm.accum_r << 12});
+        }
+        else
         { // final mixing
             int shifter = pcm.ram2[30][10];
             int xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
@@ -1099,6 +1257,9 @@ void PCM_Update(pcm_t& pcm, uint64_t cycles)
         pcm.rcsum[0] = 0;
         pcm.rcsum[1] = 0;
 
+        if (pcm.use_simulation)
+            PCM_UpdateVoicesSimulated(pcm, rcadd, rcadd2);
+        else
         for (int slot = 0; slot < pcm.config.reg_slots; slot++)
         {
             uint32_t *ram1 = pcm.ram1[slot];
@@ -1576,6 +1737,12 @@ void PCM_Update(pcm_t& pcm, uint64_t cycles)
 uint32_t PCM_GetOutputFrequency(const pcm_t& pcm)
 {
     uint32_t freq = (pcm.mcu->is_mk1 || pcm.mcu->is_jv880) ? 64000 : 66207;
+
+    // The simulation posts once per pass over the voices rather than twice:
+    // the second frame only existed to spread the quantisation noise.
+    if (pcm.use_simulation)
+        return freq / 2;
+
     if (pcm.enable_oversampling)
     {
         return freq;

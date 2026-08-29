@@ -35,6 +35,8 @@
 
 #include <cstdint>
 
+#include "pcm_sim.h"
+
 struct mcu_t;
 
 struct PCM_Config
@@ -86,11 +88,21 @@ struct pcm_t
     uint8_t waverom_exp[0x800000]{};
 
     bool enable_oversampling = true;
+
+    // The voice engine, rewritten as a simulation instead of a transcription of
+    // the slot pipeline. Off by default; PCM_UseSimulation turns it on, and the
+    // emulated path stays in place so the two can be compared.
+    bool use_simulation = false;
+    PCMSimVoices sim{};
 };
 
 void PCM_Write(pcm_t& pcm, uint32_t address, uint8_t data);
 uint8_t PCM_Read(pcm_t& pcm, uint32_t address);
 void PCM_Init(pcm_t& pcm, mcu_t& mcu);
 void PCM_Update(pcm_t& pcm, uint64_t cycles);
+
+// Swaps the voice slot loop for pcm_sim. Effects and the output stage are
+// untouched either way.
+void PCM_UseSimulation(pcm_t& pcm, bool enable);
 uint32_t PCM_GetOutputFrequency(const pcm_t& pcm);
 void PCM_GetConfig(PCM_Config& config, uint8_t config_byte);

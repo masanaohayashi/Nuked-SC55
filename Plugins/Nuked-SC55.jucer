@@ -60,6 +60,8 @@
       <FILE id="NScMcuH" name="mcu.h" compile="0" resource="0" file="../src/backend/mcu.h"/>
       <FILE id="NScPcmC" name="pcm.cpp" compile="1" resource="0" file="../src/backend/pcm.cpp"/>
       <FILE id="NScPcmH" name="pcm.h" compile="0" resource="0" file="../src/backend/pcm.h"/>
+      <FILE id="NScSimC" name="pcm_sim.cpp" compile="1" resource="0" file="../src/backend/pcm_sim.cpp"/>
+      <FILE id="NScSimH" name="pcm_sim.h" compile="0" resource="0" file="../src/backend/pcm_sim.h"/>
       <FILE id="NScRomC" name="rom.cpp" compile="1" resource="0" file="../src/backend/rom.cpp"/>
       <FILE id="NScRomH" name="rom.h" compile="0" resource="0" file="../src/backend/rom.h"/>
       <FILE id="NScRomIOC" name="rom_io.cpp" compile="1" resource="0" file="../src/backend/rom_io.cpp"/>
