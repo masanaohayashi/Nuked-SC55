@@ -52,6 +52,7 @@ public:
     void fileDragExit (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     void syncFrontPanelIndicators();
+    void syncPlaybackControls();
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -68,6 +69,8 @@ private:
     NukedSC55AudioProcessor& audioProcessor;
     std::unique_ptr<LcdDisplay> lcdDisplay;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
+    std::unique_ptr<juce::TextButton> buttonPlayPause;
+    std::unique_ptr<juce::TextButton> buttonStop;
     bool fileDragActive = false;
     //[/UserVariables]
 

@@ -316,6 +316,19 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     lcdDisplay->setBounds (lcd->getLocalBounds());
     masterVolumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         audioProcessor.getParameters(), "masterVolume", *sliderMasterVolume);
+
+    buttonPlayPause = std::make_unique<juce::TextButton> ("PLAY");
+    contentComponent.addAndMakeVisible (buttonPlayPause.get());
+    buttonPlayPause->setButtonText ("PLAY");
+    buttonPlayPause->addListener (this);
+    buttonPlayPause->setBounds (616, 150, 72, 20);
+
+    buttonStop = std::make_unique<juce::TextButton> ("STOP");
+    contentComponent.addAndMakeVisible (buttonStop.get());
+    buttonStop->setButtonText ("STOP");
+    buttonStop->addListener (this);
+    buttonStop->setBounds (616, 174, 72, 20);
+
     audioProcessor.requestRomSelection();
     button2x->setClickingTogglesState (true);
     button2x->setToggleState (audioProcessor.isTwoXEnabled(), juce::dontSendNotification);
@@ -328,6 +341,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     //[Destructor_pre]. You can add your own custom destruction code here..
     masterVolumeAttachment = nullptr;
     lcdDisplay = nullptr;
+    buttonPlayPause = nullptr;
+    buttonStop = nullptr;
     //[/Destructor_pre]
 
     lcd = nullptr;
@@ -546,6 +561,20 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     }
 
     //[UserbuttonClicked_Post]
+    if (buttonThatWasClicked == buttonPlayPause.get())
+    {
+        if (audioProcessor.isPlayingMidiFile())
+            audioProcessor.pauseMidiFile();
+        else
+            audioProcessor.playMidiFile();
+
+        syncPlaybackControls();
+    }
+    else if (buttonThatWasClicked == buttonStop.get())
+    {
+        audioProcessor.stopMidiFile();
+        syncPlaybackControls();
+    }
     //[/UserbuttonClicked_Post]
 }
 
@@ -590,12 +619,30 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
     if (button2x != nullptr)
         button2x->setToggleState (twoXEnabled, juce::dontSendNotification);
     applyIndicatorColour (button2x.get(), twoXEnabled);
+    syncPlaybackControls();
+}
+
+void NukedSC55AudioProcessorEditor::syncPlaybackControls()
+{
+    const auto hasFile = audioProcessor.hasMidiFile();
+    const auto isPlaying = hasFile && audioProcessor.isPlayingMidiFile();
+
+    if (buttonPlayPause != nullptr)
+    {
+        buttonPlayPause->setEnabled (hasFile);
+        const juce::String desiredText = isPlaying ? "PAUSE" : "PLAY";
+        if (buttonPlayPause->getButtonText() != desiredText)
+            buttonPlayPause->setButtonText (desiredText);
+    }
+
+    if (buttonStop != nullptr)
+        buttonStop->setEnabled (hasFile);
 }
 
 //==============================================================================
-// Drop a Standard MIDI File or RCP sequence on the window to play it.  The
-// resulting event stream goes straight into the emulator in file order, which
-// is the point: no sequencer sits in between to sort or de-duplicate controllers.
+// Drop a Standard MIDI File or RCP sequence on the window to load it. Press
+// PLAY to start the resulting event stream in file order; no sequencer sits in
+// between to sort or de-duplicate controllers.
 bool NukedSC55AudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
@@ -629,16 +676,15 @@ void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files
         if (! isInterestedInFileDrag ({ f }))
             continue;
 
-        if (audioProcessor.isPlayingMidiFile())
-            audioProcessor.stopMidiFile();
-
-        if (! audioProcessor.startMidiFile (file))
+        if (! audioProcessor.loadMidiFile (file))
         {
             const auto options = juce::MessageBoxOptions::makeOptionsOk (
                 juce::AlertWindow::WarningIcon, "SC-55",
                 "このシーケンスファイルを再生できませんでした:\n" + file.getFileName());
             juce::AlertWindow::showAsync (options, nullptr);
         }
+
+        syncPlaybackControls();
 
         return;
     }

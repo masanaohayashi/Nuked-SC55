@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include <JuceHeader.h>
 
@@ -88,9 +89,21 @@ public:
     void setTwoXEnabled (bool enabled);
     bool isTwoXEnabled() const noexcept { return twoXEnabled.load (std::memory_order_acquire); }
 
-    /** Plays a Standard MIDI File straight into the emulator, in file order. */
+    /** Loads a Standard MIDI File or RCP sequence without starting playback. */
+    bool loadMidiFile (const juce::File& file);
+
+    /** Loads a sequence and starts it immediately for API callers that need it. */
     bool startMidiFile (const juce::File& file);
+
+    /** Starts or resumes the loaded sequence. */
+    void playMidiFile();
+
+    /** Pauses the loaded sequence and releases all sounding notes. */
+    void pauseMidiFile();
+
+    /** Stops the loaded sequence, resets controllers, and rewinds it. */
     void stopMidiFile();
+    bool hasMidiFile() const noexcept { return midiFileLoaded.load (std::memory_order_acquire); }
     bool isPlayingMidiFile() const noexcept { return midiFilePlaying.load (std::memory_order_acquire); }
     juce::String getMidiFileName() const { return midiFileName; }
 
@@ -107,6 +120,9 @@ private:
     bool initialiseRomDirectory (const juce::File& directory);
     void launchRomChooser();
     void sendMidiToEmulators (const uint8_t* data, int size) noexcept;
+    void processMidiPlaybackCommands() noexcept;
+    void sendAllNotesOff() noexcept;
+    void sendResetAllControllers() noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
     std::array<NukedSC55Emulator, 2> emulators;
@@ -120,8 +136,15 @@ private:
 
     // Accessed by the message-thread chooser and the message-thread editor.
     juce::String uiError;
-    MidiFileData midiFile;
+    // Parsed files are immutable after publication. The message thread owns
+    // every allocation for the lifetime of the processor; the audio thread
+    // only follows the published raw pointer and never frees file data.
+    std::vector<std::unique_ptr<MidiFileData>> midiFileStorage;
+    std::atomic<MidiFileData*> pendingMidiFile { nullptr };
+    MidiFileData* activeMidiFile = nullptr;
+    std::atomic<bool> midiFileLoaded { false };
     std::atomic<bool> midiFilePlaying { false };
+    std::atomic<uint32_t> midiPlaybackCommands { 0 };
     double midiFilePosition = 0.0;
     size_t midiFileNext = 0;
     juce::String midiFileName;

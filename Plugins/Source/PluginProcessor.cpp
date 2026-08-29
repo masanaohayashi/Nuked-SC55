@@ -22,6 +22,8 @@ namespace
 const char* const romDirectoryEnvironmentVariable = "NUKED_SC55_ROM_PATH";
 constexpr uint8_t gsResetMessage[] =
     { 0xf0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7f, 0x00, 0x41, 0xf7 };
+constexpr uint32_t midiPauseCommand = 1u << 0;
+constexpr uint32_t midiStopCommand = 1u << 1;
 
 bool containsRomSet (const juce::File& directory)
 {
@@ -263,6 +265,8 @@ void NukedSC55AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     sc55debug::log ("prepareToPlay rate=%.2f block=%d", sampleRate, samplesPerBlock);
     secondaryRenderBuffer.setSize (2, std::max (1, samplesPerBlock), false, true, true);
     currentSampleRate.store (sampleRate, std::memory_order_release);
+    midiFilePlaying.store (false, std::memory_order_release);
+    midiPlaybackCommands.fetch_or (midiStopCommand, std::memory_order_release);
 
     masterVolumeGain.reset (sampleRate, 0.01);
     const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
@@ -364,6 +368,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     auto* right = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
     int renderedSamples = 0;
 
+    processMidiPlaybackCommands();
     const bool playMidiFile = midiFilePlaying.load (std::memory_order_relaxed);
     const auto rate = currentSampleRate.load (std::memory_order_relaxed);
     const bool renderTwoX = twoXEnabled.load (std::memory_order_acquire)
@@ -389,14 +394,14 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     auto dispatchMidiFileEvents = [&]() noexcept
     {
-        if (! playMidiFile)
+        if (! playMidiFile || activeMidiFile == nullptr)
             return;
 
         // File order is preserved exactly; nothing here sorts or merges events.
-        while (midiFileNext < midiFile.events.size()
-               && midiFile.events[midiFileNext].seconds <= midiFilePosition)
+        while (midiFileNext < activeMidiFile->events.size()
+               && activeMidiFile->events[midiFileNext].seconds <= midiFilePosition)
         {
-            const auto& e = midiFile.events[midiFileNext++];
+            const auto& e = activeMidiFile->events[midiFileNext++];
             sendMidiToEmulators (e.bytes.data(), static_cast<int> (e.bytes.size()));
         }
     };
@@ -484,7 +489,8 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     dispatchMidiFileEvents();
     dispatchHostMidiEvents();
 
-    if (playMidiFile && midiFilePosition > midiFile.totalSeconds())
+    if (playMidiFile && activeMidiFile != nullptr
+        && midiFilePosition > activeMidiFile->totalSeconds())
         midiFilePlaying.store (false, std::memory_order_release);
 
     const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
@@ -519,7 +525,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 }
 
-bool NukedSC55AudioProcessor::startMidiFile (const juce::File& file)
+bool NukedSC55AudioProcessor::loadMidiFile (const juce::File& file)
 {
     MidiFileData loaded;
     std::string error;
@@ -532,27 +538,98 @@ bool NukedSC55AudioProcessor::startMidiFile (const juce::File& file)
     sc55debug::log ("MIDI file loaded: %s (%zu events, %.1f s)",
                     file.getFileName().toRawUTF8(), loaded.events.size(), loaded.totalSeconds());
 
-    const juce::ScopedLock callbackLock (getCallbackLock());
-    midiFile = std::move (loaded);
+    auto fileData = std::make_unique<MidiFileData> (std::move (loaded));
+    auto* publishedFile = fileData.get();
+    midiFileStorage.push_back (std::move (fileData));
+
     midiFileName = file.getFileName();
-    midiFilePosition = 0.0;
-    midiFileNext = 0;
-    midiFilePlaying.store (true, std::memory_order_release);
+    midiFilePlaying.store (false, std::memory_order_release);
+    midiFileLoaded.store (true, std::memory_order_release);
+    pendingMidiFile.store (publishedFile, std::memory_order_release);
     return true;
+}
+
+bool NukedSC55AudioProcessor::startMidiFile (const juce::File& file)
+{
+    if (! loadMidiFile (file))
+        return false;
+
+    playMidiFile();
+    return true;
+}
+
+void NukedSC55AudioProcessor::playMidiFile()
+{
+    if (! hasMidiFile())
+        return;
+
+    midiFilePlaying.store (true, std::memory_order_release);
+}
+
+void NukedSC55AudioProcessor::pauseMidiFile()
+{
+    if (! hasMidiFile())
+        return;
+
+    midiFilePlaying.store (false, std::memory_order_release);
+    midiPlaybackCommands.fetch_or (midiPauseCommand, std::memory_order_release);
 }
 
 void NukedSC55AudioProcessor::stopMidiFile()
 {
-    const juce::ScopedLock callbackLock (getCallbackLock());
-    midiFilePlaying.store (false, std::memory_order_release);
+    if (! hasMidiFile())
+        return;
 
-    // Leaving notes hanging after a stop is worse than a hard reset.
+    midiFilePlaying.store (false, std::memory_order_release);
+    midiPlaybackCommands.fetch_or (midiStopCommand, std::memory_order_release);
+}
+
+void NukedSC55AudioProcessor::processMidiPlaybackCommands() noexcept
+{
+    if (auto* pendingFile = pendingMidiFile.exchange (nullptr, std::memory_order_acquire);
+        pendingFile != nullptr)
+    {
+        activeMidiFile = pendingFile;
+        midiFilePosition = 0.0;
+        midiFileNext = 0;
+
+        // Replacing a sequence must not leave notes or controller state from
+        // the previous sequence in the emulated instrument.
+        sendAllNotesOff();
+        sendResetAllControllers();
+    }
+
+    const auto commands = midiPlaybackCommands.exchange (0, std::memory_order_acq_rel);
+    if ((commands & midiPauseCommand) != 0)
+        sendAllNotesOff();
+
+    if ((commands & midiStopCommand) != 0)
+    {
+        sendAllNotesOff();
+        sendResetAllControllers();
+        midiFilePosition = 0.0;
+        midiFileNext = 0;
+    }
+}
+
+void NukedSC55AudioProcessor::sendAllNotesOff() noexcept
+{
     for (int channel = 0; channel < 16; ++channel)
     {
         const uint8_t allOff[3] = { static_cast<uint8_t> (0xb0 | channel), 123, 0 };
         sendMidiToEmulators (allOff, 3);
     }
 }
+
+void NukedSC55AudioProcessor::sendResetAllControllers() noexcept
+{
+    for (int channel = 0; channel < 16; ++channel)
+    {
+        const uint8_t reset[3] = { static_cast<uint8_t> (0xb0 | channel), 121, 0 };
+        sendMidiToEmulators (reset, 3);
+    }
+}
+
 
 void NukedSC55AudioProcessor::requestRomSelection()
 {
