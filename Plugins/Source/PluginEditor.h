@@ -73,7 +73,6 @@ private:
     //==============================================================================
     juce::Component contentComponent;
     std::unique_ptr<juce::Component> lcd;
-    std::unique_ptr<juce::Component> acrylPanel;
     std::unique_ptr<juce::TextButton> buttonLevelDec;
     std::unique_ptr<juce::TextButton> buttonLevelInc;
     std::unique_ptr<juce::TextButton> buttonReverbDec;
@@ -142,6 +141,8 @@ private:
     };
 
     FilmstripSliderLookAndFeel1 filmstripSliderLookAndFeel1;
+    std::unique_ptr<juce::TextButton> button2x;
+    std::unique_ptr<juce::Label> label2x;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 

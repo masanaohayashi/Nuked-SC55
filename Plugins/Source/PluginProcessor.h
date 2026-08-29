@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,7 @@ public:
     struct UiStatus
     {
         bool audioReady = false;
+        bool twoXEnabled = false;
         double sampleRate = 0.0;
         juce::String romDirectory;
         juce::String error;
@@ -77,6 +79,10 @@ public:
     /** Sends one momentary press through the SC-55's physical front-panel matrix. */
     void pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button);
 
+    /** Enables the two-instance polyphony mode. */
+    void setTwoXEnabled (bool enabled);
+    bool isTwoXEnabled() const noexcept { return twoXEnabled.load (std::memory_order_acquire); }
+
     /** Plays a Standard MIDI File straight into the emulator, in file order. */
     bool startMidiFile (const juce::File& file);
     void stopMidiFile();
@@ -94,9 +100,13 @@ private:
     void handleAsyncUpdate() override;
     bool initialiseRomDirectory (const juce::File& directory);
     void launchRomChooser();
+    void sendMidiToEmulators (const uint8_t* data, int size) noexcept;
 
-    NukedSC55Emulator emulator;
+    std::array<NukedSC55Emulator, 2> emulators;
+    juce::AudioBuffer<float> secondaryRenderBuffer;
     std::atomic<bool> audioReady { false };
+    std::atomic<bool> twoXEnabled { false };
+    std::atomic<bool> secondaryReleaseRequested { false };
     std::atomic<bool> romSelectionRequested { false };
     std::atomic<double> currentSampleRate { 0.0 };
 

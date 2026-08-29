@@ -143,12 +143,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     lcd->setBounds (260, 36, 344, 124);
 
-    acrylPanel.reset (new juce::Component());
-    contentComponent.addAndMakeVisible (acrylPanel.get());
-    acrylPanel->setName ("new component");
-
-    acrylPanel->setBounds (640, 0, 102, 200);
-
     buttonLevelDec.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonLevelDec.get());
     buttonLevelDec->setButtonText (TRANS ("<"));
@@ -290,6 +284,23 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     sliderMasterVolume->setBounds (132, 24, 64, 64);
 
+    button2x.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (button2x.get());
+    button2x->addListener (this);
+
+    button2x->setBounds (696, 108, 24, 24);
+
+    label2x.reset (new juce::Label (juce::String(),
+                                    TRANS ("2X")));
+    contentComponent.addAndMakeVisible (label2x.get());
+    label2x->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
+    label2x->setJustificationType (juce::Justification::centredRight);
+    label2x->setEditable (false, false, false);
+    label2x->setColour (juce::TextEditor::textColourId, juce::Colours::black);
+    label2x->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+
+    label2x->setBounds (648, 112, 46, 16);
+
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -304,6 +315,8 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
     audioProcessor.requestRomSelection();
+    button2x->setClickingTogglesState (true);
+    button2x->setToggleState (audioProcessor.isTwoXEnabled(), juce::dontSendNotification);
     syncFrontPanelIndicators();
     //[/Constructor]
 }
@@ -315,7 +328,6 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     //[/Destructor_pre]
 
     lcd = nullptr;
-    acrylPanel = nullptr;
     buttonLevelDec = nullptr;
     buttonLevelInc = nullptr;
     buttonReverbDec = nullptr;
@@ -337,6 +349,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonPower = nullptr;
     sliderMasterVolume->setLookAndFeel (nullptr);
     sliderMasterVolume = nullptr;
+    button2x = nullptr;
+    label2x = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -519,6 +533,13 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         //[UserButtonCode_buttonPower] -- add your button handler code here..
         //[/UserButtonCode_buttonPower]
     }
+    else if (buttonThatWasClicked == button2x.get())
+    {
+        //[UserButtonCode_button2x] -- add your button handler code here..
+        audioProcessor.setTwoXEnabled (button2x->getToggleState());
+        syncFrontPanelIndicators();
+        //[/UserButtonCode_button2x]
+    }
 
     //[UserbuttonClicked_Post]
     //[/UserbuttonClicked_Post]
@@ -561,6 +582,10 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 
     applyIndicatorColour (buttonAll.get(), state.allLed);
     applyIndicatorColour (buttonAll2.get(), state.muteLed);
+    const auto twoXEnabled = audioProcessor.isTwoXEnabled();
+    if (button2x != nullptr)
+        button2x->setToggleState (twoXEnabled, juce::dontSendNotification);
+    applyIndicatorColour (button2x.get(), twoXEnabled);
 }
 
 //==============================================================================
@@ -640,9 +665,6 @@ BEGIN_JUCER_METADATA
   <GENERICCOMPONENT name="" id="c4c91c74bed6da56" memberName="lcd" virtualName=""
                     explicitFocusOrder="0" pos="260 36 344 124" class="juce::Component"
                     params=""/>
-  <GENERICCOMPONENT name="new component" id="a494044ed7202bfd" memberName="acrylPanel"
-                    virtualName="" explicitFocusOrder="0" pos="640 0 102 200" class="juce::Component"
-                    params=""/>
   <TEXTBUTTON name="" id="791b54d63a59beec" memberName="buttonLevelDec" virtualName=""
               explicitFocusOrder="0" pos="768 67 52 20" buttonText="&lt;" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
@@ -706,6 +728,14 @@ BEGIN_JUCER_METADATA
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="BinaryData::Volume_png" filmstripFrames="101"
           filmstripVertical="1"/>
+  <TEXTBUTTON name="" id="ae42fcf2a627eaf2" memberName="button2x" virtualName=""
+              explicitFocusOrder="0" pos="696 108 24 24" buttonText="" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
+  <LABEL name="" id="571536871ed7a09d" memberName="label2x" virtualName=""
+         explicitFocusOrder="0" pos="648 112 46 16" edTextCol="ff000000"
+         edBkgCol="0" labelText="2X" editableSingleClick="0" editableDoubleClick="0"
+         focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
+         kerning="0.0" bold="0" italic="0" justification="34"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
