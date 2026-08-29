@@ -6,8 +6,7 @@
               bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAU,buildAUv3,buildStandalone,buildVST3"
               pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn"
               pluginManufacturerCode="Rin2" pluginCode="Sc55" pluginChannelConfigs="{0,2}"
-              cppLanguageStandard="20"
-              headerPath="../../../src/backend&#10;../../../src/common&#10;../../../3rdparty/Utf8Main"
+              cppLanguageStandard="20" headerPath="../../../src/backend&#10;../../../src/common&#10;../../../3rdparty/Utf8Main"
               defines="NUKED_SC55_NO_MAIN=1">
   <MAINGROUP id="xqX799" name="SC-55">
     <GROUP id="{234DA3C5-F988-80BD-8EA3-1A7FECD46ED0}" name="Source">
@@ -29,21 +28,27 @@
       <FILE id="ZpCy4W" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
     </GROUP>
     <GROUP id="{6CC5D0AE-BEEF-4D2F-9B8B-1F08C1E4A55B}" name="jcmoyer SC-55 Backend">
-      <FILE id="NScDiagC" name="diagnostics.cpp" compile="1" resource="0" file="../src/backend/diagnostics.cpp"/>
+      <FILE id="NScDiagC" name="diagnostics.cpp" compile="1" resource="0"
+            file="../src/backend/diagnostics.cpp"/>
       <FILE id="NScDiagH" name="diagnostics.h" compile="0" resource="0" file="../src/backend/diagnostics.h"/>
       <FILE id="NScEmuC" name="emu.cpp" compile="1" resource="0" file="../src/backend/emu.cpp"/>
       <FILE id="NScEmuH" name="emu.h" compile="0" resource="0" file="../src/backend/emu.h"/>
-      <FILE id="NScHashC" name="file_hashing.cpp" compile="1" resource="0" file="../src/backend/file_hashing.cpp"/>
-      <FILE id="NScHashH" name="file_hashing.h" compile="0" resource="0" file="../src/backend/file_hashing.h"/>
+      <FILE id="NScHashC" name="file_hashing.cpp" compile="1" resource="0"
+            file="../src/backend/file_hashing.cpp"/>
+      <FILE id="NScHashH" name="file_hashing.h" compile="0" resource="0"
+            file="../src/backend/file_hashing.h"/>
       <FILE id="NScFioC" name="file_io.cpp" compile="1" resource="0" file="../src/backend/file_io.cpp"/>
       <FILE id="NScFioH" name="file_io.h" compile="0" resource="0" file="../src/backend/file_io.h"/>
       <FILE id="NScLcdC" name="lcd.cpp" compile="1" resource="0" file="../src/backend/lcd.cpp"/>
       <FILE id="NScLcdH" name="lcd.h" compile="0" resource="0" file="../src/backend/lcd.h"/>
       <FILE id="NScLcdB" name="lcd_back.h" compile="0" resource="0" file="../src/backend/lcd_back.h"/>
       <FILE id="NScLcdF" name="lcd_font.h" compile="0" resource="0" file="../src/backend/lcd_font.h"/>
-      <FILE id="NScIntC" name="mcu_interrupt.cpp" compile="1" resource="0" file="../src/backend/mcu_interrupt.cpp"/>
-      <FILE id="NScIntH" name="mcu_interrupt.h" compile="0" resource="0" file="../src/backend/mcu_interrupt.h"/>
-      <FILE id="NScOpcC" name="mcu_opcodes.cpp" compile="1" resource="0" file="../src/backend/mcu_opcodes.cpp"/>
+      <FILE id="NScIntC" name="mcu_interrupt.cpp" compile="1" resource="0"
+            file="../src/backend/mcu_interrupt.cpp"/>
+      <FILE id="NScIntH" name="mcu_interrupt.h" compile="0" resource="0"
+            file="../src/backend/mcu_interrupt.h"/>
+      <FILE id="NScOpcC" name="mcu_opcodes.cpp" compile="1" resource="0"
+            file="../src/backend/mcu_opcodes.cpp"/>
       <FILE id="NScOpcH" name="mcu_opcodes.h" compile="0" resource="0" file="../src/backend/mcu_opcodes.h"/>
       <FILE id="NScTimC" name="mcu_timer.cpp" compile="1" resource="0" file="../src/backend/mcu_timer.cpp"/>
       <FILE id="NScTimH" name="mcu_timer.h" compile="0" resource="0" file="../src/backend/mcu_timer.h"/>
@@ -55,17 +60,22 @@
       <FILE id="NScRomH" name="rom.h" compile="0" resource="0" file="../src/backend/rom.h"/>
       <FILE id="NScRomIOC" name="rom_io.cpp" compile="1" resource="0" file="../src/backend/rom_io.cpp"/>
       <FILE id="NScRomIOH" name="rom_io.h" compile="0" resource="0" file="../src/backend/rom_io.h"/>
-      <FILE id="NScStdRomC" name="standard_romsets.cpp" compile="1" resource="0" file="../src/backend/standard_romsets.cpp"/>
-      <FILE id="NScStdRomH" name="standard_romsets.h" compile="0" resource="0" file="../src/backend/standard_romsets.h"/>
+      <FILE id="NScStdRomC" name="standard_romsets.cpp" compile="1" resource="0"
+            file="../src/backend/standard_romsets.cpp"/>
+      <FILE id="NScStdRomH" name="standard_romsets.h" compile="0" resource="0"
+            file="../src/backend/standard_romsets.h"/>
       <FILE id="NScSmC" name="submcu.cpp" compile="1" resource="0" file="../src/backend/submcu.cpp"/>
       <FILE id="NScSmH" name="submcu.h" compile="0" resource="0" file="../src/backend/submcu.h"/>
       <FILE id="NScAudioH" name="audio.h" compile="0" resource="0" file="../src/backend/audio.h"/>
       <FILE id="NScMathH" name="math_util.h" compile="0" resource="0" file="../src/backend/math_util.h"/>
-      <FILE id="NScBoundH" name="bounded_ordered_bitset.h" compile="0" resource="0" file="../src/backend/bounded_ordered_bitset.h"/>
+      <FILE id="NScBoundH" name="bounded_ordered_bitset.h" compile="0" resource="0"
+            file="../src/backend/bounded_ordered_bitset.h"/>
       <FILE id="NScCastH" name="cast.h" compile="0" resource="0" file="../src/backend/cast.h"/>
       <FILE id="NScRingH" name="ringbuffer.h" compile="0" resource="0" file="../src/backend/ringbuffer.h"/>
-      <FILE id="NScStringH" name="string_map.h" compile="0" resource="0" file="../src/backend/string_map.h"/>
-      <FILE id="NScVectorH" name="string_vector.h" compile="0" resource="0" file="../src/backend/string_vector.h"/>
+      <FILE id="NScStringH" name="string_map.h" compile="0" resource="0"
+            file="../src/backend/string_map.h"/>
+      <FILE id="NScVectorH" name="string_vector.h" compile="0" resource="0"
+            file="../src/backend/string_vector.h"/>
       <FILE id="NScSha256H" name="sha256.h" compile="0" resource="0" file="../src/backend/sha256.h"/>
       <GROUP id="{AD7915D0-733C-461D-8AA2-3E27BEBB14A6}" name="sha">
         <FILE id="NScShaC" name="sha224-256.c" compile="1" resource="0" file="../src/backend/sha/sha224-256.c"/>
@@ -74,8 +84,10 @@
       </GROUP>
     </GROUP>
     <GROUP id="{5C5E2C0E-C1D9-4C61-90AB-1217B9B9A8A2}" name="jcmoyer Common">
-      <FILE id="NScLoaderC" name="rom_loader.cpp" compile="1" resource="0" file="../src/common/rom_loader.cpp"/>
-      <FILE id="NScLoaderH" name="rom_loader.h" compile="0" resource="0" file="../src/common/rom_loader.h"/>
+      <FILE id="NScLoaderC" name="rom_loader.cpp" compile="1" resource="0"
+            file="../src/common/rom_loader.cpp"/>
+      <FILE id="NScLoaderH" name="rom_loader.h" compile="0" resource="0"
+            file="../src/common/rom_loader.h"/>
     </GROUP>
     <GROUP id="{95F9B4D1-30A9-4E1B-8D4C-3AB2C24B8E18}" name="Third Party">
       <FILE id="NScUtfH" name="utf8main.h" compile="0" resource="0" file="../3rdparty/Utf8Main/utf8main.h"/>
@@ -85,6 +97,7 @@
     </GROUP>
     <GROUP id="{2332326A-53B6-108E-8E08-9CEE12B684CC}" name="Images">
       <FILE id="YnkdNZ" name="Background.png" compile="0" resource="1" file="Images/Background.png"/>
+      <FILE id="ORzYtp" name="Volume.png" compile="0" resource="1" file="Images/Volume.png"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>

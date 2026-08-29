@@ -5,19 +5,12 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <exception>
 #include <filesystem>
 #include <mutex>
 #include <string_view>
-
-#if defined (__APPLE__)
- #include <pthread.h>
-#endif
 
 #include "audio.h"
 #include "diagnostics.h"
@@ -116,9 +109,10 @@ const char* frontPanelButtonName (NukedSC55Emulator::FrontPanelButton button) no
 
 // The backend's LCD renderer is intentionally callback based. This adapter
 // keeps the backend alive so LCD_Write records the hardware state, then takes a
-// snapshot on the message thread. The mask is rendered with the same segment
-// coordinates as Nuked's original plugin-side LCD_GetDisplayMask(), while the
-// MCU/DSP implementation itself remains entirely in jcmoyer's backend.
+// small character-RAM snapshot for the message thread. The mask is rendered
+// with the same segment coordinates as Nuked's original plugin-side
+// LCD_GetDisplayMask(), while the MCU/DSP implementation itself remains
+// entirely in jcmoyer's backend.
 class LcdCaptureBackend final : public LCD_Backend
 {
 public:
@@ -142,9 +136,19 @@ public:
 
     void Render() override
     {
+        captureState();
+    }
+
+    // LCD_Render() also draws the complete 741x268 pixel framebuffer. The
+    // plugin only needs the character data below, so the audio callback uses
+    // this lightweight path instead of invoking that full renderer.
+    void captureState() noexcept
+    {
         const lcd_t* current = nullptr;
         {
-            const std::lock_guard lock (mutex);
+            std::unique_lock lock (mutex, std::try_to_lock);
+            if (! lock.owns_lock())
+                return;
             current = lcd;
         }
 
@@ -158,7 +162,8 @@ public:
             // The object itself is owned by Emulator and is non-const; only
             // the callback's view is const.
             auto& mutableLcd = const_cast<lcd_t&> (*current);
-            const std::lock_guard lock (mutableLcd.mutex);
+            if (! mutableLcd.mutex.try_lock())
+                return;
             next.valid = true;
             next.width = current->width;
             next.height = current->height;
@@ -174,9 +179,12 @@ public:
             next.displayAddress = current->LCD_DD_RAM;
             std::copy (std::begin (current->LCD_Data), std::end (current->LCD_Data), next.data.begin());
             std::copy (std::begin (current->LCD_CG), std::end (current->LCD_CG), next.cg.begin());
+            mutableLcd.mutex.unlock();
         }
 
-        const std::lock_guard lock (mutex);
+        std::unique_lock lock (mutex, std::try_to_lock);
+        if (! lock.owns_lock())
+            return;
         if (lcd == current)
             snapshot = next;
     }
@@ -503,36 +511,10 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     dcPreviousInput[0] = dcPreviousInput[1] = 0.0f;
     dcPreviousOutput[0] = dcPreviousOutput[1] = 0.0f;
     midiDropMessage = false;
-    midiGateOpen = false;
-    lastUartReadPtr = 0;
+    gsResetSent = false;
 
     publishDebugState();
     ready.store (true, std::memory_order_release);
-    emulationThreadRunning.store (true, std::memory_order_release);
-
-    try
-    {
-        emulationThread = std::thread ([this] { emulationThreadMain(); });
-    }
-    catch (const std::exception& exception)
-    {
-        emulationThreadRunning.store (false, std::memory_order_release);
-        ready.store (false, std::memory_order_release);
-        release();
-        setError (std::string ("Cannot start emulation thread: ") + exception.what());
-        return false;
-    }
-
-    // This wait happens on the message thread, never in the audio callback.
-    // It lets the firmware leave its reset path before the first audio block.
-    {
-        std::unique_lock lock (emulationMutex);
-        emulationCondition.wait_for (lock, std::chrono::milliseconds (250), [this]
-        {
-            return ! emulationThreadRunning.load (std::memory_order_acquire)
-                || availableSourceFrames() >= sourceTargetFrames;
-        });
-    }
 
     const auto& mcu = core->GetMCU();
     sc55debug::log ("initialise succeeded romset=%s mk1=%d sourceRate=%.2f",
@@ -554,11 +536,6 @@ void NukedSC55Emulator::release()
     }
 
     ready.store (false, std::memory_order_release);
-    emulationThreadRunning.store (false, std::memory_order_release);
-    emulationCondition.notify_all();
-
-    if (emulationThread.joinable())
-        emulationThread.join();
 
     {
         const std::lock_guard lock (coreMutex);
@@ -582,8 +559,7 @@ void NukedSC55Emulator::release()
     lastLoggedMidiPacketCount = 0;
     sourcePosition = 0.0;
     midiDropMessage = false;
-    midiGateOpen = false;
-    lastUartReadPtr = 0;
+    gsResetSent = false;
     debugAllLed.store (false, std::memory_order_relaxed);
     debugMuteLed.store (false, std::memory_order_relaxed);
 }
@@ -596,70 +572,23 @@ void NukedSC55Emulator::clearPendingMidi() noexcept
 
 void NukedSC55Emulator::clearFrontPanelButtons() noexcept
 {
-    {
-        const std::lock_guard lock (frontPanelMutex);
-        frontPanelPulses.clear();
-        frontPanelPulsesActive.store (false, std::memory_order_release);
-    }
-
-    frontPanelGeneration.fetch_add (1, std::memory_order_release);
-}
-
-namespace
-{
-std::FILE* midiTraceFile()
-{
-    static std::FILE* file = []() -> std::FILE*
-    {
-        const auto* home = std::getenv ("HOME");
-        if (home == nullptr)
-            return nullptr;
-
-        char marker[1024];
-        std::snprintf (marker, sizeof (marker), "%s/.sc55_midi_trace", home);
-        if (std::FILE* probe = std::fopen (marker, "rb"))
-            std::fclose (probe);
-        else
-            return nullptr;
-
-        char path[1024];
-        std::snprintf (path, sizeof (path), "%s/Library/Logs/SC-55-midi.log", home);
-        return std::fopen (path, "w");
-    }();
-
-    return file;
-}
+    frontPanelPendingMask.store (0, std::memory_order_release);
+    frontPanelPressedMask.store (0, std::memory_order_release);
+    frontPanelReleaseFrame.store (0, std::memory_order_release);
 }
 
 void NukedSC55Emulator::sendMidi (const uint8_t* data, int size)
 {
-    if (std::FILE* trace = midiTraceFile(); trace != nullptr && data != nullptr && size > 0)
-    {
-        for (int i = 0; i < size; ++i)
-            std::fprintf (trace, "%02X ", data[i]);
-        std::fputc ('\n', trace);
-        std::fflush (trace);
-    }
-
     if (data == nullptr || size <= 0)
-    {
-        sc55debug::log ("MIDI rejected: invalid packet data=%p size=%d", data, size);
         return;
-    }
 
-    const auto packetNumber = midiPacketCount.fetch_add (1, std::memory_order_relaxed) + 1;
-    const int byte0 = data[0];
-    const int byte1 = size > 1 ? data[1] : 0;
-    const int byte2 = size > 2 ? data[2] : 0;
+    midiPacketCount.fetch_add (1, std::memory_order_relaxed);
 
     for (int i = 0; i < size; ++i)
     {
         if (! enqueueMidiByte (data[i]))
         {
             midiDroppedBytes.fetch_add (static_cast<uint64_t> (size - i), std::memory_order_relaxed);
-            sc55debug::log ("MIDI #%llu input queue full size=%d data=%02x %02x %02x",
-                            static_cast<unsigned long long> (packetNumber), size,
-                            byte0, byte1, byte2);
             break;
         }
     }
@@ -671,15 +600,8 @@ void NukedSC55Emulator::pressFrontPanelButton (FrontPanelButton button)
     if (mask == 0)
         return;
 
-    {
-        const std::lock_guard lock (frontPanelMutex);
-        frontPanelPulses.push_back ({ mask,
-            std::chrono::steady_clock::now() + std::chrono::milliseconds (50) });
-        frontPanelPulsesActive.store (true, std::memory_order_release);
-    }
+    frontPanelPendingMask.fetch_or (mask, std::memory_order_release);
 
-    frontPanelGeneration.fetch_add (1, std::memory_order_release);
-    emulationCondition.notify_all();
     sc55debug::log ("front-panel button=%s mask=%08x",
                     frontPanelButtonName (button), mask);
 }
@@ -718,7 +640,6 @@ void NukedSC55Emulator::pushSample (const AudioFrame<int32_t>& sample)
     sourceFifo[write][0] = normalized.left;
     sourceFifo[write][1] = normalized.right;
     sourceWrite.store (nextWrite, std::memory_order_release);
-    emulationCondition.notify_all();
 }
 
 bool NukedSC55Emulator::enqueueMidiByte (uint8_t byte) noexcept
@@ -731,12 +652,6 @@ bool NukedSC55Emulator::enqueueMidiByte (uint8_t byte) noexcept
     midiFifo[write] = byte;
     midiWrite.store (nextWrite, std::memory_order_release);
     return true;
-}
-
-bool NukedSC55Emulator::midiPending() const noexcept
-{
-    return midiRead.load (std::memory_order_acquire)
-        != midiWrite.load (std::memory_order_acquire);
 }
 
 uint32_t NukedSC55Emulator::availableSourceFrames() const noexcept
@@ -762,26 +677,31 @@ void NukedSC55Emulator::consumeSourceFrames (uint32_t count) noexcept
 
 void NukedSC55Emulator::updateFrontPanelButtons() noexcept
 {
-    if (! frontPanelPulsesActive.load (std::memory_order_acquire))
-        return;
+    const auto currentFrame = sourceSamplesProduced.load (std::memory_order_relaxed);
+    const auto pendingMask = frontPanelPendingMask.exchange (0, std::memory_order_acquire);
+    auto pressedMask = frontPanelPressedMask.load (std::memory_order_relaxed);
 
-    uint32_t pressedMask = 0;
-    const auto now = std::chrono::steady_clock::now();
-
+    if (pendingMask != 0)
     {
-        const std::lock_guard lock (frontPanelMutex);
-        frontPanelPulses.erase (
-            std::remove_if (frontPanelPulses.begin(), frontPanelPulses.end(),
-                            [now] (const FrontPanelPulse& pulse)
-                            {
-                                return pulse.releaseAt <= now;
-                            }),
-            frontPanelPulses.end());
+        pressedMask |= pendingMask;
+        frontPanelPressedMask.store (pressedMask, std::memory_order_relaxed);
 
-        for (const auto& pulse : frontPanelPulses)
-            pressedMask |= pulse.mask;
+        const auto pulseFrames = static_cast<uint64_t> (std::max (1.0, sourceSampleRate * 0.05));
+        const auto requestedRelease = currentFrame + pulseFrames;
+        auto releaseFrame = frontPanelReleaseFrame.load (std::memory_order_relaxed);
+        while (releaseFrame < requestedRelease
+               && ! frontPanelReleaseFrame.compare_exchange_weak (
+                   releaseFrame, requestedRelease,
+                   std::memory_order_release, std::memory_order_relaxed))
+        {
+        }
+    }
 
-        frontPanelPulsesActive.store (! frontPanelPulses.empty(), std::memory_order_release);
+    const auto releaseFrame = frontPanelReleaseFrame.load (std::memory_order_acquire);
+    if (pendingMask == 0 && pressedMask != 0 && currentFrame >= releaseFrame)
+    {
+        pressedMask = 0;
+        frontPanelPressedMask.store (0, std::memory_order_relaxed);
     }
 
     if (core != nullptr)
@@ -794,10 +714,6 @@ void NukedSC55Emulator::drainMidi()
         return;
 
     auto& mcu = core->GetMCU();
-    if (! midiGateOpen && mcu.uart_read_ptr != lastUartReadPtr)
-        midiGateOpen = true;
-    lastUartReadPtr = mcu.uart_read_ptr;
-
     auto read = midiRead.load (std::memory_order_relaxed);
     const auto write = midiWrite.load (std::memory_order_acquire);
     while (read != write)
@@ -810,10 +726,10 @@ void NukedSC55Emulator::drainMidi()
                                    % uart_buffer_size;
             const bool ringNearlyFull = backlog >= uart_buffer_size - uartRingHeadroom;
 
-            // SysEx is allowed through the boot gate; hosts commonly send the
-            // initial setup bank before the firmware has consumed a note.
-            midiDropMessage = byte == 0xf0 ? ringNearlyFull
-                                           : (! midiGateOpen || ringNearlyFull);
+            // Do not gate MIDI on firmware boot. The UART ring is the hardware
+            // boundary; once it is close to full, discard the rest of the
+            // current MIDI message rather than overwriting unread bytes.
+            midiDropMessage = ringNearlyFull;
         }
 
         if (! midiDropMessage)
@@ -858,7 +774,7 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
 {
     DebugState state;
     state.ready = ready.load (std::memory_order_acquire);
-    state.emulationThreadRunning = emulationThreadRunning.load (std::memory_order_acquire);
+    state.backendRunning = state.ready;
     state.cp = debugCp.load (std::memory_order_relaxed);
     state.pc = debugPc.load (std::memory_order_relaxed);
     state.cycles = debugCycles.load (std::memory_order_relaxed);
@@ -883,54 +799,53 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
     return state;
 }
 
-void NukedSC55Emulator::emulationThreadMain()
+void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noexcept
 {
-#if defined (__APPLE__)
-    // Keep the source FIFO fed while the standalone app is idle in the
-    // background. This is the same real-time requirement as the old wrapper.
-    pthread_set_qos_class_self_np (QOS_CLASS_USER_INTERACTIVE, 0);
-#endif
+    if (core == nullptr)
+        return;
 
-    bool gsResetSent = false;
+    updateFrontPanelButtons();
 
-    while (emulationThreadRunning.load (std::memory_order_acquire))
+    auto& mcu = core->GetMCU();
+    if (! gsResetSent
+        && (((mcu.dev_register[DEV_SCR] & 0x10) != 0 && mcu.sleep != 0)
+            || mcu.cycles > gsResetFallbackCycles))
     {
-        if (core == nullptr)
-            break;
+        core->PostSystemReset (EMU_SystemReset::GS_RESET);
+        gsResetSent = true;
+        sc55debug::log ("GS reset sent at cycles=%llu",
+                        static_cast<unsigned long long> (mcu.cycles));
+    }
 
-        auto& mcu = core->GetMCU();
-        updateFrontPanelButtons();
+    // MIDI is inserted at the current emulated audio position. The firmware's
+    // UART model still determines when the byte is actually consumed.
+    drainMidi();
+
+    while (availableSourceFrames() < minimumFrames)
+    {
+        core->Step();
+
+        // The old worker checked this before every instruction. Checking
+        // immediately after a step preserves the reset boundary without adding
+        // a second MIDI polling pass to every emulated instruction.
+        auto& steppedMcu = core->GetMCU();
         if (! gsResetSent
-            && (((mcu.dev_register[DEV_SCR] & 0x10) != 0 && mcu.sleep != 0)
-                || mcu.cycles > gsResetFallbackCycles))
+            && (((steppedMcu.dev_register[DEV_SCR] & 0x10) != 0 && steppedMcu.sleep != 0)
+                || steppedMcu.cycles > gsResetFallbackCycles))
         {
             core->PostSystemReset (EMU_SystemReset::GS_RESET);
             gsResetSent = true;
             sc55debug::log ("GS reset sent at cycles=%llu",
-                            static_cast<unsigned long long> (mcu.cycles));
+                            static_cast<unsigned long long> (steppedMcu.cycles));
         }
-
-        drainMidi();
-
-        if (availableSourceFrames() >= sourceTargetFrames)
-        {
-            const auto frontPanelGenerationAtWait = frontPanelGeneration.load (std::memory_order_acquire);
-            std::unique_lock lock (emulationMutex);
-            emulationCondition.wait_for (lock, std::chrono::milliseconds (1),
-                                         [this, frontPanelGenerationAtWait]
-            {
-                return ! emulationThreadRunning.load (std::memory_order_acquire)
-                    || availableSourceFrames() < sourceTargetFrames
-                    || midiPending()
-                    || frontPanelGeneration.load (std::memory_order_acquire)
-                           != frontPanelGenerationAtWait;
-            });
-            continue;
-        }
-
-        core->Step();
-        publishDebugState();
     }
+
+    // Capture only the LCD character state on the same thread as the emulator.
+    // Calling the backend's LCD_Render here would also redraw its complete
+    // pixel framebuffer for every audio block.
+    if (lcdBackend != nullptr)
+        lcdBackend->captureState();
+    publishDebugState();
 }
 
 bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride)
@@ -938,8 +853,7 @@ bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destination
     if (destination == nullptr || destinationStride < static_cast<size_t> (LCD_DISPLAY_WIDTH))
         return false;
 
-    const std::lock_guard lock (coreMutex);
-    if (core == nullptr || lcdBackend == nullptr)
+    if (lcdBackend == nullptr)
     {
         for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
             std::memset (destination + static_cast<size_t> (y) * destinationStride,
@@ -947,7 +861,6 @@ bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destination
         return false;
     }
 
-    LCD_Render (core->GetLCD());
     return lcdBackend->copyMask (destination, destinationStride);
 }
 
@@ -968,6 +881,15 @@ void NukedSC55Emulator::render (float* left, float* right, int numSamples)
     }
 
     const double sourceStep = sourceSampleRate / hostSampleRate;
+    const double lastSourcePosition = sourcePosition
+                                    + sourceStep * static_cast<double> (numSamples - 1);
+    const auto minimumSourceFrames = static_cast<uint32_t> (std::floor (lastSourcePosition)) + 2u;
+
+    // The audio callback is the owner of the emulator clock. This call may
+    // execute many H8 instructions, but it never advances beyond the source
+    // frames required by this render segment (apart from interpolation lookahead).
+    driveCoreUntilSourceFrames (minimumSourceFrames);
+
     for (int i = 0; i < numSamples; ++i)
     {
         const uint32_t base = static_cast<uint32_t> (sourcePosition);

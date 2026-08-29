@@ -285,10 +285,12 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     sliderMasterVolume->setSliderStyle (juce::Slider::RotaryVerticalDrag);
     sliderMasterVolume->setTextBoxStyle (juce::Slider::NoTextBox, false, 80, 20);
     sliderMasterVolume->addListener (this);
+    filmstripSliderLookAndFeel1.setFilmstrip (juce::ImageCache::getFromMemory (BinaryData::Volume_png, BinaryData::Volume_pngSize), 101, true);
+    sliderMasterVolume->setLookAndFeel (&filmstripSliderLookAndFeel1);
 
-    sliderMasterVolume->setBounds (128, 24, 64, 64);
+    sliderMasterVolume->setBounds (132, 24, 64, 64);
 
-    cachedImage_BinaryData_Background_png_1 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
+    cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
     //[/UserPreSize]
@@ -296,7 +298,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     setSize (1024, 200);
 
 
-//[Constructor] You can add your own custom stuff here..
+    //[Constructor] You can add your own custom stuff here..
     lcdDisplay.reset (new LcdDisplay (audioProcessor,
                                       [this] { syncFrontPanelIndicators(); }));
     lcd->addAndMakeVisible (lcdDisplay.get());
@@ -333,6 +335,7 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonMidiChDec = nullptr;
     buttonMidiChInc = nullptr;
     buttonPower = nullptr;
+    sliderMasterVolume->setLookAndFeel (nullptr);
     sliderMasterVolume = nullptr;
 
 
@@ -361,9 +364,9 @@ void NukedSC55AudioProcessorEditor::paint (juce::Graphics& g)
         //[UserPaintCustomArguments] Customize the painting arguments here..
         //[/UserPaintCustomArguments]
         g.setColour (juce::Colours::black);
-        g.drawImage (cachedImage_BinaryData_Background_png_1,
+        g.drawImage (cachedImage_BinaryData_Background_png_2,
                      x, y, width, height,
-                     0, 0, cachedImage_BinaryData_Background_png_1.getWidth(), cachedImage_BinaryData_Background_png_1.getHeight());
+                     0, 0, cachedImage_BinaryData_Background_png_2.getWidth(), cachedImage_BinaryData_Background_png_2.getHeight());
     }
 
     //[UserPaint] Add your own custom painting code here..
@@ -697,10 +700,11 @@ BEGIN_JUCER_METADATA
               explicitFocusOrder="0" pos="24 24 72 24" buttonText="" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <SLIDER name="" id="56f744301daef134" memberName="sliderMasterVolume"
-          virtualName="" explicitFocusOrder="0" pos="128 24 64 64" min="0.0"
+          virtualName="" explicitFocusOrder="0" pos="132 24 64 64" min="0.0"
           max="100.0" int="1.0" style="RotaryVerticalDrag" textBoxPos="NoTextBox"
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
-          needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
+          needsCallback="1" filmstripImage="BinaryData::Volume_png" filmstripFrames="101"
+          filmstripVertical="1"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
@@ -710,3 +714,4 @@ END_JUCER_METADATA
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
+

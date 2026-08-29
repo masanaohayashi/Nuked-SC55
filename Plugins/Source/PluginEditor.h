@@ -94,7 +94,55 @@ private:
     std::unique_ptr<juce::TextButton> buttonMidiChInc;
     std::unique_ptr<juce::TextButton> buttonPower;
     std::unique_ptr<juce::Slider> sliderMasterVolume;
-    juce::Image cachedImage_BinaryData_Background_png_1;
+    struct FilmstripSliderLookAndFeel1  : public juce::LookAndFeel_V4
+    {
+        void setFilmstrip (juce::Image imageToUse, int numFramesToUse, bool verticalLayoutToUse)
+        {
+            image = imageToUse;
+            numFrames = juce::jmax (1, numFramesToUse);
+            verticalLayout = verticalLayoutToUse;
+        }
+
+        void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                               float sliderPos, float rotaryStartAngle,
+                               float rotaryEndAngle, juce::Slider& slider) override
+        {
+            if (image.isValid() && numFrames > 1)
+            {
+                auto frame = juce::jlimit (0, numFrames - 1,
+                                          juce::roundToInt (sliderPos * (float) (numFrames - 1)));
+
+                if (verticalLayout)
+                {
+                    auto frameHeight = image.getHeight() / numFrames;
+
+                    if (frameHeight > 0)
+                        g.drawImage (image, x, y, width, height,
+                                     0, frame * frameHeight, image.getWidth(), frameHeight);
+                }
+                else
+                {
+                    auto frameWidth = image.getWidth() / numFrames;
+
+                    if (frameWidth > 0)
+                        g.drawImage (image, x, y, width, height,
+                                     frame * frameWidth, 0, frameWidth, image.getHeight());
+                }
+
+                return;
+            }
+
+            juce::LookAndFeel_V4::drawRotarySlider (g, x, y, width, height, sliderPos,
+                                                    rotaryStartAngle, rotaryEndAngle, slider);
+        }
+
+        juce::Image image;
+        int numFrames = 1;
+        bool verticalLayout = true;
+    };
+
+    FilmstripSliderLookAndFeel1 filmstripSliderLookAndFeel1;
+    juce::Image cachedImage_BinaryData_Background_png_2;
 
 
     //==============================================================================
@@ -103,3 +151,4 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
+

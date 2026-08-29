@@ -1,15 +1,11 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
-#include <vector>
 
 template <typename SampleType>
 struct AudioFrame;
@@ -28,7 +24,7 @@ public:
     struct DebugState
     {
         bool ready = false;
-        bool emulationThreadRunning = false;
+        bool backendRunning = false;
         uint8_t cp = 0;
         uint16_t pc = 0;
         uint64_t cycles = 0;
@@ -93,7 +89,7 @@ public:
 
     bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
 
-    /** Frames waiting in the FIFO; offline renderers use it to pace themselves. */
+    /** Source-rate frames currently staged for host-rate conversion. */
     uint32_t availableFrames() const noexcept { return availableSourceFrames(); }
     DebugState getDebugState() const noexcept;
     const std::string& getError() const noexcept { return error; }
@@ -102,7 +98,6 @@ private:
     enum
     {
         sourceFifoFrames = 65536,
-        sourceTargetFrames = 1024,
         midiFifoBytes = 8192,
         // A few MIDI messages' worth of emulated UART backlog. Beyond this the
         // firmware is not consuming, so queueing more only delays notes.
@@ -114,14 +109,13 @@ private:
     float blockDc (int channel, float input) noexcept;
     void setError (const std::string& message);
 
-    void emulationThreadMain();
+    void driveCoreUntilSourceFrames (uint32_t minimumFrames) noexcept;
     void drainMidi();
     void updateFrontPanelButtons() noexcept;
     void clearFrontPanelButtons() noexcept;
     void publishDebugState() noexcept;
     void pushSample (const AudioFrame<int32_t>& sample);
     bool enqueueMidiByte (uint8_t byte) noexcept;
-    bool midiPending() const noexcept;
     uint32_t availableSourceFrames() const noexcept;
     const float* sourceFrame (uint32_t offset) const noexcept;
     void consumeSourceFrames (uint32_t count) noexcept;
@@ -131,8 +125,6 @@ private:
     std::atomic<uint32_t> sourceWrite { 0 };
 
     bool midiDropMessage = false;
-    bool midiGateOpen = false;
-    uint32_t lastUartReadPtr = 0;
     uint8_t midiFifo[midiFifoBytes] {};
     std::atomic<uint32_t> midiRead { 0 };
     std::atomic<uint32_t> midiWrite { 0 };
@@ -158,21 +150,15 @@ private:
     double sourceSampleRate = 0.0;
     double sourcePosition = 0.0;
     std::atomic<bool> ready { false };
-    std::atomic<bool> emulationThreadRunning { false };
-    std::thread emulationThread;
-    std::mutex emulationMutex;
-    std::condition_variable emulationCondition;
+    bool gsResetSent = false;
 
-    struct FrontPanelPulse
-    {
-        uint32_t mask = 0;
-        std::chrono::steady_clock::time_point releaseAt;
-    };
-
-    std::mutex frontPanelMutex;
-    std::vector<FrontPanelPulse> frontPanelPulses;
-    std::atomic<bool> frontPanelPulsesActive { false };
-    std::atomic<uint64_t> frontPanelGeneration { 0 };
+    // Front-panel presses are momentary events from the message thread. Keep
+    // the hand-off lock-free; the audio thread turns them into a 50 ms pulse
+    // measured in source frames, so a stalled host clock cannot release a
+    // button while the emulated machine is stopped.
+    std::atomic<uint32_t> frontPanelPendingMask { 0 };
+    std::atomic<uint32_t> frontPanelPressedMask { 0 };
+    std::atomic<uint64_t> frontPanelReleaseFrame { 0 };
 
     std::atomic<uint8_t> debugCp { 0 };
     std::atomic<uint16_t> debugPc { 0 };
