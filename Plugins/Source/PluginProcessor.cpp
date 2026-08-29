@@ -329,8 +329,28 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int channel = 0; channel < numChannels; ++channel)
         buffer.clear (channel, 0, numSamples);
 
-    if (midiFilePlaying.load (std::memory_order_relaxed))
+    const bool ready = audioReady.load (std::memory_order_acquire);
+    auto* left = numChannels > 0 ? buffer.getWritePointer (0) : nullptr;
+    auto* right = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
+    int renderedSamples = 0;
+
+    const bool playMidiFile = midiFilePlaying.load (std::memory_order_relaxed);
+    const auto rate = currentSampleRate.load (std::memory_order_relaxed);
+
+    // An SMF event used to be dispatched only at the beginning of the host
+    // block. Keep the audio callback as the clock, but visit the file player at
+    // roughly 1 ms intervals so large host blocks cannot quantise note starts by
+    // 10 ms or more. Integer sample counts make the actual interval just under
+    // 1 ms at common rates (44 samples at 44.1 kHz).
+    const int midiFileQuantumSamples = playMidiFile && rate > 0.0
+        ? std::max (1, static_cast<int> (rate * 0.001))
+        : numSamples;
+
+    auto dispatchMidiFileEvents = [&]() noexcept
     {
+        if (! playMidiFile)
+            return;
+
         // File order is preserved exactly; nothing here sorts or merges events.
         while (midiFileNext < midiFile.events.size()
                && midiFile.events[midiFileNext].seconds <= midiFilePosition)
@@ -338,38 +358,72 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const auto& e = midiFile.events[midiFileNext++];
             emulator.sendMidi (e.bytes.data(), static_cast<int> (e.bytes.size()));
         }
+    };
 
-        const auto rate = currentSampleRate.load (std::memory_order_relaxed);
-        if (rate > 0.0)
-            midiFilePosition += numSamples / rate;
+    auto advanceMidiFileClock = [&] (int samples) noexcept
+    {
+        if (playMidiFile && rate > 0.0)
+            midiFilePosition += static_cast<double> (samples) / rate;
+    };
 
-        if (midiFilePosition > midiFile.totalSeconds())
-            midiFilePlaying.store (false, std::memory_order_release);
+    auto hostMidiIterator = midiMessages.cbegin();
+    const auto hostMidiEnd = midiMessages.cend();
+    bool hasHostMidi = hostMidiIterator != hostMidiEnd;
+    juce::MidiMessageMetadata nextHostMidi {};
+    int nextHostMidiPosition = 0;
+
+    if (hasHostMidi)
+    {
+        nextHostMidi = *hostMidiIterator;
+        nextHostMidiPosition = juce::jlimit (0, numSamples, nextHostMidi.samplePosition);
     }
 
-    const bool ready = audioReady.load (std::memory_order_acquire);
-    auto* left = numChannels > 0 ? buffer.getWritePointer (0) : nullptr;
-    auto* right = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
-    int renderedSamples = 0;
-
-    for (const auto metadata : midiMessages)
+    auto dispatchHostMidiEvents = [&]() noexcept
     {
-        const int eventPosition = juce::jlimit (0, numSamples, metadata.samplePosition);
+        while (hasHostMidi && nextHostMidiPosition <= renderedSamples)
+        {
+            const auto message = nextHostMidi.getMessage();
+            emulator.sendMidi (message.getRawData(), message.getRawDataSize());
 
-        if (ready && left != nullptr && eventPosition > renderedSamples)
+            ++hostMidiIterator;
+            hasHostMidi = hostMidiIterator != hostMidiEnd;
+            if (hasHostMidi)
+            {
+                nextHostMidi = *hostMidiIterator;
+                nextHostMidiPosition = juce::jlimit (0, numSamples, nextHostMidi.samplePosition);
+            }
+        }
+    };
+
+    while (renderedSamples < numSamples)
+    {
+        dispatchMidiFileEvents();
+        dispatchHostMidiEvents();
+
+        int nextRenderPosition = numSamples;
+        if (playMidiFile)
+            nextRenderPosition = std::min (nextRenderPosition,
+                                           renderedSamples + midiFileQuantumSamples);
+        if (hasHostMidi)
+            nextRenderPosition = std::min (nextRenderPosition, nextHostMidiPosition);
+
+        const int segmentSamples = nextRenderPosition - renderedSamples;
+        if (ready && left != nullptr && segmentSamples > 0)
             emulator.render (left + renderedSamples,
                              right != nullptr ? right + renderedSamples : nullptr,
-                             eventPosition - renderedSamples);
+                             segmentSamples);
 
-        const auto message = metadata.getMessage();
-        emulator.sendMidi (message.getRawData(), message.getRawDataSize());
-        renderedSamples = eventPosition;
+        renderedSamples = nextRenderPosition;
+        advanceMidiFileClock (segmentSamples);
     }
 
-    if (ready && left != nullptr && renderedSamples < numSamples)
-        emulator.render (left + renderedSamples,
-                         right != nullptr ? right + renderedSamples : nullptr,
-                         numSamples - renderedSamples);
+    // Events exactly at the end of a host block are queued now and consumed
+    // when the next audio segment starts, matching JUCE's MIDI semantics.
+    dispatchMidiFileEvents();
+    dispatchHostMidiEvents();
+
+    if (playMidiFile && midiFilePosition > midiFile.totalSeconds())
+        midiFilePlaying.store (false, std::memory_order_release);
 
     if ((! ready || left == nullptr || numSamples <= 0) && shouldLogBlock)
         sc55debug::log ("processBlock #%llu returned silent before render",
