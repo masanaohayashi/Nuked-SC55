@@ -182,7 +182,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout NukedSC55AudioProcessor::cre
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
     layout.add (std::make_unique<juce::AudioParameterInt> (
-        "masterVolume", "Master Volume", 0, 100, 100));
+        juce::ParameterID { "masterVolume", 1 }, "Master Volume", 0, 100, 100));
     return layout;
 }
 
@@ -491,7 +491,14 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     if (playMidiFile && activeMidiFile != nullptr
         && midiFilePosition > activeMidiFile->totalSeconds())
+    {
+        // Natural completion has the same rewind semantics as Stop.  Keep the
+        // playback clock owned by the audio thread so the next Play starts at
+        // the first event without a cross-thread position reset.
         midiFilePlaying.store (false, std::memory_order_release);
+        midiFilePosition = 0.0;
+        midiFileNext = 0;
+    }
 
     const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
     const auto normalizedVolume = masterVolume != nullptr

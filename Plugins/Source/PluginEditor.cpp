@@ -301,6 +301,20 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     label2x->setBounds (648, 112, 46, 16);
 
+    buttonPlayPause.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonPlayPause.get());
+    buttonPlayPause->setButtonText (TRANS ("PLAY"));
+    buttonPlayPause->addListener (this);
+
+    buttonPlayPause->setBounds (120, 120, 80, 24);
+
+    buttonStop.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonStop.get());
+    buttonStop->setButtonText (TRANS ("STOP"));
+    buttonStop->addListener (this);
+
+    buttonStop->setBounds (24, 120, 80, 24);
+
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -310,25 +324,20 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
 
     //[Constructor] You can add your own custom stuff here..
+    // The faceplate is rendered at its native 1024x200 size and scaled in
+    // resized().  Keep the host window locked to the faceplate's aspect ratio,
+    // as on the TX81Z reference editor, so a resize never leaves a stretched
+    // panel surrounded by large empty margins.
+    setResizable (true, false);
+    setResizeLimits (512, 100, 2048, 400);
+    if (auto* constrainer = getConstrainer())
+        constrainer->setFixedAspectRatio (1024.0 / 200.0);
     lcdDisplay.reset (new LcdDisplay (audioProcessor,
                                       [this] { syncFrontPanelIndicators(); }));
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
     masterVolumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         audioProcessor.getParameters(), "masterVolume", *sliderMasterVolume);
-
-    buttonPlayPause = std::make_unique<juce::TextButton> ("PLAY");
-    contentComponent.addAndMakeVisible (buttonPlayPause.get());
-    buttonPlayPause->setButtonText ("PLAY");
-    buttonPlayPause->addListener (this);
-    buttonPlayPause->setBounds (616, 150, 72, 20);
-
-    buttonStop = std::make_unique<juce::TextButton> ("STOP");
-    contentComponent.addAndMakeVisible (buttonStop.get());
-    buttonStop->setButtonText ("STOP");
-    buttonStop->addListener (this);
-    buttonStop->setBounds (616, 174, 72, 20);
-
     audioProcessor.requestRomSelection();
     button2x->setClickingTogglesState (true);
     button2x->setToggleState (audioProcessor.isTwoXEnabled(), juce::dontSendNotification);
@@ -341,8 +350,6 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     //[Destructor_pre]. You can add your own custom destruction code here..
     masterVolumeAttachment = nullptr;
     lcdDisplay = nullptr;
-    buttonPlayPause = nullptr;
-    buttonStop = nullptr;
     //[/Destructor_pre]
 
     lcd = nullptr;
@@ -369,6 +376,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     sliderMasterVolume = nullptr;
     button2x = nullptr;
     label2x = nullptr;
+    buttonPlayPause = nullptr;
+    buttonStop = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -559,22 +568,26 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         syncFrontPanelIndicators();
         //[/UserButtonCode_button2x]
     }
-
-    //[UserbuttonClicked_Post]
-    if (buttonThatWasClicked == buttonPlayPause.get())
+    else if (buttonThatWasClicked == buttonPlayPause.get())
     {
+        //[UserButtonCode_buttonPlayPause] -- add your button handler code here..
         if (audioProcessor.isPlayingMidiFile())
             audioProcessor.pauseMidiFile();
         else
             audioProcessor.playMidiFile();
 
         syncPlaybackControls();
+        //[/UserButtonCode_buttonPlayPause]
     }
     else if (buttonThatWasClicked == buttonStop.get())
     {
+        //[UserButtonCode_buttonStop] -- add your button handler code here..
         audioProcessor.stopMidiFile();
         syncPlaybackControls();
+        //[/UserButtonCode_buttonStop]
     }
+
+    //[UserbuttonClicked_Post]
     //[/UserbuttonClicked_Post]
 }
 
@@ -786,6 +799,12 @@ BEGIN_JUCER_METADATA
          edBkgCol="0" labelText="2X" editableSingleClick="0" editableDoubleClick="0"
          focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
          kerning="0.0" bold="0" italic="0" justification="34"/>
+  <TEXTBUTTON name="" id="d38aac467e703aaf" memberName="buttonPlayPause" virtualName=""
+              explicitFocusOrder="0" pos="120 120 80 24" buttonText="PLAY"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <TEXTBUTTON name="" id="ae0fc65259da31ea" memberName="buttonStop" virtualName=""
+              explicitFocusOrder="0" pos="24 120 80 24" buttonText="STOP" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA

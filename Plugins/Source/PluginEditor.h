@@ -69,8 +69,6 @@ private:
     NukedSC55AudioProcessor& audioProcessor;
     std::unique_ptr<LcdDisplay> lcdDisplay;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
-    std::unique_ptr<juce::TextButton> buttonPlayPause;
-    std::unique_ptr<juce::TextButton> buttonStop;
     bool fileDragActive = false;
     //[/UserVariables]
 
@@ -147,6 +145,8 @@ private:
     FilmstripSliderLookAndFeel1 filmstripSliderLookAndFeel1;
     std::unique_ptr<juce::TextButton> button2x;
     std::unique_ptr<juce::Label> label2x;
+    std::unique_ptr<juce::TextButton> buttonPlayPause;
+    std::unique_ptr<juce::TextButton> buttonStop;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 
