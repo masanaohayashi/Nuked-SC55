@@ -314,6 +314,8 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                                       [this] { syncFrontPanelIndicators(); }));
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
+    masterVolumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        audioProcessor.getParameters(), "masterVolume", *sliderMasterVolume);
     audioProcessor.requestRomSelection();
     button2x->setClickingTogglesState (true);
     button2x->setToggleState (audioProcessor.isTwoXEnabled(), juce::dontSendNotification);
@@ -324,6 +326,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
 {
     //[Destructor_pre]. You can add your own custom destruction code here..
+    masterVolumeAttachment = nullptr;
     lcdDisplay = nullptr;
     //[/Destructor_pre]
 
@@ -531,6 +534,7 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     else if (buttonThatWasClicked == buttonPower.get())
     {
         //[UserButtonCode_buttonPower] -- add your button handler code here..
+        audioProcessor.requestGsReset();
         //[/UserButtonCode_buttonPower]
     }
     else if (buttonThatWasClicked == button2x.get())

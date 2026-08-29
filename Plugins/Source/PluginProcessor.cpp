@@ -20,6 +20,8 @@
 namespace
 {
 const char* const romDirectoryEnvironmentVariable = "NUKED_SC55_ROM_PATH";
+constexpr uint8_t gsResetMessage[] =
+    { 0xf0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7f, 0x00, 0x41, 0xf7 };
 
 bool containsRomSet (const juce::File& directory)
 {
@@ -165,10 +167,21 @@ NukedSC55AudioProcessor::NukedSC55AudioProcessor()
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
                        )
+     , parameters (*this, nullptr, "PARAMETERS", createParameterLayout())
+#else
+     : parameters (*this, nullptr, "PARAMETERS", createParameterLayout())
 #endif
 {
     sc55debug::log ("processor constructed wrapper=%d acceptsMidi=%d",
                     wrapperType, acceptsMidi() ? 1 : 0);
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout NukedSC55AudioProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    layout.add (std::make_unique<juce::AudioParameterInt> (
+        "masterVolume", "Master Volume", 0, 100, 100));
+    return layout;
 }
 
 NukedSC55AudioProcessor::~NukedSC55AudioProcessor()
@@ -250,6 +263,14 @@ void NukedSC55AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     sc55debug::log ("prepareToPlay rate=%.2f block=%d", sampleRate, samplesPerBlock);
     secondaryRenderBuffer.setSize (2, std::max (1, samplesPerBlock), false, true, true);
     currentSampleRate.store (sampleRate, std::memory_order_release);
+
+    masterVolumeGain.reset (sampleRate, 0.01);
+    const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
+    const auto normalizedVolume = masterVolume != nullptr
+        ? juce::jlimit (0.0f, 1.0f, masterVolume->load (std::memory_order_relaxed) / 100.0f)
+        : 1.0f;
+    masterVolumeGain.setCurrentAndTargetValue (normalizedVolume * normalizedVolume);
+
     triggerAsyncUpdate();
 }
 
@@ -463,6 +484,23 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (playMidiFile && midiFilePosition > midiFile.totalSeconds())
         midiFilePlaying.store (false, std::memory_order_release);
 
+    const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
+    const auto normalizedVolume = masterVolume != nullptr
+        ? juce::jlimit (0.0f, 1.0f, masterVolume->load (std::memory_order_relaxed) / 100.0f)
+        : 1.0f;
+
+    // Apply the squared amplitude curve to the final mixed output. The target
+    // is smoothed in linear-gain space one sample at a time so slider moves
+    // and host automation cannot create block-rate zipper noise.
+    masterVolumeGain.setTargetValue (normalizedVolume * normalizedVolume);
+    float* const* outputChannels = buffer.getArrayOfWritePointers();
+    for (int sample = 0; sample < numSamples; ++sample)
+    {
+        const auto gain = masterVolumeGain.getNextValue();
+        for (int channel = 0; channel < numChannels; ++channel)
+            outputChannels[channel][sample] *= gain;
+    }
+
     if ((! ready || left == nullptr || numSamples <= 0) && shouldLogBlock)
         sc55debug::log ("processBlock #%llu returned silent before render",
                         static_cast<unsigned long long> (processBlockCount));
@@ -534,6 +572,12 @@ void NukedSC55AudioProcessor::pressFrontPanelButton (NukedSC55Emulator::FrontPan
         emulators[1].pressFrontPanelButton (button);
 }
 
+void NukedSC55AudioProcessor::requestGsReset()
+{
+    sc55debug::log ("GS reset requested by power button");
+    sendMidiToEmulators (gsResetMessage, static_cast<int> (sizeof (gsResetMessage)));
+}
+
 void NukedSC55AudioProcessor::setTwoXEnabled (bool enabled)
 {
     if (enabled
@@ -570,24 +614,27 @@ void NukedSC55AudioProcessor::sendMidiToEmulators (const uint8_t* data, int size
         return;
     }
 
-    // System messages have no MIDI channel. Match the standard frontend's
-    // broadcast behavior so resets and SysEx affect both emulated units.
-    if (status >= 0xf0)
+    // A running-status data byte is not a complete message at this boundary;
+    // keep the defensive behavior of the single-instance path.
+    if (status < 0x80)
+    {
+        emulators[0].sendMidi (data, size);
+        return;
+    }
+
+    // In 2X mode, notes are split between the two complete emulators while
+    // channel state and other performance data must remain identical. System
+    // messages have no MIDI channel, so they are broadcast as well.
+    const auto messageType = static_cast<uint8_t> (status & 0xf0);
+    if (status >= 0xf0 || (messageType != 0x80 && messageType != 0x90))
     {
         emulators[0].sendMidi (data, size);
         emulators[1].sendMidi (data, size);
         return;
     }
 
-    if (status >= 0x80)
-    {
-        const auto instance = static_cast<size_t> ((status & 0x0f) & 1u);
-        emulators[instance].sendMidi (data, size);
-        return;
-    }
-
-    // Defensive fallback for an incomplete/malformed MIDI packet.
-    emulators[0].sendMidi (data, size);
+    const auto instance = static_cast<size_t> ((status & 0x0f) & 1u);
+    emulators[instance].sendMidi (data, size);
 }
 
 void NukedSC55AudioProcessor::handleAsyncUpdate()
@@ -754,12 +801,19 @@ juce::AudioProcessorEditor* NukedSC55AudioProcessor::createEditor()
 //==============================================================================
 void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    juce::ignoreUnused (destData);
+    const auto state = parameters.copyState();
+    if (const auto xml = state.createXml())
+        copyXmlToBinary (*xml, destData);
 }
 
 void NukedSC55AudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    juce::ignoreUnused (data, sizeInBytes);
+    const std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
+    if (xml != nullptr)
+    {
+        if (xml->hasTagName (parameters.state.getType()))
+            parameters.replaceState (juce::ValueTree::fromXml (*xml));
+    }
 }
 
 //==============================================================================

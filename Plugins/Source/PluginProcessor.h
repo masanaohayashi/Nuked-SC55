@@ -79,6 +79,11 @@ public:
     /** Sends one momentary press through the SC-55's physical front-panel matrix. */
     void pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button);
 
+    /** Queues the Roland GS reset SysEx used by the SC-55 reset path. */
+    void requestGsReset();
+
+    juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
+
     /** Enables the two-instance polyphony mode. */
     void setTwoXEnabled (bool enabled);
     bool isTwoXEnabled() const noexcept { return twoXEnabled.load (std::memory_order_acquire); }
@@ -97,11 +102,13 @@ public:
 
 private:
     //==============================================================================
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void handleAsyncUpdate() override;
     bool initialiseRomDirectory (const juce::File& directory);
     void launchRomChooser();
     void sendMidiToEmulators (const uint8_t* data, int size) noexcept;
 
+    juce::AudioProcessorValueTreeState parameters;
     std::array<NukedSC55Emulator, 2> emulators;
     juce::AudioBuffer<float> secondaryRenderBuffer;
     std::atomic<bool> audioReady { false };
@@ -109,6 +116,7 @@ private:
     std::atomic<bool> secondaryReleaseRequested { false };
     std::atomic<bool> romSelectionRequested { false };
     std::atomic<double> currentSampleRate { 0.0 };
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterVolumeGain;
 
     // Accessed by the message-thread chooser and the message-thread editor.
     juce::String uiError;

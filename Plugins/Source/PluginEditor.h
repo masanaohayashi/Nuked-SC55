@@ -67,6 +67,7 @@ private:
     // access the processor object that created it.
     NukedSC55AudioProcessor& audioProcessor;
     std::unique_ptr<LcdDisplay> lcdDisplay;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
     bool fileDragActive = false;
     //[/UserVariables]
 
@@ -152,4 +153,3 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-
