@@ -243,6 +243,71 @@ public:
         return true;
     }
 
+    bool copyMergedMask (const LcdCaptureBackend& alternate,
+                         uint8_t* destination, size_t destinationStride) const
+    {
+        if (destination == nullptr || destinationStride < static_cast<size_t> (LCD_DISPLAY_WIDTH))
+            return false;
+
+        Snapshot primary;
+        Snapshot secondary;
+        copySnapshot (primary);
+        alternate.copySnapshot (secondary);
+        clearMask (destination, destinationStride);
+
+        const bool primaryRenderable = isRenderable (primary);
+        const bool secondaryRenderable = isRenderable (secondary);
+        if (! primaryRenderable && ! secondaryRenderable)
+            return false;
+
+        // The selected-part fields are global UI state. They are mirrored to
+        // both instances by the processor, so keep one coherent copy instead
+        // of drawing two different values over the same LCD pixels.
+        const auto& common = primaryRenderable ? primary : secondary;
+
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                11, 34 + i * 35, common.data[static_cast<size_t> (i)], common);
+
+        // The 16 channel indicators use the same MIDI channel index as the
+        // routing rule: even channels come from the primary instance and odd
+        // channels from the alternate instance.
+        for (int i = 0; i < 16; ++i)
+        {
+            const Snapshot* source = (i & 1) == 0
+                                   ? (primaryRenderable ? &primary : &common)
+                                   : (secondaryRenderable ? &secondary : &common);
+            renderStandardMask (destination, destinationStride,
+                                11, 153 + i * 35,
+                                source->data[static_cast<size_t> (3 + i)], *source);
+        }
+
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                75, 34 + i * 35, common.data[static_cast<size_t> (40 + i)], common);
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                75, 153 + i * 35, common.data[static_cast<size_t> (43 + i)], common);
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                139, 34 + i * 35, common.data[static_cast<size_t> (49 + i)], common);
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                139, 153 + i * 35, common.data[static_cast<size_t> (46 + i)], common);
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                203, 34 + i * 35, common.data[static_cast<size_t> (52 + i)], common);
+        for (int i = 0; i < 3; ++i)
+            renderStandardMask (destination, destinationStride,
+                                203, 153 + i * 35, common.data[static_cast<size_t> (55 + i)], common);
+
+        renderMergedLevelIndicators (destination, destinationStride,
+                                     primary, secondary,
+                                     primaryRenderable, secondaryRenderable);
+        renderLeftRightIndicator (destination, destinationStride, common);
+        return true;
+    }
+
 private:
     struct Snapshot
     {
@@ -259,6 +324,28 @@ private:
         std::array<uint8_t, 80> data {};
         std::array<uint8_t, 64> cg {};
     };
+
+    void copySnapshot (Snapshot& destination) const
+    {
+        const std::lock_guard lock (mutex);
+        destination = snapshot;
+    }
+
+    static bool isRenderable (const Snapshot& state) noexcept
+    {
+        return state.valid
+            && state.width == static_cast<size_t> (LCD_DISPLAY_WIDTH)
+            && state.height == static_cast<size_t> (LCD_DISPLAY_HEIGHT)
+            && state.enabled
+            && ! state.isCm300 && ! state.isSt && ! state.isScb55 && ! state.isJv880;
+    }
+
+    static void clearMask (uint8_t* destination, size_t destinationStride)
+    {
+        for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
+            std::memset (destination + static_cast<size_t> (y) * destinationStride,
+                         0, static_cast<size_t> (LCD_DISPLAY_WIDTH));
+    }
 
     static const uint8_t* glyph (const Snapshot& state, uint8_t character)
     {
@@ -316,6 +403,45 @@ private:
                 const uint8_t value = (f[i] & (1 << (4 - j))) != 0 ? 1 : 2;
                 setMaskRectangle (destination, stride,
                                   x + i * 11, y + j * 26, 9, 24, value);
+            }
+        }
+    }
+
+    static void renderLevelColumn (uint8_t* destination, size_t stride,
+                                   int screenY, int screenX, int column,
+                                   int matrix, const Snapshot& state)
+    {
+        const auto dataOffset = static_cast<size_t> (matrix == 0 ? 20 : 60);
+        const auto character = state.data[dataOffset + static_cast<size_t> (column / 5)];
+        const auto* f = glyph (state, character);
+        const auto glyphColumn = column % 5;
+
+        for (int row = 0; row < 8; ++row)
+        {
+            const uint8_t value = (f[row] & (1 << (4 - glyphColumn))) != 0 ? 1 : 2;
+            setMaskRectangle (destination, stride,
+                              screenY + row * 11,
+                              screenX + column * 26,
+                              9, 24, value);
+        }
+    }
+
+    static void renderMergedLevelIndicators (uint8_t* destination, size_t stride,
+                                             const Snapshot& primary,
+                                             const Snapshot& secondary,
+                                             bool primaryRenderable,
+                                             bool secondaryRenderable)
+    {
+        const auto& fallback = primaryRenderable ? primary : secondary;
+        for (int matrix = 0; matrix < 2; ++matrix)
+        {
+            for (int column = 0; column < 16; ++column)
+            {
+                const Snapshot* source = (column & 1) == 0
+                                       ? (primaryRenderable ? &primary : &fallback)
+                                       : (secondaryRenderable ? &secondary : &fallback);
+                renderLevelColumn (destination, stride,
+                                   71 + matrix * 88, 293, column, matrix, *source);
             }
         }
     }
@@ -848,7 +974,7 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
     publishDebugState();
 }
 
-bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride)
+bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride) const
 {
     if (destination == nullptr || destinationStride < static_cast<size_t> (LCD_DISPLAY_WIDTH))
         return false;
@@ -862,6 +988,19 @@ bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destination
     }
 
     return lcdBackend->copyMask (destination, destinationStride);
+}
+
+bool NukedSC55Emulator::copyMergedLcdDisplay (const NukedSC55Emulator& alternate,
+                                              uint8_t* destination, size_t destinationStride) const
+{
+    if (lcdBackend == nullptr)
+        return alternate.copyLcdDisplay (destination, destinationStride);
+
+    if (alternate.lcdBackend == nullptr)
+        return copyLcdDisplay (destination, destinationStride);
+
+    return lcdBackend->copyMergedMask (*alternate.lcdBackend,
+                                       destination, destinationStride);
 }
 
 void NukedSC55Emulator::render (float* left, float* right, int numSamples)

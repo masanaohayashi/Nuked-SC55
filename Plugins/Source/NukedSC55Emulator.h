@@ -85,7 +85,11 @@ public:
     void render (float* left, float* right, int numSamples);
 
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
-    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride);
+    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride) const;
+
+    /** Copies a display with channel-specific LCD content merged from another instance. */
+    bool copyMergedLcdDisplay (const NukedSC55Emulator& alternate,
+                               uint8_t* destination, size_t destinationStride) const;
 
     bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
 

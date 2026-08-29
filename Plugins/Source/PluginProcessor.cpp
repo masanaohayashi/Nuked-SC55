@@ -288,6 +288,9 @@ NukedSC55AudioProcessor::UiStatus NukedSC55AudioProcessor::getUiStatus() const
 
 bool NukedSC55AudioProcessor::copyLcdDisplay (uint8_t* destination, size_t destinationStride)
 {
+    if (twoXEnabled.load (std::memory_order_acquire))
+        return emulators[0].copyMergedLcdDisplay (emulators[1], destination, destinationStride);
+
     return emulators[0].copyLcdDisplay (destination, destinationStride);
 }
 
