@@ -11,18 +11,11 @@ inline bool enabled() noexcept
 {
     static const bool value = []() noexcept
     {
-#if defined (DEBUG) || defined (_DEBUG)
-        constexpr bool debugBuild = true;
-#else
-        constexpr bool debugBuild = false;
-#endif
-
         const auto* environmentValue = std::getenv ("NUKED_SC55_DEBUG");
-        return debugBuild
-            || (environmentValue != nullptr
+        return environmentValue != nullptr
             && *environmentValue != '\0'
             && std::strcmp (environmentValue, "0") != 0
-            && std::strcmp (environmentValue, "false") != 0);
+            && std::strcmp (environmentValue, "false") != 0;
     }();
 
     return value;
