@@ -32,6 +32,8 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 #include "mcu_timer.h"
+
+#include <algorithm>
 #include "mcu.h"
 #include <cstdint>
 
@@ -376,18 +378,50 @@ inline void TIMER_ClockTmr(mcu_timer_t& timer)
         MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_CMIB, 1);
 }
 
+// Each timer unit only does anything on multiples of its prescaler, which is
+// (step_mask + 1) ticks. Stepping one tick at a time meant four calls per tick
+// that mostly returned immediately -- with a 1 ms firmware tick and 12 cycles
+// per instruction that came to tens of millions of wasted calls per second.
+// The due times are known in closed form, so service whatever is due now and
+// jump straight to the next unit that will be due. The units themselves still
+// re-check their own prescaler, so behaviour is unchanged.
 void TIMER_Clock(mcu_timer_t& timer, uint64_t cycles)
 {
-    while (timer.cycles * 2 < cycles) // FIXME
+    const uint64_t target = (cycles + 1) / 2; // FIXME
+
+    while (timer.cycles < target)
     {
+        uint64_t next = target;
+
         for (int i = 0; i < 3; i++)
         {
-            TIMER_ClockFrt(timer, i);
+            const uint64_t mask =
+                timer.frt_step_table[timer.frt[i].tcr & (FRT_TCR_CKS0 | FRT_TCR_CKS1)];
+
+            if ((timer.cycles & mask) == 0)
+            {
+                TIMER_ClockFrt(timer, i);
+            }
+
+            next = std::min(next, (timer.cycles | mask) + 1);
         }
 
-        TIMER_ClockTmr(timer);
+        const uint64_t tmr_mask =
+            timer.tmr_step_table[timer.tmr.tcr & (TMR_TCR_CKS0 | TMR_TCR_CKS1 | TMR_TCR_CKS2)];
 
-        ++timer.cycles;
+        // A zero mask means the 8 bit timer is stopped, not that it runs every
+        // tick, so it never becomes due.
+        if (tmr_mask != 0)
+        {
+            if ((timer.cycles & tmr_mask) == 0)
+            {
+                TIMER_ClockTmr(timer);
+            }
+
+            next = std::min(next, (timer.cycles | tmr_mask) + 1);
+        }
+
+        timer.cycles = next;
     }
 }
 

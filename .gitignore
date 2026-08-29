@@ -96,3 +96,8 @@ CMakeSettings.json
 *.BIN
 *.rom
 *.ROM
+
+# Build products of the analysis tools
+/tools/sc55abcompare
+/tools/sc55probe
+/tools/sc55bench
