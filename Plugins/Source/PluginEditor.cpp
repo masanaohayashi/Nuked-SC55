@@ -564,13 +564,14 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 }
 
 //==============================================================================
-// Drop a Standard MIDI File on the window to play it.  The file goes straight
-// into the emulator in file order, which is the point: no sequencer sits in
-// between to sort or de-duplicate the controllers.
+// Drop a Standard MIDI File or RCP sequence on the window to play it.  The
+// resulting event stream goes straight into the emulator in file order, which
+// is the point: no sequencer sits in between to sort or de-duplicate controllers.
 bool NukedSC55AudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
-        if (f.endsWithIgnoreCase (".mid") || f.endsWithIgnoreCase (".midi") || f.endsWithIgnoreCase (".smf"))
+        if (f.endsWithIgnoreCase (".mid") || f.endsWithIgnoreCase (".midi")
+            || f.endsWithIgnoreCase (".smf") || f.endsWithIgnoreCase (".rcp"))
             return true;
 
     return false;
@@ -606,7 +607,7 @@ void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files
         {
             const auto options = juce::MessageBoxOptions::makeOptionsOk (
                 juce::AlertWindow::WarningIcon, "SC-55",
-                "この MIDI ファイルを再生できませんでした:\n" + file.getFileName());
+                "このシーケンスファイルを再生できませんでした:\n" + file.getFileName());
             juce::AlertWindow::showAsync (options, nullptr);
         }
 
@@ -714,4 +715,3 @@ END_JUCER_METADATA
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-

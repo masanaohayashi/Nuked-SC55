@@ -18,6 +18,10 @@
             file="Source/MidiFilePlayer.cpp"/>
       <FILE id="NScMfH" name="MidiFilePlayer.h" compile="0" resource="0"
             file="Source/MidiFilePlayer.h"/>
+      <FILE id="NScRcpC" name="RcpFilePlayer.cpp" compile="1" resource="0"
+            file="Source/RcpFilePlayer.cpp"/>
+      <FILE id="NScRcpH" name="RcpFilePlayer.h" compile="0" resource="0"
+            file="Source/RcpFilePlayer.h"/>
       <FILE id="NScEmC" name="NukedSC55Emulator.cpp" compile="1" resource="0"
             file="Source/NukedSC55Emulator.cpp"/>
       <FILE id="NScEmH" name="NukedSC55Emulator.h" compile="0" resource="0"

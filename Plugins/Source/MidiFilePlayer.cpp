@@ -1,4 +1,5 @@
 #include "MidiFilePlayer.h"
+#include "RcpFilePlayer.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -39,6 +40,7 @@ struct RawEvent
 bool MidiFileData::load (const std::string& path, std::string& error)
 {
     clear();
+    error.clear();
 
     std::FILE* file = std::fopen (path.c_str(), "rb");
     if (file == nullptr) { error = "Cannot open: " + path; return false; }
@@ -50,6 +52,9 @@ bool MidiFileData::load (const std::string& path, std::string& error)
     const bool read = ! data.empty() && std::fread (data.data(), 1, data.size(), file) == data.size();
     std::fclose (file);
     if (! read) { error = "Cannot load: " + path; return false; }
+
+    if (rcpfile::isRcpV2 (data))
+        return rcpfile::loadRcpV2 (data, *this, error);
 
     if (data.size() < 14 || std::memcmp (data.data(), "MThd", 4) != 0)
     { error = "Not as standard MIDI file"; return false; }
