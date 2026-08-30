@@ -111,4 +111,33 @@ inline uint16_t TvaWord (uint16_t level, uint16_t ramp, uint16_t previous, uint1
     return (uint16_t) ((now & 0xff00) | 0xb4);          // 率は固定
 }
 
+// エフェクト送り voice+0x3a（00:37b1-00:37f8）。
+//
+// 下位バイトがリバーブ、上位バイトがコーラス。音色の目標値（+0x0e / +0x0f）へ
+// **毎ティック 1 ずつしか動かない**スルーレート制限になっている。急な送り量の変化で
+// エフェクトが跳ねないようにするためで、値そのものより変化の速さを縛る作り。
+//
+// セレクタ（voice+0x30）が 0 でなければ、目標値は表で目減りさせてから使う。
+//
+// 実機との照合:
+//   TOKMEDLY 13,293/13,293   IMAGA_55 16,880/16,880   GATCHA55 14,288/14,288
+inline uint16_t EffectSend (uint16_t current, uint8_t reverb_target, uint8_t chorus_target,
+                            const uint8_t* reverb_scale = nullptr,
+                            const uint8_t* chorus_scale = nullptr)
+{
+    uint32_t low = reverb_target, high = chorus_target;
+
+    if (reverb_scale != nullptr)   // セレクタありのときは表で縮める（切り上げ）
+    {
+        low  = ((low  * *reverb_scale * 2 + 0xff) >> 8) & 0xff;
+        high = ((high * *chorus_scale * 2 + 0xff) >> 8) & 0xff;
+    }
+
+    int lo = current & 0xff, hi = (current >> 8) & 0xff;
+    if (lo != (int) low)  lo += ((int) low  >= lo) ? 1 : -1;
+    if (hi != (int) high) hi += ((int) high >= hi) ? 1 : -1;
+
+    return (uint16_t) (((hi & 0xff) << 8) | (lo & 0xff));
+}
+
 } // namespace sc55
