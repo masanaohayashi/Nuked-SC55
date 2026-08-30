@@ -125,4 +125,60 @@ inline int16_t LfoTrapezoid (uint16_t phase)
     return (int16_t) (second_half ? doubled : ramp);
 }
 
+// 遅延と立ち上がりのランプ（00:3b2c-00:3b80）。
+//
+// 2 段のカウンタを順に 0xffff まで進める。第 1 段（+0x18）が終わるまで第 2 段には
+// 進まず、出力 +0x06 も更新されない — つまり第 1 段が遅延、第 2 段が立ち上がり。
+// 出力は深さ（+0x00、符号付き）に立ち上がりカウンタを掛けた上位ワード。
+//
+// 実機との照合:
+//   +0x18  9,194/9,194、3,007/3,007、5,105/5,105
+//   +0x1a  6,979/6,979、14,167/14,167、13,655/13,655
+//   +0x06  同上
+struct ModulationRamp
+{
+    uint16_t delay = 0;      // +0x18
+    uint16_t attack = 0;     // +0x1a
+    uint16_t output = 0;     // +0x06
+    bool     reached_lfo = false;   // 第 1 段が終わっていれば LFO 側へ進む
+};
+
+inline void StepModulationRamp (ModulationRamp& state, uint16_t delay_rate,
+                                uint16_t attack_rate, int16_t depth, uint16_t tick)
+{
+    state.reached_lfo = true;
+
+    if (state.delay != 0xffff)
+    {
+        const uint32_t product = (uint32_t) delay_rate * tick;
+        const uint32_t low  = (product & 0xffff) + state.delay;
+        const uint32_t high = ((product >> 16) & 0xffff) + (low >> 16);
+
+        if ((high & 0xffff) != 0) state.delay = 0xffff;
+        else
+        {
+            state.delay = (uint16_t) low;
+            if (state.delay != 0xffff) return;    // まだ遅延中。ここで打ち切る
+        }
+    }
+
+    if (state.attack == 0xffff)
+        return;                                   // 完了後は別経路が値を配る
+
+    const uint32_t product = (uint32_t) attack_rate * tick;
+    const uint32_t low  = (product & 0xffff) + state.attack;
+    const uint32_t high = ((product >> 16) & 0xffff) + (low >> 16);
+    state.attack = ((high & 0xffff) != 0) ? 0xffff : (uint16_t) low;
+
+    if (depth < 0)
+    {
+        const uint16_t magnitude = (uint16_t) (((uint32_t) (uint16_t) -depth * state.attack) >> 16);
+        state.output = (uint16_t) (-(int16_t) magnitude);
+    }
+    else
+    {
+        state.output = (uint16_t) (((uint32_t) (uint16_t) depth * state.attack) >> 16);
+    }
+}
+
 } // namespace sc55
