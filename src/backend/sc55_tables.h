@@ -250,5 +250,17 @@ inline constexpr uint8_t RESONANCE_LIMIT[256] = {
     0x08, 0x07, 0x07, 0x06, 0x06, 0x05, 0x05, 0x04, 0x04, 0x03, 0x03, 0x02, 0x02, 0x01, 0x01, 0x00,
 };
 
+// ボイス構造体のアドレス表（rom1[0x676a]、24 エントリ）。
+// 毎ティックのボイス走査（00:5b11）がここを引いて構造体を辿る。
+//
+// 中身は `0xacde + 0x12a * i` と 24 件すべて一致する。この基底と刻みは、もともと
+// 実行中の r0 の値を観測して決めたものだった。ROM に表として書いてあったのを後から
+// 見つけた形で、**観測から出した前提が独立に裏付けられた**ことになる。
+inline constexpr uint16_t VOICE_BASE = 0xacde;
+inline constexpr uint16_t VOICE_STRIDE = 0x12a;
+inline constexpr int VOICE_COUNT = 24;
+
+inline uint16_t VoiceAddress (int index) { return (uint16_t) (VOICE_BASE + VOICE_STRIDE * index); }
+
 } // namespace sc55
 
