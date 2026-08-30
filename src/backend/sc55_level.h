@@ -140,4 +140,23 @@ inline uint16_t EffectSend (uint16_t current, uint8_t reverb_target, uint8_t cho
     return (uint16_t) (((hi & 0xff) << 8) | (lo & 0xff));
 }
 
+// 音量合成が修飾の b 側に読む 3 つのコントローラ値（00:5cee / 00:5e59 / 00:5eb0）。
+//
+// 3 箇所とも同じ形をしている: 頭打ち → 16 倍 → 係数を掛けて上位ワードを取る。
+// 頭打ちと係数だけが違う。
+//
+//   voice+0x8a   cap 0x0fa0   係数 0x820d
+//   voice+0x8e   cap 0x0fc0   係数 0x8105
+//   voice+0x96   cap 0x0fc0   係数 0x8105
+//
+// バレルシフタが無いので 16 倍は `add r4,r4` を 4 回並べてある。
+//
+// 実機との照合（3 フィールドとも）:
+//   TOKMEDLY 12,621/12,621   IMAGA_55 17,001/17,001   GATCHA55 15,733/15,733
+inline uint16_t ScaleController (uint16_t value, uint16_t cap, uint32_t coefficient)
+{
+    if (value >= cap) value = cap;
+    return (uint16_t) ((((uint32_t) (uint16_t) (value << 4)) * coefficient) >> 16);
+}
+
 } // namespace sc55
