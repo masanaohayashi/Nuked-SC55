@@ -102,6 +102,19 @@ inline int32_t PitchReference (int note, int tune)    // tune は 0x400 中央
     return note * 1000 - (tune - 0x400);
 }
 
+// パート単位のピッチ成分（00:485c-00:4882）。voice+0x28:+0x3c に入る 24 ビット値。
+//
+//   00:4870  mulxu.w #0x3e8   トランスポーズ × 1000（ここでも 1 半音 = 1000）
+//   00:4878  パートの微調整（ワード）を足す
+//
+// ノート単位の PitchReference とは別の成分で、両方が最終的なピッチに効く。
+//
+// 実機との照合: 857/857、485/485、720/720。
+inline int32_t PitchPartOffset (uint8_t transpose, uint16_t tune)
+{
+    return (int32_t) (transpose * 1000 + tune);
+}
+
 inline uint16_t PitchLookup (uint32_t remainder)      // 余り 0..11999
 {
     const uint32_t coarse = PitchCoarse ((int) ((remainder >> 8) & 0xff));
