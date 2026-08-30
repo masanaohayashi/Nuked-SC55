@@ -87,4 +87,42 @@ inline uint16_t LfoSampleHold (uint32_t& phase32, uint32_t increment32,
     return (high & 0xffff) != 0 ? drawn : held;
 }
 
+// 波形 [1] 矩形（00:3c31）と [2] 鋸（00:3c48）。
+// **この 2 つは 3 曲とも一度も使われないので、逆アセンブルを読んだだけで未検証。**
+inline int16_t LfoSquare (uint16_t phase) { return phase < 0x8000 ? 0x7fff : (int16_t) 0x8001; }
+inline int16_t LfoSaw    (uint16_t phase) { return (int16_t) (uint16_t) (phase - 0x8000); }
+
+// 波形 [3] 台形（00:3c5c-00:3cab）。0x8000 と 0x4000 で二段に折って作る三角。
+//
+// 後半（位相 >= 0x8000）は `r3` を計算して符号反転した直後に **`r4` を格納**していて、
+// 素直に読むと辻褄が合わない。読んだままに実装したところ 440 件すべて一致したので、
+// これはファームウェアがそう書かれているということ。直さない。
+//
+// 実機との照合: IMAGA_55 440/440（他の 2 曲では一度も通らない）。
+inline int16_t LfoTrapezoid (uint16_t phase)
+{
+    uint16_t folded = (uint16_t) (phase - 0x8000);
+    if (folded == 0) return 0;
+
+    const bool second_half = phase >= 0x8000;
+    if (! second_half) folded = (uint16_t) (-(int16_t) folded);
+
+    const uint16_t before = folded;
+    folded = (uint16_t) (folded - 0x4000);
+
+    uint16_t doubled = 0, ramp;
+    if (folded == 0)
+    {
+        ramp = 0x7fff;
+    }
+    else
+    {
+        if (before < 0x4000) folded = (uint16_t) (-(int16_t) folded);
+        doubled = (uint16_t) (folded * 2);
+        ramp = (uint16_t) (0x8000 - doubled);
+    }
+
+    return (int16_t) (second_half ? doubled : ramp);
+}
+
 } // namespace sc55
