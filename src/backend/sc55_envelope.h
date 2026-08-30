@@ -81,4 +81,45 @@ inline uint16_t EncodeEnvelope (uint16_t prev, uint16_t next)
     return code == 0 ? 0xff00 : (uint16_t) ((level & 0xff00) | code);
 }
 
+// エンベロープのセグメント（00:35c9-00:365b）。開始レベルと終了レベルのあいだを
+// 進捗 0..0xffff で補間する。モードは 2 つ:
+//
+//   線形     voice-8 == 0。差分に進捗を掛けて足すだけ
+//   指数接近 それ以外。ENVELOPE_CURVE を隣接 2 点で補間し、幅に掛ける
+//
+// 上がりと下がりで別経路になっていて、上がりは曲線を反転して開始から積み上げ、
+// 下がりは曲線をそのまま終端へ足し込む。レベルはバイト値を上位バイトに置いたもの。
+//
+// 実機との照合（この関数 + EncodeEnvelope の通し、全枝を含む）:
+//   TOKMEDLY 13,459/13,459   IMAGA_55 16,617/16,617   GATCHA55 12,962/12,962
+inline uint16_t EnvelopeSegment (uint8_t start_level, uint8_t end_level,
+                                 uint16_t progress, bool exponential)
+{
+    const uint16_t start = (uint16_t) (start_level << 8);
+    const uint16_t end   = (uint16_t) (end_level << 8);
+
+    if (progress == 0xffff)
+        return end;                                   // 到達済み
+
+    if (! exponential)
+    {
+        if (end >= start) return (uint16_t) ((((uint32_t) (end - start) * progress) >> 16) + start);
+        return (uint16_t) (start - (((uint32_t) (start - end) * progress) >> 16));
+    }
+
+    // 進捗を反転して表を引き、下位バイトで隣接 2 点を補間する。
+    const uint16_t inverted = (uint16_t) ~progress;
+    const uint32_t fraction = inverted & 0xff;
+    const uint32_t index    = (inverted & 0xff00) >> 8;
+
+    const uint16_t low  = ENVELOPE_CURVE[index];
+    const uint16_t step = (uint16_t) (ENVELOPE_CURVE[index + 1] - low);
+    const uint16_t curve = (uint16_t) ((((fraction * step) >> 8) & 0xffff) + low);
+
+    if (end >= start)
+        return (uint16_t) ((((uint32_t) (uint16_t) (end - start) * (uint16_t) ~curve) >> 16) + start);
+
+    return (uint16_t) ((((uint32_t) curve * (uint16_t) (start - end)) >> 16) + end);
+}
+
 } // namespace sc55
