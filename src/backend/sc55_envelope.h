@@ -122,4 +122,64 @@ inline uint16_t EnvelopeSegment (uint8_t start_level, uint8_t end_level,
     return (uint16_t) ((((uint32_t) curve * (uint16_t) (start - end)) >> 16) + end);
 }
 
+// カットオフの通し（00:473c-00:47eb）。voice+0x26 を作る。
+//
+//   control  voice+0x22（曲線を引く 16 ビット値）
+//   previous voice+0x24（前回のカットオフ）
+//   flag     voice+0x68（天井表の添字。8 未満は 8 に切り上げる）
+//   limit    rom1[0x6b06 + セレクタ]。セレクタが 0 なら率は 0xaf 固定
+//
+// level_now には今回のカットオフが返るので voice+0x24 に書き戻す。
+//
+// 実機との照合（曲線引きから符号化まで通し）:
+//   TOKMEDLY 13,720/13,720   IMAGA_55 16,325/16,325   GATCHA55 13,835/13,835
+inline uint16_t CutoffWord (uint16_t control, uint16_t previous, uint8_t flag,
+                            int limit, bool selector_zero, uint16_t& level_now)
+{
+    const uint32_t index = (control >> 8) & 0xff;
+    uint32_t level = CUTOFF_CURVE[index];
+    if ((control & 0xff) != 0)                      // 下位バイトで隣と補間
+    {
+        const uint16_t step = (uint16_t) (CUTOFF_CURVE[index + 1] - (uint16_t) level);
+        level = (uint16_t) (level + (((((control & 0xff) * step) >> 8)) & 0xffff));
+    }
+    level = (level * 2) & 0xffff;
+
+    if (flag < 8) flag = 8;
+    const uint32_t ceiling = (uint32_t) (CUTOFF_CEILING[flag] << 8);
+    if (ceiling < level) level = ceiling;
+    if (level > 0xe600) level = 0xe600;
+
+    // voice+0x24 への書き戻しは 00:478b、つまり下の低位バイト落としより前に起きる。
+    level_now = (uint16_t) level;
+
+    const int32_t delta = (int32_t) level - (int32_t) previous;
+    if (delta == 0) return 0xff00;
+
+    uint16_t magnitude;
+    if (delta < 0)
+    {
+        magnitude = (uint16_t) -delta;
+    }
+    else
+    {
+        magnitude = (uint16_t) delta;
+        // 上がっていて上位バイトが変わらないなら 1 段先へ。天井は改めて当てる。
+        const uint32_t high = level & 0xff00;
+        if (high == (uint32_t) (previous & 0xff00))
+        {
+            level = high + 0x100;
+            if (ceiling < level) level = ceiling;
+        }
+        else level = high;
+    }
+    if (level > 0xe600) level = 0xe600;
+
+    if (selector_zero)
+        return (uint16_t) ((level & 0xff00) | 0xaf);
+
+    const uint8_t code = EncodeRate (magnitude, limit);
+    return code == 0 ? 0xff00 : (uint16_t) ((level & 0xff00) | code);
+}
+
 } // namespace sc55
