@@ -64,4 +64,27 @@ inline int16_t LfoSineStep (uint16_t& phase, uint16_t increment)
     return phase > 0x8000 ? (int16_t) -(int16_t) value : (int16_t) value;
 }
 
+// 波形 [4]（00:3cac-00:3ccf）。素のサンプル&ホールド。
+//
+// 32 ビットに広げた位相を進め、上位に桁上がりが出たときだけ新しい値を抽選して保持する。
+// 出力は保持値そのもので、平滑も補間もしない。
+//
+// **抽選元は追い切れていない。** `mov:g.b #0x1e,@0x3e` で何かに合図してから
+// `@0x3a`（ベースレジスタ経由で 0xe03a）を読む、という形になっていて、そこは
+// 一時変数。外から覗くと毎回違う値に見えるが、実際に読まれる瞬間は 3 曲とも
+// 一貫して 0xffff だった。合図の相手を特定するまで、ここは「観測された定数」として扱う。
+//
+// 実機との照合（波形 [0] と [4] を合わせて）:
+//   TOKMEDLY 27,195/27,195   IMAGA_55 34,173/34,173   GATCHA55 31,181/31,181
+inline uint16_t LfoSampleHold (uint32_t& phase32, uint32_t increment32,
+                               uint16_t held, uint16_t drawn)
+{
+    const uint32_t doubled = increment32 << 1;
+    const uint32_t low  = (doubled & 0xffff) + (phase32 & 0xffff);
+    const uint32_t high = ((doubled >> 16) & 0xffff) + (low >> 16);
+
+    phase32 = low & 0xffff;
+    return (high & 0xffff) != 0 ? drawn : held;
+}
+
 } // namespace sc55
