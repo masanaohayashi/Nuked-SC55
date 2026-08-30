@@ -39,7 +39,12 @@ int main(int argc, char** argv)
     if (g_mcu == nullptr) return 1;
 
     uint64_t checked = 0, matched = 0;
-    int shown = 0;
+    uint64_t pitch_checked = 0, pitch_matched = 0;
+    int shown = 0, pitch_shown = 0;
+
+    const auto word = [] (uint32_t at) {
+        return (uint16_t) ((MCU_Read_Impl(*g_mcu, at) << 8) | MCU_Read_Impl(*g_mcu, at + 1));
+    };
 
     double t = 0; size_t n = 0; const double dt = 256.0 / 44100.0;
     const double duration = argc > 2 ? std::atof(argv[2]) : 20.0;
@@ -73,9 +78,39 @@ int main(int argc, char** argv)
                 ++shown;
             }
         }
+        // ピッチ: voice+0x48 = voice+0xa6 にグローバル 0xc8b0 を足して飽和させたもの。
+        // 符号ビットで飽和の向きが変わる（00:534b-0x5364）。
+        {
+            const uint16_t global = word(0xc8b0);
+            for (int v = 0; v < VOICES; ++v)
+            {
+                const uint32_t base = VOICE0 + STRIDE * v;
+                const uint16_t source = word(base + 0xa6);
+                const uint16_t actual = word(base + 0x48);
+                if (source == 0 && actual == 0) continue;
+
+                const uint32_t sum = (uint32_t) source + global;
+                uint16_t want;
+                if (source & 0x8000) want = (sum & 0x10000) ? (uint16_t) sum : 0;
+                else                 want = (sum & 0x10000) ? 0xffff : (uint16_t) sum;
+
+                ++pitch_checked;
+                if (actual == want) ++pitch_matched;
+                else if (pitch_shown < 5)
+                {
+                    std::printf("  ピッチ不一致 voice %2d: +a6=%04x global=%04x  実機=%04x 計算=%04x\n",
+                                v, source, global, actual, want);
+                    ++pitch_shown;
+                }
+            }
+        }
+
         t += dt;
     }
 
+    std::printf("ピッチの照合: %llu 件中 %llu 件一致 (%.2f%%)\n",
+                (unsigned long long) pitch_checked, (unsigned long long) pitch_matched,
+                pitch_checked ? 100.0 * (double) pitch_matched / (double) pitch_checked : 0.0);
     std::printf("パンの照合: %llu 件中 %llu 件一致 (%.2f%%)\n",
                 (unsigned long long) checked, (unsigned long long) matched,
                 checked ? 100.0 * (double) matched / (double) checked : 0.0);
