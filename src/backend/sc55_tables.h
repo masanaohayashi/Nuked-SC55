@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cmath>
 
 namespace sc55
 {
@@ -44,6 +45,34 @@ inline constexpr uint8_t LINEAR_21[21] = {
 inline constexpr uint8_t LINEAR_11[11] = {
       0,  13,  26,  38,  51,  64,  77,  90, 102, 115, 128,
 };
+
+// ピッチ。ファームウェアはピッチを 0.1 セント単位で持ち、2 の冪乗を 2 段の表引きで作る
+// （00:5209-00:5234）。上位バイトで粗い表 rom1[0x7d7a] を、下位バイトで細かい表
+// rom1[0x7b7a] を引き、掛けてからオクターブ数だけ右シフトする。
+//
+// 表は 303 エントリ全部が下の式の round() と完全に一致するので、ROM から取り出す
+// 必要はない。データではなく式だった。
+//
+//   COARSE[h] = round(32768 * 2^(h * 25.6 / 1200))     h = 0..46   （1 段 = 25.6 セント）
+//   FINE[l]   = round((2^(l * 0.1 / 1200) - 1) * 2^22)  l = 0..255  （1 段 = 0.1 セント）
+//
+// 粗い表が 47 段しかないのは、47 * 25.6 = 1203 セント、つまり 1 オクターブで
+// 上位が 16 ビットを使い切るから。オクターブをまたぐぶんは右シフトが受け持つ。
+inline uint16_t PitchCoarse (int high_byte)   // 0..46
+{
+    return (uint16_t) std::lround (32768.0 * std::exp2 (high_byte * 25.6 / 1200.0));
+}
+
+inline uint32_t PitchFine (int low_byte)      // 0..255
+{
+    return (uint32_t) std::lround ((std::exp2 (low_byte * 0.1 / 1200.0) - 1.0) * 4194304.0);
+}
+
+// deci_cents は 0.1 セント単位。12000 でちょうど 1 オクターブ。
+inline float PitchRatio (float deci_cents)
+{
+    return std::exp2 (deci_cents / 12000.0f);
+}
 
 } // namespace sc55
 
