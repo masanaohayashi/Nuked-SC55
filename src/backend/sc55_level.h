@@ -86,4 +86,29 @@ inline uint16_t ComputeLevel (const LevelInputs& in)
     return (final32 >> 16) >= 0xff ? 0xffff : (uint16_t) ((final32 >> 8) & 0xffff);
 }
 
+// TVA が PCM チップへ渡すワード（00:36db-00:372f）。
+//
+// ComputeLevel の結果に立ち上がりのランプを掛けたものが今回のレベル。前回との差が
+// 小さければ「保持」、動いていれば率は固定値 0xb4 を使う。エンベロープやカットオフと
+// 違って、TVA は率を可変で送らない。
+//
+// ramp は voice+0x06（0xffff でなければ毎ティック 0x2000 ずつ飽和加算）、
+// previous は voice+0x18。level_now には今回のレベルが返るので voice+0x18 に書き戻す。
+//
+// 実機との照合（音量合成と符号化を繋いだ通し）:
+//   TOKMEDLY 13,293/13,293   IMAGA_55 16,880/16,880   GATCHA55 14,288/14,288
+inline uint16_t TvaWord (uint16_t level, uint16_t ramp, uint16_t previous, uint16_t& level_now)
+{
+    const uint32_t now = ((uint32_t) level * ramp) >> 16;
+    level_now = (uint16_t) now;
+
+    const int32_t delta = (int32_t) now - (int32_t) previous;
+    const uint32_t magnitude = delta < 0 ? (uint32_t) -delta : (uint32_t) delta;
+
+    if (magnitude <= 0x10)
+        return 0xff00;                                  // 保持
+
+    return (uint16_t) ((now & 0xff00) | 0xb4);          // 率は固定
+}
+
 } // namespace sc55
