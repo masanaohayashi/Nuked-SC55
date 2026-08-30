@@ -937,7 +937,24 @@ void MCU_Step(mcu_t& mcu)
         MCU_UpdateUART_TX(mcu);
     }
 
-    MCU_UpdateAnalog(mcu, mcu.cycles);
+    // アナログ変換は 200 サイクルごとにしか動かないので、ほとんどの命令は覗く必要がない。
+    // 5 通りを場合分けすると、飛ばしてよい 2 つは「観測できる変化が無い」ことが示せる:
+    //
+    //   停止中で end_time == 0   関数は 0 に 0 を代入するだけ            → 飛ばす
+    //   停止中で end_time != 0   関数は end_time を消す                  → 呼ぶ
+    //   動作中で end_time == 0   関数は end_time を置く                  → 呼ぶ
+    //   動作中で end_time 未達   関数は何もしない                        → 飛ばす
+    //   動作中で end_time 到達   標本化し、フラグと割り込みを立てる      → 呼ぶ
+    //
+    // ADCSR をここで読むので、変換の開始・停止に遅れずに反応する。
+    const uint8_t adcsr = mcu.dev_register[DEV_ADCSR];
+    if ((adcsr & 0x20) == 0)
+    {
+        if (mcu.analog_end_time != 0)
+            MCU_UpdateAnalog(mcu, mcu.cycles);
+    }
+    else if (mcu.analog_end_time == 0 || mcu.cycles > mcu.analog_end_time)
+        MCU_UpdateAnalog(mcu, mcu.cycles);
 
     if (mcu.is_mk1)
     {
