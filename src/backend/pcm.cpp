@@ -165,6 +165,7 @@ void PCM_Write(pcm_t& pcm, uint32_t address, uint8_t data)
                 ix |= 2;
 
             pcm.ram1[pcm.select_channel][ix] = pcm.write_latch;
+            pcm.sim_dirty |= 1u << pcm.select_channel;
         }
     }
     else if ((address >= 0x10 && address < 0x20) || (address >= 0x30 && address < 0x38))
@@ -187,6 +188,10 @@ void PCM_Write(pcm_t& pcm, uint32_t address, uint8_t data)
                 ix |= 8;
 
             pcm.ram2[pcm.select_channel][ix] = static_cast<uint16_t>(pcm.write_latch);
+
+            // ram2[0] is a voice's pitch increment, but ram2[7] bits 0..4 let a
+            // voice read another slot's, so a write there can stale any of them.
+            pcm.sim_dirty |= (ix == 0) ? 0xffffffffu : (1u << pcm.select_channel);
         }
     }
 }
@@ -625,11 +630,18 @@ static void PCM_UpdateVoicesSimulated(pcm_t& pcm, const int rcadd[6], const int 
         const bool okey = (ram2[7] & 0x20) != 0;
         const bool key = ((keys >> slot) & 1) != 0;
 
-        PCMSim_SyncVoice(sim, pcm, slot);
+        // Only voices the firmware has touched need rebuilding. Whether a voice
+        // is sounding is not one of those: it turns on and off from the voice
+        // mask and the key bit, both of which move on their own.
+        if (pcm.sim_dirty & (1u << slot))
+            PCMSim_SyncVoice(sim, pcm, slot);
+
+        sim.gate[slot] = (okey && key) ? 1.0f : 0.0f;
 
         if (key && !okey)
             PCMSim_KeyOn(sim, pcm, slot);
     }
+    pcm.sim_dirty = 0;
 
     float out[4];
     PCMSim_RenderFrame(sim, pcm, out);

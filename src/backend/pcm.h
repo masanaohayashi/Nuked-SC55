@@ -94,6 +94,11 @@ struct pcm_t
     // emulated path stays in place so the two can be compared.
     bool use_simulation = false;
     PCMSimVoices sim{};
+
+    // Which voices the firmware has written to since the simulation last read
+    // their registers. It rewrites a voice about 250 times a second; rebuilding
+    // all of them 32000 times a second was most of what the simulation cost.
+    uint32_t sim_dirty = 0xffffffffu;
 };
 
 void PCM_Write(pcm_t& pcm, uint32_t address, uint8_t data);
