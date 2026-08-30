@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -26,8 +27,8 @@ extern "C" {
 }
 
 extern uint8_t MCU_Read_Impl(mcu_t&, uint32_t);
+extern void MCU_Step_Impl(mcu_t&);
 extern void MCU_Write_Impl(mcu_t&, uint32_t, uint8_t);
-extern void MCU_Interrupt_Handle_Impl(mcu_t&);
 
 namespace {
 mcu_t* g_mcu = nullptr;
@@ -67,29 +68,42 @@ void MCU_Write(mcu_t& mcu, uint32_t address, uint8_t value)
     MCU_Write_Impl(mcu, address, value);
 }
 
-void MCU_Interrupt_Handle(mcu_t& mcu)
+// Hooked at MCU_Step, not at the interrupt check: RTE sets ex_ignore, which
+// makes MCU_Step skip that check on the next instruction, so a hook there never
+// sees where a task resumes.
+void MCU_Step(mcu_t& mcu)
 {
-    if (counting)
+    if (counting && !mcu.sleep)
         g_hits[((uint32_t) mcu.cp << 16) | mcu.pc]++;
-    MCU_Interrupt_Handle_Impl(mcu);
+    MCU_Step_Impl(mcu);
 }
 
 int main(int argc, char** argv)
 {
+    const bool top_mode = argc > 1 && std::strcmp(argv[1], "--top") == 0;
+
     if (argc < 3)
     {
-        std::printf("使い方: sc55dis CP:PC 長さ [song.mid]\n"
-                    "  例:   sc55dis 00:0379 256 /path/to/song.mid\n");
+        std::printf("使い方:\n"
+                    "  sc55dis CP:PC 長さ [song.mid]   その範囲を逆アセンブル\n"
+                    "  sc55dis --top N song.mid        実行回数の多い命令を N 個\n");
         return 1;
     }
 
-    unsigned cp = 0, pc = 0;
-    if (std::sscanf(argv[1], "%x:%x", &cp, &pc) != 2)
+    unsigned cp = 0, pc = 0, length = 0, top = 0;
+    if (top_mode)
+    {
+        top = (unsigned) std::strtoul(argv[2], nullptr, 0);
+    }
+    else if (std::sscanf(argv[1], "%x:%x", &cp, &pc) != 2)
     {
         std::fprintf(stderr, "アドレスは CP:PC の形で（例 00:0379）\n");
         return 1;
     }
-    const unsigned length = (unsigned) std::strtoul(argv[2], nullptr, 0);
+    else
+    {
+        length = (unsigned) std::strtoul(argv[2], nullptr, 0);
+    }
 
     NukedSC55Emulator emu;
     if (! emu.initialise("/Users/ring2/Documents/Roland SC-55 v1.21", 44100.0))
@@ -99,15 +113,16 @@ int main(int argc, char** argv)
     }
 
     std::vector<float> l(256), r(256);
-    for (int i = 0; i < 2000; ++i) emu.render(l.data(), r.data(), 64);
+    for (int i = 0; i < 8000; ++i) emu.render(l.data(), r.data(), 64);   // 起動シーケンスを完全に流し切る
 
     // 実行回数の注釈がほしければ、指定の曲を流して数える。
-    if (argc > 3)
+    const char* song = top_mode ? (argc > 3 ? argv[3] : nullptr) : (argc > 3 ? argv[3] : nullptr);
+    if (song != nullptr)
     {
         MidiFileData midi;
         std::string error;
         std::vector<MidiFileEvent> events;
-        if (midi.load(argv[3], error)) events = midi.events;
+        if (midi.load(song, error)) events = midi.events;
         else std::fprintf(stderr, "%s\n", error.c_str());
 
         counting = true;
@@ -141,6 +156,31 @@ int main(int argc, char** argv)
 
     uint64_t total = 0;
     for (auto& [where, count] : g_hits) total += count;
+
+    if (top_mode)
+    {
+        std::vector<std::pair<uint32_t, uint64_t>> ranked(g_hits.begin(), g_hits.end());
+        std::sort(ranked.begin(), ranked.end(),
+                  [](auto& a, auto& b) { return a.second > b.second; });
+
+        std::printf("実行命令 %llu、到達したアドレス %zu 個\n\n",
+                    (unsigned long long) total, ranked.size());
+
+        double running = 0.0;
+        for (unsigned i = 0; i < top && i < ranked.size(); ++i)
+        {
+            const double share = 100.0 * (double) ranked[i].second / (double) total;
+            running += share;
+            cp = ranked[i].first >> 16;
+            g_page = cp << 16;
+            std::printf("%10llu %5.2f%% (累計%5.1f%%)  %02x:%04x  ",
+                        (unsigned long long) ranked[i].second, share, running,
+                        cp, ranked[i].first & 0xffff);
+            print_insn_h8500(ranked[i].first & 0xffff, &info);
+            std::printf("\n");
+        }
+        return 0;
+    }
 
     unsigned address = pc;
     while (address < pc + length)

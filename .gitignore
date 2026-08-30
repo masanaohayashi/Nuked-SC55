@@ -106,3 +106,6 @@ CMakeSettings.json
 /tools/sc55patchfields
 /tools/sc55dumppatch
 /tools/sc55verify
+tools/sc55callers
+tools/sc55coverage
+tools/sc55entries

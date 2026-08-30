@@ -34,9 +34,14 @@ static Range R[] = {
     { 4, 0x2fc0, 0x3020, "LCD ビットマップ描画", 0 },
 };
 static bool tr=false; static uint64_t total=0;
+#include <map>
+#include <algorithm>
+static std::map<uint32_t,uint64_t> uncovered;   // 未照合の PC を 256 バイト区画で集計
 void MCU_Step(mcu_t& m){
   if(tr){ ++total;
-    for(auto&r:R) if(m.cp==r.cp&&m.pc>=r.lo&&m.pc<r.hi){ ++r.hits; break; } }
+    bool hit=false;
+    for(auto&r:R) if(m.cp==r.cp&&m.pc>=r.lo&&m.pc<r.hi){ ++r.hits; hit=true; break; }
+    if(!hit) uncovered[((uint32_t)m.cp<<16)|(m.pc&0xff00)]++; }
   MCU_Step_Impl(m); }
 int main(int argc,char**argv){
   NukedSC55Emulator e; if(!e.initialise("/Users/ring2/Documents/Roland SC-55 v1.21",44100.0)) return 1;
@@ -53,4 +58,11 @@ int main(int argc,char**argv){
     std::printf("  %-28s %8llu  %5.2f%%\n", r.what,(unsigned long long)r.hits,100.0*(double)r.hits/(double)total); }
   std::printf("  %-28s %8llu  %5.2f%%\n","照合済み合計（音声）",(unsigned long long)sum,100.0*(double)sum/(double)total);
   std::printf("  %-28s %8llu  %5.2f%%\n","表示系合計",(unsigned long long)disp,100.0*(double)disp/(double)total);
+  std::printf("\n未照合で熱い区画（256 バイト単位）:\n");
+  std::vector<std::pair<uint32_t,uint64_t>> u(uncovered.begin(),uncovered.end());
+  std::sort(u.begin(),u.end(),[](auto&a,auto&b){return a.second>b.second;});
+  for(size_t i=0;i<u.size()&&i<14;++i)
+    std::printf("  %02x:%04x-%04x  %8llu  %5.2f%%\n",u[i].first>>16,u[i].first&0xffff,
+                (u[i].first&0xffff)+0xff,(unsigned long long)u[i].second,
+                100.0*(double)u[i].second/(double)total);
   return 0; }
