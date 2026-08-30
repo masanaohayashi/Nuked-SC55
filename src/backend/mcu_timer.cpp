@@ -34,6 +34,7 @@
 #include "mcu_timer.h"
 
 #include <algorithm>
+
 #include "mcu.h"
 #include <cstdint>
 
@@ -102,6 +103,7 @@ enum FRT_Field_Offset : uint8_t
 
 void TIMER_Init(mcu_timer_t& timer, mcu_t& mcu)
 {
+
     timer.mcu = &mcu;
 }
 
@@ -131,6 +133,9 @@ void TIMER_Reset(mcu_timer_t& timer)
 
 void TIMER_Write(mcu_timer_t& timer, uint32_t address, uint8_t data)
 {
+    TIMER_Clock(timer, timer.mcu->cycles);
+    timer.next_cycle = 0;
+
     uint32_t t = (address >> 4) - 1;
     if (t > 2)
         return;
@@ -187,6 +192,8 @@ void TIMER_Write(mcu_timer_t& timer, uint32_t address, uint8_t data)
 
 uint8_t TIMER_Read(mcu_timer_t& timer, uint32_t address)
 {
+    TIMER_Clock(timer, timer.mcu->cycles);
+
     uint32_t t = (address >> 4) - 1;
     if (t > 2)
         return 0xff;
@@ -226,6 +233,9 @@ uint8_t TIMER_Read(mcu_timer_t& timer, uint32_t address)
 
 void TIMER2_Write(mcu_timer_t& timer, uint32_t address, uint8_t data)
 {
+    TIMER_Clock(timer, timer.mcu->cycles);
+    timer.next_cycle = 0;
+
     tmr_t& tmr = timer.tmr;
 
     switch (address)
@@ -269,6 +279,8 @@ void TIMER2_Write(mcu_timer_t& timer, uint32_t address, uint8_t data)
 
 uint8_t TIMER_Read2(mcu_timer_t& timer, uint32_t address)
 {
+    TIMER_Clock(timer, timer.mcu->cycles);
+
     tmr_t& tmr = timer.tmr;
 
     switch (address)
@@ -322,11 +334,14 @@ inline void TIMER_ClockFrt(mcu_timer_t& timer, int frt_id)
         frt.tcsr |= FRT_TCSR_OCFB;
 
     if ((frt.tcr & FRT_TCR_OVIE) != 0 && (frt.tcsr & FRT_TCSR_OVF) != 0)
-        MCU_Interrupt_SetRequest(*timer.mcu, (MCU_Interrupt_Source)(INTERRUPT_SOURCE_FRT0_FOVI + frt_id * 4), 1);
+            MCU_Interrupt_SetRequest(*timer.mcu, (MCU_Interrupt_Source)(INTERRUPT_SOURCE_FRT0_FOVI + frt_id * 4), 1);
+
     if ((frt.tcr & FRT_TCR_OCIEA) != 0 && (frt.tcsr & FRT_TCSR_OCFA) != 0)
-        MCU_Interrupt_SetRequest(*timer.mcu, (MCU_Interrupt_Source)(INTERRUPT_SOURCE_FRT0_OCIA + frt_id * 4), 1);
+            MCU_Interrupt_SetRequest(*timer.mcu, (MCU_Interrupt_Source)(INTERRUPT_SOURCE_FRT0_OCIA + frt_id * 4), 1);
+
     if ((frt.tcr & FRT_TCR_OCIEB) != 0 && (frt.tcsr & FRT_TCSR_OCFB) != 0)
-        MCU_Interrupt_SetRequest(*timer.mcu, (MCU_Interrupt_Source)(INTERRUPT_SOURCE_FRT0_OCIB + frt_id * 4), 1);
+            MCU_Interrupt_SetRequest(*timer.mcu, (MCU_Interrupt_Source)(INTERRUPT_SOURCE_FRT0_OCIB + frt_id * 4), 1);
+
 }
 
 inline void TIMER_ClockTmr(mcu_timer_t& timer)
@@ -371,11 +386,14 @@ inline void TIMER_ClockTmr(mcu_timer_t& timer)
         tmr.tcsr |= TMR_TCSR_CMFB;
 
     if ((tmr.tcr & TMR_TCR_OVIE) != 0 && (tmr.tcsr & TMR_TCSR_OVF) != 0)
-        MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_OVI, 1);
+            MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_OVI, 1);
+
     if ((tmr.tcr & TMR_TCR_CMIEA) != 0 && (tmr.tcsr & TMR_TCSR_CMFA) != 0)
-        MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_CMIA, 1);
+            MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_CMIA, 1);
+
     if ((tmr.tcr & TMR_TCR_CMIEB) != 0 && (tmr.tcsr & TMR_TCSR_CMFB) != 0)
-        MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_CMIB, 1);
+            MCU_Interrupt_SetRequest(*timer.mcu, INTERRUPT_SOURCE_TIMER_CMIB, 1);
+
 }
 
 // Each timer unit only does anything on multiples of its prescaler, which is
@@ -385,6 +403,97 @@ inline void TIMER_ClockTmr(mcu_timer_t& timer)
 // The due times are known in closed form, so service whatever is due now and
 // jump straight to the next unit that will be due. The units themselves still
 // re-check their own prescaler, so behaviour is unchanged.
+// How many of a unit's own ticks can pass with nothing observable happening.
+//
+// The only things the rest of the machine can see are the status flags and the
+// interrupts, and the firmware never reads a counter: measured over a song it
+// reads TCSR and the compare register it wrote itself, FRC not once, and the
+// 8 bit timer not at all. So a run of ticks that sets no new flag can be
+// replaced by adding to the counter, which turns the catch-up from per-tick
+// into per-event.
+//
+// Two things make the runs long. A flag that is already set is not observably
+// set again -- only a write clears one -- so a compare that keeps matching
+// costs nothing after the first time. And a counter cleared on compare match
+// never reaches the values above it, so those matches and the overflow simply
+// cannot happen.
+//
+// The exception is a flag that is set and enabled: the unit re-asserts its
+// interrupt request on every tick while that holds, and the CPU may clear the
+// request in between, so those ticks have to be walked.
+constexpr uint32_t TIMER_UNREACHABLE = 0xffffffffu;
+
+// Ticks until `counter` next equals `compare`, given it wraps at `period`.
+// A compare the counter cannot reach never happens. A counter already past the
+// wrap -- which happens for a moment when the firmware lowers a compare
+// register -- is not something to reason about, so say "now" and walk it.
+inline uint32_t TIMER_DistanceTo(uint32_t counter, uint32_t compare, uint32_t period)
+{
+    if (counter >= period)
+        return 0;
+
+    if (compare >= period)
+        return TIMER_UNREACHABLE;
+
+    return (compare - counter) % period;
+}
+
+inline uint32_t FRT_QuietTicks(const frt_t& frt)
+{
+    if (((frt.tcr & FRT_TCR_OVIE) != 0 && (frt.tcsr & FRT_TCSR_OVF) != 0)
+     || ((frt.tcr & FRT_TCR_OCIEA) != 0 && (frt.tcsr & FRT_TCSR_OCFA) != 0)
+     || ((frt.tcr & FRT_TCR_OCIEB) != 0 && (frt.tcsr & FRT_TCSR_OCFB) != 0))
+    {
+        return 0;
+    }
+
+    const bool clear_on_a = (frt.tcsr & FRT_TCSR_CCLRA) != 0;
+    const uint32_t period = clear_on_a ? (uint32_t)frt.ocra + 1 : 0x10000u;
+
+    uint32_t quiet = TIMER_UNREACHABLE;
+
+    if ((frt.tcsr & FRT_TCSR_OCFA) == 0)
+        quiet = std::min(quiet, TIMER_DistanceTo(frt.frc, frt.ocra, period));
+    if ((frt.tcsr & FRT_TCSR_OCFB) == 0)
+        quiet = std::min(quiet, TIMER_DistanceTo(frt.frc, frt.ocrb, period));
+    if ((frt.tcsr & FRT_TCSR_OVF) == 0)
+        quiet = std::min(quiet, TIMER_DistanceTo(frt.frc, 0xffffu, period));
+
+    return quiet;
+}
+
+inline uint32_t TMR_QuietTicks(const tmr_t& tmr)
+{
+    if (((tmr.tcr & TMR_TCR_OVIE) != 0 && (tmr.tcsr & TMR_TCSR_OVF) != 0)
+     || ((tmr.tcr & TMR_TCR_CMIEA) != 0 && (tmr.tcsr & TMR_TCSR_CMFA) != 0)
+     || ((tmr.tcr & TMR_TCR_CMIEB) != 0 && (tmr.tcsr & TMR_TCSR_CMFB) != 0))
+    {
+        return 0;
+    }
+
+    const uint32_t clear = tmr.tcr & (TMR_TCR_CCLR0 | TMR_TCR_CCLR1);
+    uint32_t period = 0x100u;
+    if (clear == TMR_TCR_CCLR0)      period = (uint32_t)tmr.tcora + 1;
+    else if (clear == TMR_TCR_CCLR1) period = (uint32_t)tmr.tcorb + 1;
+
+    uint32_t quiet = TIMER_UNREACHABLE;
+
+    if ((tmr.tcsr & TMR_TCSR_CMFA) == 0)
+        quiet = std::min(quiet, TIMER_DistanceTo(tmr.tcnt, tmr.tcora, period));
+    if ((tmr.tcsr & TMR_TCSR_CMFB) == 0)
+        quiet = std::min(quiet, TIMER_DistanceTo(tmr.tcnt, tmr.tcorb, period));
+    if ((tmr.tcsr & TMR_TCSR_OVF) == 0)
+        quiet = std::min(quiet, TIMER_DistanceTo(tmr.tcnt, 0xffu, period));
+
+    return quiet;
+}
+
+// Multiples of `step` strictly between `from` and `to`.
+inline uint64_t TicksBetween(uint64_t from, uint64_t to, uint64_t step)
+{
+    return to <= from + 1 ? 0 : (to - 1) / step - from / step;
+}
+
 void TIMER_Clock(mcu_timer_t& timer, uint64_t cycles)
 {
     const uint64_t target = (cycles + 1) / 2; // FIXME
@@ -392,25 +501,29 @@ void TIMER_Clock(mcu_timer_t& timer, uint64_t cycles)
     while (timer.cycles < target)
     {
         uint64_t next = target;
+        uint64_t frt_step[3];
 
         for (int i = 0; i < 3; i++)
         {
             const uint64_t mask =
                 timer.frt_step_table[timer.frt[i].tcr & (FRT_TCR_CKS0 | FRT_TCR_CKS1)];
+            frt_step[i] = mask + 1;
 
             if ((timer.cycles & mask) == 0)
             {
                 TIMER_ClockFrt(timer, i);
             }
 
-            next = std::min(next, (timer.cycles | mask) + 1);
+            const uint64_t due = (timer.cycles | mask) + 1;
+            next = std::min(next, due + (uint64_t)FRT_QuietTicks(timer.frt[i]) * frt_step[i]);
         }
-
-        const uint64_t tmr_mask =
-            timer.tmr_step_table[timer.tmr.tcr & (TMR_TCR_CKS0 | TMR_TCR_CKS1 | TMR_TCR_CKS2)];
 
         // A zero mask means the 8 bit timer is stopped, not that it runs every
         // tick, so it never becomes due.
+        const uint64_t tmr_mask =
+            timer.tmr_step_table[timer.tmr.tcr & (TMR_TCR_CKS0 | TMR_TCR_CKS1 | TMR_TCR_CKS2)];
+        const uint64_t tmr_step = tmr_mask + 1;
+
         if (tmr_mask != 0)
         {
             if ((timer.cycles & tmr_mask) == 0)
@@ -418,11 +531,68 @@ void TIMER_Clock(mcu_timer_t& timer, uint64_t cycles)
                 TIMER_ClockTmr(timer);
             }
 
-            next = std::min(next, (timer.cycles | tmr_mask) + 1);
+            const uint64_t due = (timer.cycles | tmr_mask) + 1;
+            next = std::min(next, due + (uint64_t)TMR_QuietTicks(timer.tmr) * tmr_step);
+        }
+
+        // Nothing observable happens in between, so the skipped ticks are just
+        // counter increments.
+        // Nothing observable happens in between, so the skipped ticks are just
+        // counter increments -- modulo the reset a compare match performs.
+        for (int i = 0; i < 3; i++)
+        {
+            frt_t& frt = timer.frt[i];
+            const uint64_t skipped = TicksBetween(timer.cycles, next, frt_step[i]);
+            const uint32_t period = (frt.tcsr & FRT_TCSR_CCLRA) != 0
+                                  ? (uint32_t)frt.ocra + 1 : 0x10000u;
+            frt.frc = (uint16_t)(((uint64_t)frt.frc + skipped) % period);
+        }
+
+        if (tmr_mask != 0)
+        {
+            tmr_t& tmr = timer.tmr;
+            const uint64_t skipped = TicksBetween(timer.cycles, next, tmr_step);
+            const uint32_t clear = tmr.tcr & (TMR_TCR_CCLR0 | TMR_TCR_CCLR1);
+            uint32_t period = 0x100u;
+            if (clear == TMR_TCR_CCLR0)      period = (uint32_t)tmr.tcora + 1;
+            else if (clear == TMR_TCR_CCLR1) period = (uint32_t)tmr.tcorb + 1;
+            tmr.tcnt = (uint8_t)(((uint64_t)tmr.tcnt + skipped) % period);
         }
 
         timer.cycles = next;
     }
+
+    // How far ahead the caller may skip this entirely.
+    uint64_t quiet_until = timer.cycles + 0x40000000ull;
+
+    for (int i = 0; i < 3; i++)
+    {
+        const frt_t& frt = timer.frt[i];
+        const uint64_t mask =
+            timer.frt_step_table[frt.tcr & (FRT_TCR_CKS0 | FRT_TCR_CKS1)];
+        const uint64_t quiet = FRT_QuietTicks(frt);
+        if (quiet != TIMER_UNREACHABLE)
+        {
+            // Same first-due tick the loop uses; the prescaler phase does not
+            // start at timer.cycles.
+            const uint64_t due = (timer.cycles | mask) + 1;
+            quiet_until = std::min(quiet_until, due + quiet * (mask + 1));
+        }
+    }
+
+    const uint64_t tmr_mask =
+        timer.tmr_step_table[timer.tmr.tcr & (TMR_TCR_CKS0 | TMR_TCR_CKS1 | TMR_TCR_CKS2)];
+    if (tmr_mask != 0)
+    {
+        const uint64_t quiet = TMR_QuietTicks(timer.tmr);
+        if (quiet != TIMER_UNREACHABLE)
+        {
+            const uint64_t due = (timer.cycles | tmr_mask) + 1;
+            quiet_until = std::min(quiet_until, due + quiet * (tmr_mask + 1));
+        }
+    }
+
+    timer.next_cycle = quiet_until * 2;
 }
 
 // These tables are indexed by the low CKSn bits of the TCR.

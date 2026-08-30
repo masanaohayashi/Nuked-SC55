@@ -67,6 +67,11 @@ struct tmr_t
 struct mcu_timer_t
 {
     uint64_t cycles = 0;
+    // The MCU cycle at which one of the timers could next do something the rest
+    // of the machine can see. Until then TIMER_Clock has no work and the caller
+    // can skip it outright; a write to any timer register clears this.
+    uint64_t next_cycle = 0;
+
     FRT_Step_Table frt_step_table;
     TMR_Step_Table tmr_step_table;
 

@@ -924,7 +924,10 @@ void MCU_Step(mcu_t& mcu)
 
     PCM_Update(*mcu.pcm, mcu.cycles);
 
-    TIMER_Clock(*mcu.timer, mcu.cycles);
+    // Nothing in the timers can change before next_cycle, so most instructions
+    // do not have to visit them at all.
+    if (mcu.cycles >= mcu.timer->next_cycle)
+        TIMER_Clock(*mcu.timer, mcu.cycles);
 
     if (!mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55)
         SM_Update(*mcu.sm, mcu.cycles);
