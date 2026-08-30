@@ -74,5 +74,42 @@ inline float PitchRatio (float deci_cents)
     return std::exp2 (deci_cents / 12000.0f);
 }
 
+// ピッチワードの組み立て（00:51d5-00:5278）。
+//
+// ファームウェアはボイスごとに 24 ビットのアキュムレータを持ち、毎ティック増分を
+// 足し込む（ポルタメント／ピッチエンベロープ）。そこから 24 ビットの基準値と
+// 12000（= 1 オクターブ）を引いた差が、鳴らすべきピッチ。
+//
+//   acc = (voice+0x2d << 16) | voice+0x46 のワード
+//   ref = (voice+0x29 << 16) | voice+0x3e のワード
+//
+// 差を 12000 で割ると商がオクターブ、余りが表引きの入力になる。負の側（下向き）は
+// 絶対値を取ってから割り、余りがあればオクターブを 1 増やして余りを補数にする。
+// 正の側は 1 オクターブを超えたら 0xffff で飽和する。
+//
+// 実機との照合: TOKMEDLY 14152/14152、IMAGA_55 17367/17367、GATCHA55 15011/15011。
+inline uint16_t PitchLookup (uint32_t remainder)      // 余り 0..11999
+{
+    const uint32_t coarse = PitchCoarse ((int) ((remainder >> 8) & 0xff));
+    const uint32_t fine   = PitchFine   ((int) (remainder & 0xff));
+    return (uint16_t) (coarse + ((fine * coarse) >> 22));
+}
+
+inline uint16_t PitchWord (int32_t accumulator24, int32_t reference24)
+{
+    int32_t d = accumulator24 - reference24 - 12000;
+    d = (int32_t) (d << 8) >> 8;                      // 24 ビット符号拡張
+
+    if (d < 0)
+    {
+        const uint32_t magnitude = (uint32_t) -d;
+        uint32_t octave = magnitude / 12000, remainder = magnitude % 12000;
+        if (remainder != 0) { ++octave; remainder = 12000 - remainder; }
+        return octave >= 16 ? 0 : (uint16_t) (PitchLookup (remainder) >> octave);
+    }
+
+    return (uint32_t) d / 12000 ? 0xffff : PitchLookup ((uint32_t) d % 12000);
+}
+
 } // namespace sc55
 
