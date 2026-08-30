@@ -88,6 +88,20 @@ inline float PitchRatio (float deci_cents)
 // 正の側は 1 オクターブを超えたら 0xffff で飽和する。
 //
 // 実機との照合: TOKMEDLY 14152/14152、IMAGA_55 17367/17367、GATCHA55 15011/15011。
+// ノート番号から 24 ビットの基準ピッチへ（00:488f-00:48b0）。
+//
+//   00:4892  mulxu.w #0x3e8  →  ノート番号 × 1000
+//
+// 1 半音 = 1000 で、これがピッチの単位が 0.1 セントであることの独立した裏付けになる。
+// 微調整は 0x400 を中央とするワードで、中央から離れたぶんを引く（分岐は 2 本あるが
+// どちらも符号を合わせた同じ減算）。
+//
+// 実機との照合: TOKMEDLY 857/857、IMAGA_55 485/485、GATCHA55 720/720。
+inline int32_t PitchReference (int note, int tune)    // tune は 0x400 中央
+{
+    return note * 1000 - (tune - 0x400);
+}
+
 inline uint16_t PitchLookup (uint32_t remainder)      // 余り 0..11999
 {
     const uint32_t coarse = PitchCoarse ((int) ((remainder >> 8) & 0xff));
