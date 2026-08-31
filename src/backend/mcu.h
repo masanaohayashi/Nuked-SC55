@@ -322,7 +322,9 @@ uint8_t MCU_Read_Slow(mcu_t& mcu, uint32_t address);
 // 判定の順序も範囲も変えていないので、返す値は元と同一。
 inline uint8_t MCU_Read(mcu_t& mcu, uint32_t address)
 {
-    if ((address & 0xf0000) == 0)
+    const uint32_t page = address & 0xf0000;
+
+    if (page == 0)
     {
         const uint16_t offset = (uint16_t) address;
         if (!(offset & 0x8000))
@@ -330,6 +332,16 @@ inline uint8_t MCU_Read(mcu_t& mcu, uint32_t address)
         if (offset >= 0x8000u && offset < 0xe000u && !mcu.is_mk1)
             return mcu.sram[offset & 0x7fff];
     }
+    else if (page <= 0x40000)
+    {
+        // ページ 1-4 は同じ一行（rom2 をマスクして読む）。ファームウェアの大半が
+        // ページ 4 で走るので、実測ではここが残りの半分以上を占めていた。
+        uint32_t address_rom = address & 0x3ffff;
+        if ((address & 0x80000) && !mcu.is_jv880)
+            address_rom |= 0x40000;
+        return mcu.rom2[address_rom & mcu.rom2_mask];
+    }
+
     return MCU_Read_Slow(mcu, address);
 }
 uint16_t MCU_Read16(mcu_t& mcu, uint32_t address);
