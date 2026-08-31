@@ -81,6 +81,15 @@ def main():
               (480 * 8, bytes([0xb0, 120, 0]))]
         write(p, ev); made.append(p)
 
+    # GS のエフェクトパラメータ掃引。40 01 30..3f を 1 つずつ 2 値で作り、
+    # 実行後のメモリを差分すると、そのパラメータがどこに入るかが出る。
+    sweep = os.path.join(out, 'gsparam'); os.makedirs(sweep, exist_ok=True)
+    for lo in range(0x30, 0x40):
+        for tag, val in (('a', 0x00), ('b', 0x05)):
+            ev = [(0, GS_RESET), (240, gs((0x40, 0x01, lo), (val,))),
+                  (240, bytes([0xb0, 120, 0]))]
+            write(os.path.join(sweep, f'p{lo:02x}_{tag}.mid'), ev); made.append('sweep')
+
     # 送りゼロ（比較用の底）
     p = os.path.join(out, 'dry.mid'); test_file(p, [], send=0); made.append(p)
 
