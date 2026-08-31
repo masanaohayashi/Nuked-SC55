@@ -90,6 +90,30 @@ def main():
                   (240, bytes([0xb0, 120, 0]))]
             write(os.path.join(sweep, f'p{lo:02x}_{tag}.mid'), ev); made.append('sweep')
 
+    # NRPN 掃引。CC71-74 が効かない代わりに SC-55 が使う経路。
+    nr = os.path.join(out, 'nrpn'); os.makedirs(nr, exist_ok=True)
+    NRPN = [(0x01, 0x08), (0x01, 0x09), (0x01, 0x0a), (0x01, 0x20), (0x01, 0x21),
+            (0x01, 0x63), (0x01, 0x64), (0x01, 0x66),
+            (0x18, 0x24), (0x1a, 0x24), (0x1c, 0x24), (0x1d, 0x24), (0x1e, 0x24)]
+    for msb, lsb in NRPN:
+        ch = 9 if msb >= 0x18 else 0            # ドラム系はチャンネル 10
+        for tag, val in (('a', 0x40), ('b', 0x10)):
+            ev = [(0, GS_RESET),
+                  (240, bytes([0xb0 | ch, 99, msb])), (0, bytes([0xb0 | ch, 98, lsb])),
+                  (0, bytes([0xb0 | ch, 6, val])), (240, bytes([0xb0 | ch, 120, 0]))]
+            write(os.path.join(nr, f'n{msb:02x}{lsb:02x}_{tag}.mid'), ev); made.append('nrpn')
+
+    # パート単位の GS パラメータ 40 11 xx。
+    #
+    # 値の選び方に注意。範囲外の値は弾かれるので、「検証して拒否する」パラメータと
+    # 「そもそも実装されていない」パラメータが同じに見える。受信チャンネル（02）を
+    # 0x40/0x10 で試して「保存されない」と誤って結論しかけた。0/5 なら保存される。
+    pp = os.path.join(out, 'gspart'); os.makedirs(pp, exist_ok=True)
+    for k in list(range(0x02, 0x24)) + list(range(0x30, 0x4c)):
+        for tag, val in (('a', 0x00), ('b', 0x01)):
+            ev = [(0, GS_RESET), (240, gs((0x40, 0x11, k), (val,))), (240, bytes([0xb0, 120, 0]))]
+            write(os.path.join(pp, f'p{k:02x}_{tag}.mid'), ev); made.append('gspart')
+
     # 送りゼロ（比較用の底）
     p = os.path.join(out, 'dry.mid'); test_file(p, [], send=0); made.append(p)
 
