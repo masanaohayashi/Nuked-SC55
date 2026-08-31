@@ -82,6 +82,10 @@ struct pcm_t
     uint8_t  eram_wrote_nonzero = 0;
     uint8_t  eram_silent = 0;
 
+    // エフェクトを浮動小数版（pcm_effects.h）で回すかどうか。SC55_FXSIM=1 で有効。
+    bool use_float_effects = false;
+    struct PCMEffects* effects = nullptr;
+
     PCM_Config config{};
 
     uint16_t eram[0x4000]{};

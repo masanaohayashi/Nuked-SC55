@@ -32,6 +32,9 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 #include "pcm.h"
+#include "pcm_effects.h"
+#include <cmath>
+#include <cstdlib>
 
 #include <cmath>
 #include <cstdlib>
@@ -295,6 +298,12 @@ void PCM_Init(pcm_t& pcm, mcu_t& mcu)
         simulate = enable[0] != '0';
 
     PCM_UseSimulation(pcm, simulate);
+
+    // エフェクトの浮動小数版。突き合わせのあいだは環境変数で切り替える。
+    if (const char* fx = std::getenv("SC55_FXSIM"))
+        pcm.use_float_effects = fx[0] != '0';
+    if (pcm.use_float_effects && pcm.effects == nullptr)
+        pcm.effects = new PCMEffects();
 }
 
 // Sign-extends a 20-bit signed integer to a 32-bit signed integer.
@@ -876,7 +885,18 @@ void PCM_Update(pcm_t& pcm, uint64_t cycles)
         if (pcm.rcsum[0] != 0 || pcm.rcsum[1] != 0)
             pcm.eram_silent = 0;
 
-        if (!pcm.eram_silent)
+        if (pcm.use_float_effects)
+        {
+            float fa[6] = {}, fb[6] = {};
+            PCMEffects_Step(*pcm.effects, pcm, pcm.tv_counter,
+                            (float) pcm.rcsum[0], (float) pcm.rcsum[1], fa, fb);
+            for (int i = 0; i < 6; ++i)
+            {
+                rcadd[i]  = (int) lrintf(fa[i]);
+                rcadd2[i] = (int) lrintf(fb[i]);
+            }
+        }
+        else if (!pcm.eram_silent)
         {
             {
                 // 1
