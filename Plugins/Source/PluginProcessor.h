@@ -20,6 +20,10 @@
 #include "MidiFilePlayer.h"
 #include "NukedSC55Emulator.h"
 
+#if JUCE_STANDALONE_APPLICATION
+class WrdDisplayWindow;
+#endif
+
 //==============================================================================
 /**
 */
@@ -35,6 +39,18 @@ public:
         juce::String romDirectory;
         juce::String error;
         NukedSC55Emulator::DebugState emulator;
+    };
+
+    /**
+        A message-thread-readable view of the immutable WRD frames and the
+        audio clock.  The audio callback only publishes the numeric position;
+        it never parses or renders WRD data.
+    */
+    struct WrdDisplayState
+    {
+        const MidiFileData* file = nullptr;
+        double positionSeconds = 0.0;
+        bool shouldBeVisible = false;
     };
 
     //==============================================================================
@@ -113,6 +129,9 @@ public:
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
     bool copyLcdDisplay (uint8_t* destination, size_t destinationStride);
 
+    /** Returns the immutable WRD data and audio-clock snapshot for the window. */
+    WrdDisplayState getWrdDisplayState() const noexcept;
+
 private:
     //==============================================================================
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -145,9 +164,16 @@ private:
     std::atomic<bool> midiFileLoaded { false };
     std::atomic<bool> midiFilePlaying { false };
     std::atomic<uint32_t> midiPlaybackCommands { 0 };
+    std::atomic<double> midiFilePositionForUi { 0.0 };
+    std::atomic<MidiFileData*> wrdFileForUi { nullptr };
+    std::atomic<bool> wrdDisplayShouldBeVisible { false };
     double midiFilePosition = 0.0;
     size_t midiFileNext = 0;
     juce::String midiFileName;
+
+#if JUCE_STANDALONE_APPLICATION
+    std::unique_ptr<WrdDisplayWindow> wrdDisplayWindow;
+#endif
 
     juce::File selectedRomDirectory;
     std::unique_ptr<juce::FileChooser> romChooser;

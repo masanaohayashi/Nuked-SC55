@@ -18,5 +18,6 @@ bool isRcpV2 (const std::vector<std::uint8_t>& data) noexcept;
 */
 bool loadRcpV2 (const std::vector<std::uint8_t>& data,
                 MidiFileData& destination,
-                std::string& error);
+                std::string& error,
+                const std::string& sourcePath = {});
 }

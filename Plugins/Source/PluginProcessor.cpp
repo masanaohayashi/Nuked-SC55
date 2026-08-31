@@ -12,6 +12,7 @@
 
 #if JUCE_STANDALONE_APPLICATION
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+ #include "WrdDisplayWindow.h"
 #endif
 
 #include <algorithm>
@@ -190,6 +191,11 @@ NukedSC55AudioProcessor::~NukedSC55AudioProcessor()
 {
     sc55debug::log ("processor destroyed");
     cancelPendingUpdate();
+    wrdDisplayShouldBeVisible.store (false, std::memory_order_release);
+    wrdFileForUi.store (nullptr, std::memory_order_release);
+#if JUCE_STANDALONE_APPLICATION
+    wrdDisplayWindow.reset();
+#endif
     lifetimeToken.reset();
     romChooser.reset();
     audioReady.store (false, std::memory_order_release);
@@ -266,6 +272,7 @@ void NukedSC55AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     secondaryRenderBuffer.setSize (2, std::max (1, samplesPerBlock), false, true, true);
     currentSampleRate.store (sampleRate, std::memory_order_release);
     midiFilePlaying.store (false, std::memory_order_release);
+    midiFilePositionForUi.store (0.0, std::memory_order_release);
     midiPlaybackCommands.fetch_or (midiStopCommand, std::memory_order_release);
 
     masterVolumeGain.reset (sampleRate, 0.01);
@@ -288,6 +295,15 @@ NukedSC55AudioProcessor::UiStatus NukedSC55AudioProcessor::getUiStatus() const
     status.error = uiError;
     status.emulator = emulators[0].getDebugState();
     return status;
+}
+
+NukedSC55AudioProcessor::WrdDisplayState NukedSC55AudioProcessor::getWrdDisplayState() const noexcept
+{
+    WrdDisplayState state;
+    state.file = wrdFileForUi.load (std::memory_order_acquire);
+    state.positionSeconds = midiFilePositionForUi.load (std::memory_order_acquire);
+    state.shouldBeVisible = wrdDisplayShouldBeVisible.load (std::memory_order_acquire);
+    return state;
 }
 
 bool NukedSC55AudioProcessor::copyLcdDisplay (uint8_t* destination, size_t destinationStride)
@@ -500,6 +516,11 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         midiFileNext = 0;
     }
 
+    // This is the only WRD-related operation in the audio callback: publish a
+    // scalar clock for the standalone window.  WRD frame selection, parsing,
+    // string conversion, and painting all happen on the message thread.
+    midiFilePositionForUi.store (midiFilePosition, std::memory_order_release);
+
     const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
     const auto normalizedVolume = masterVolume != nullptr
         ? juce::jlimit (0.0f, 1.0f, masterVolume->load (std::memory_order_relaxed) / 100.0f)
@@ -536,7 +557,8 @@ bool NukedSC55AudioProcessor::loadMidiFile (const juce::File& file)
 {
     MidiFileData loaded;
     std::string error;
-    if (! loaded.load (file.getFullPathName().toStdString(), error))
+    const bool loadWrd = wrapperType == wrapperType_Standalone;
+    if (! loaded.load (file.getFullPathName().toStdString(), error, loadWrd))
     {
         sc55debug::log ("MIDI file rejected: %s", error.c_str());
         return false;
@@ -549,10 +571,32 @@ bool NukedSC55AudioProcessor::loadMidiFile (const juce::File& file)
     auto* publishedFile = fileData.get();
     midiFileStorage.push_back (std::move (fileData));
 
+    const auto wrdFrameCount = publishedFile->wrdFrames.size();
+    if (! publishedFile->wrdParseError.empty())
+        sc55debug::log ("WRD companion ignored: %s", publishedFile->wrdParseError.c_str());
+
     midiFileName = file.getFileName();
     midiFilePlaying.store (false, std::memory_order_release);
+    midiFilePositionForUi.store (0.0, std::memory_order_release);
+    wrdFileForUi.store (wrdFrameCount > 0 ? publishedFile : nullptr,
+                        std::memory_order_release);
+    wrdDisplayShouldBeVisible.store (wrdFrameCount > 0,
+                                     std::memory_order_release);
     midiFileLoaded.store (true, std::memory_order_release);
     pendingMidiFile.store (publishedFile, std::memory_order_release);
+
+#if JUCE_STANDALONE_APPLICATION
+    if (wrapperType == wrapperType_Standalone)
+    {
+        if (wrdDisplayWindow == nullptr)
+            wrdDisplayWindow = std::make_unique<WrdDisplayWindow> (*this);
+
+        if (wrdFrameCount > 0)
+            wrdDisplayWindow->showForFile (file.getFileName());
+        else
+            wrdDisplayWindow->hideForPlaybackStop();
+    }
+#endif
     return true;
 }
 
@@ -588,6 +632,8 @@ void NukedSC55AudioProcessor::stopMidiFile()
         return;
 
     midiFilePlaying.store (false, std::memory_order_release);
+    midiFilePositionForUi.store (0.0, std::memory_order_release);
+    wrdDisplayShouldBeVisible.store (false, std::memory_order_release);
     midiPlaybackCommands.fetch_or (midiStopCommand, std::memory_order_release);
 }
 
@@ -599,6 +645,7 @@ void NukedSC55AudioProcessor::processMidiPlaybackCommands() noexcept
         activeMidiFile = pendingFile;
         midiFilePosition = 0.0;
         midiFileNext = 0;
+        midiFilePositionForUi.store (0.0, std::memory_order_release);
 
         // Replacing a sequence must not leave notes or controller state from
         // the previous sequence in the emulated instrument.
@@ -616,6 +663,7 @@ void NukedSC55AudioProcessor::processMidiPlaybackCommands() noexcept
         sendResetAllControllers();
         midiFilePosition = 0.0;
         midiFileNext = 0;
+        midiFilePositionForUi.store (0.0, std::memory_order_release);
     }
 }
 

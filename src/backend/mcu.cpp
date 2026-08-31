@@ -32,6 +32,7 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 #include "mcu.h"
+#include "mcu_native.h"
 
 #include "diagnostics.h"
 #include "lcd.h"
@@ -923,8 +924,21 @@ void MCU_Step(mcu_t& mcu)
     else
         mcu.ex_ignore = 0;
 
-    if (!mcu.sleep)
-        MCU_ReadInstruction(mcu);
+    if (mcu.native_debt != 0)
+    {
+        // 置き換えで先に済ませたぶん。命令は実行しないが時間は同じだけ流す。
+        --mcu.native_debt;
+    }
+    else if (!mcu.sleep)
+    {
+        if (mcu.cp == 0 && mcu.pc == 0x309b && !mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55
+            && mcu_native::TryComputeLevel(mcu))
+        {
+            // 00:309b の音量合成をネイティブで済ませた。
+        }
+        else
+            MCU_ReadInstruction(mcu);
+    }
 
     mcu.cycles += 12; // FIXME: assume 12 cycles per instruction
 

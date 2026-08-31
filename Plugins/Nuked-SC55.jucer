@@ -22,6 +22,14 @@
             file="Source/RcpFilePlayer.cpp"/>
       <FILE id="NScRcpH" name="RcpFilePlayer.h" compile="0" resource="0"
             file="Source/RcpFilePlayer.h"/>
+      <FILE id="NScWrdC" name="WrdFilePlayer.cpp" compile="1" resource="0"
+            file="Source/WrdFilePlayer.cpp"/>
+      <FILE id="NScWrdH" name="WrdFilePlayer.h" compile="0" resource="0"
+            file="Source/WrdFilePlayer.h"/>
+      <FILE id="NScWrdWinC" name="WrdDisplayWindow.cpp" compile="1" resource="0"
+            file="Source/WrdDisplayWindow.cpp"/>
+      <FILE id="NScWrdWinH" name="WrdDisplayWindow.h" compile="0" resource="0"
+            file="Source/WrdDisplayWindow.h"/>
       <FILE id="NScEmC" name="NukedSC55Emulator.cpp" compile="1" resource="0"
             file="Source/NukedSC55Emulator.cpp"/>
       <FILE id="NScEmH" name="NukedSC55Emulator.h" compile="0" resource="0"
@@ -104,6 +112,10 @@
     <GROUP id="{2332326A-53B6-108E-8E08-9CEE12B684CC}" name="Images">
       <FILE id="YnkdNZ" name="Background.png" compile="0" resource="1" file="Images/Background.png"/>
       <FILE id="ORzYtp" name="Volume.png" compile="0" resource="1" file="Images/Volume.png"/>
+    </GROUP>
+    <GROUP id="{7A0A3230-48DC-FC14-DAE9-7F9AF05B6075}" name="Fonts">
+      <FILE id="cMJoQ2" name="DotGothic16-Regular.ttf" compile="0" resource="1"
+            file="Fonts/DotGothic16-Regular.ttf"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>

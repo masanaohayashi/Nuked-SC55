@@ -1,6 +1,7 @@
 #include "RcpFilePlayer.h"
 
 #include "MidiFilePlayer.h"
+#include "WrdFilePlayer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1223,6 +1224,15 @@ public:
         return std::max (1.0, (it == segments.begin() ? segments.front() : *(it - 1)).bpm);
     }
 
+    std::vector<wrdfile::TempoSegment> getWrdSegments() const
+    {
+        std::vector<wrdfile::TempoSegment> result;
+        result.reserve (segments.size());
+        for (const auto& segment : segments)
+            result.push_back ({ segment.startTick, segment.startSeconds, segment.bpm });
+        return result;
+    }
+
 private:
     struct Segment
     {
@@ -1248,7 +1258,8 @@ bool isRcpV2 (const std::vector<std::uint8_t>& data) noexcept
 
 bool loadRcpV2 (const std::vector<std::uint8_t>& data,
                 MidiFileData& destination,
-                std::string& error)
+                std::string& error,
+                const std::string& sourcePath)
 {
     destination.clear();
     error.clear();
@@ -1312,6 +1323,28 @@ bool loadRcpV2 (const std::vector<std::uint8_t>& data,
                          * document.beatNumerator * 4.0 / document.beatDenominator;
     destination.lastBarSeconds = std::max (0.1, barTicks * 60.0
                                                  / (finalBpm * document.timeBase));
+
+    if (! sourcePath.empty())
+    {
+        wrdfile::Timing wrdTiming;
+        wrdTiming.timeBase = document.timeBase;
+        wrdTiming.beatNumerator = document.beatNumerator;
+        wrdTiming.beatDenominator = document.beatDenominator;
+        wrdTiming.segments = timeline.getWrdSegments();
+
+        std::string wrdWarning;
+        if (! wrdfile::loadForRcp (sourcePath, wrdTiming, destination, wrdWarning)
+            && ! wrdWarning.empty())
+        {
+            // A companion lyric file is optional; a broken one must never
+            // make an otherwise playable RCP fail to load.
+            destination.wrdParseError = std::move (wrdWarning);
+        }
+
+        if (! destination.wrdFrames.empty())
+            destination.songEndSeconds = std::max (destination.songEndSeconds,
+                                                   destination.wrdFrames.back().seconds);
+    }
     return true;
 }
 }

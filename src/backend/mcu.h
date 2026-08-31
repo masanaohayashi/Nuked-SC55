@@ -233,6 +233,10 @@ struct mcu_t {
     uint8_t cp = 0, dp = 0, ep = 0, tp = 0, br = 0;
     uint8_t sleep = 0;
     uint8_t ex_ignore = 0;
+    // ネイティブ置き換えで先に済ませた命令の残り。1 ステップにつき 1 ずつ払う。
+    // まとめて cycles を進めないのは、周辺装置と割り込みの位置をずらさないため。
+    uint32_t native_debt = 0;
+    int8_t native_ok = -1;         // -1: 未判定, 0: このファームウェアでは置き換えない
     MCU_Exception_Source exception_pending{};
     BoundedOrderedBitSet<INTERRUPT_SOURCE_MAX, MCU_Interrupt_Source> interrupt_pending;
     BoundedOrderedBitSet<16> trapa_pending;

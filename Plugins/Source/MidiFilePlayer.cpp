@@ -37,7 +37,7 @@ struct RawEvent
 };
 }
 
-bool MidiFileData::load (const std::string& path, std::string& error)
+bool MidiFileData::load (const std::string& path, std::string& error, bool loadWrd)
 {
     clear();
     error.clear();
@@ -54,7 +54,7 @@ bool MidiFileData::load (const std::string& path, std::string& error)
     if (! read) { error = "Cannot load: " + path; return false; }
 
     if (rcpfile::isRcpV2 (data))
-        return rcpfile::loadRcpV2 (data, *this, error);
+        return rcpfile::loadRcpV2 (data, *this, error, loadWrd ? path : std::string {});
 
     if (data.size() < 14 || std::memcmp (data.data(), "MThd", 4) != 0)
     { error = "Not as standard MIDI file"; return false; }
