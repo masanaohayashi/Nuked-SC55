@@ -77,6 +77,11 @@ struct pcm_t
     int32_t  accum_r             = 0;
     int32_t  rcsum[2]{};
 
+    // エフェクトが本当に鳴り止んだかの判定に使う。遅延メモリへの書き込みが 1 周ぶん
+    // すべてゼロなら、メモリ全域がゼロだと言える（PCM_Update 参照）。
+    uint8_t  eram_wrote_nonzero = 0;
+    uint8_t  eram_silent = 0;
+
     PCM_Config config{};
 
     uint16_t eram[0x4000]{};
