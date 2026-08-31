@@ -16,7 +16,10 @@ namespace sc55
 
 struct LevelInputs
 {
-    uint8_t part_volume  = 0;   // [0xab36 + [0xc8e4 + パート]] を引いた後の値
+    // 表引き 2 段の正体（あとから CC の差分で判明）:
+    //   [0xc8e4 + reg1]      そのボイスのパート番号（0xa318[slot] と 3 曲 100% 一致）
+    //   [0xab36 + パート]    そのパートのエクスプレッション（CC11 の置き場所）
+    uint8_t expression   = 0;   // = [0xab36 + パート]
     uint8_t velocity     = 0;   // 音色ポインタ +0x08
     uint8_t master       = 0;   // [0x8002]
     uint8_t tone_scale   = 0;   // 音色ごとの係数（+0x30 が指す先の +0x100）。0 なら未使用
@@ -53,7 +56,7 @@ inline void ApplyModulation (int32_t& level, int16_t a, int16_t b, int16_t depth
 inline uint16_t ComputeLevel (const LevelInputs& in)
 {
     // 三段の掛け算。バイトの詰め替え（mov:g.b / swap.b）は 32 ビット積からの >>8 抽出。
-    const uint32_t product = ((uint32_t) in.part_volume * in.velocity * in.master) << 2;
+    const uint32_t product = ((uint32_t) in.expression * in.velocity * in.master) << 2;
     uint32_t scaled = (product >> 8) & 0xffff;
 
     if (in.has_tone_scale)
