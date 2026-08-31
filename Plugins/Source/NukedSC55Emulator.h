@@ -154,6 +154,10 @@ private:
     double sourceSampleRate = 0.0;
     double sourcePosition = 0.0;
     std::atomic<bool> ready { false };
+
+    // デバッグ UI が状態を見に来たときだけ公開する。音声コールバックは信号処理と
+    // MIDI だけを扱い、表示のためのデータ作成はしない。
+    mutable std::atomic<bool> debugStateRequested { false };
     bool gsResetSent = false;
 
     // Front-panel presses are momentary events from the message thread. Keep

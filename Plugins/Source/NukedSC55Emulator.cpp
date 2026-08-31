@@ -898,6 +898,10 @@ void NukedSC55Emulator::publishDebugState() noexcept
 
 NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
 {
+    // 次にエミュレータが回るときに公開してもらう。返す値は 1 回ぶん古いが、
+    // 表示のための情報なので問題にならない。
+    debugStateRequested.store (true, std::memory_order_release);
+
     DebugState state;
     state.ready = ready.load (std::memory_order_acquire);
     state.backendRunning = state.ready;
@@ -966,7 +970,11 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
         }
     }
 
-    publishDebugState();
+    // UI が見に来ていなければ何もしない。状態はエミュレータを動かしているスレッドが
+    // 持っているので GUI から直接は読めないが、要求されたときだけ公開すれば、
+    // 音声コールバックに表示のための仕事は残らない。
+    if (debugStateRequested.exchange (false, std::memory_order_acquire))
+        publishDebugState();
 }
 
 bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride) const
