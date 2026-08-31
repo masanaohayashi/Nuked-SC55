@@ -966,11 +966,6 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
         }
     }
 
-    // Capture only the LCD character state on the same thread as the emulator.
-    // Calling the backend's LCD_Render here would also redraw its complete
-    // pixel framebuffer for every audio block.
-    if (lcdBackend != nullptr)
-        lcdBackend->captureState();
     publishDebugState();
 }
 
@@ -987,6 +982,10 @@ bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destination
         return false;
     }
 
+    // LCD の文字 RAM を取り込むのはここ。読みに来た側のスレッドで行う。
+    // 以前は音声コールバックの中で毎ブロック取り込んでいたが、これは表示のための
+    // データ作成であって信号処理ではない。
+    lcdBackend->captureState();
     return lcdBackend->copyMask (destination, destinationStride);
 }
 
@@ -999,6 +998,8 @@ bool NukedSC55Emulator::copyMergedLcdDisplay (const NukedSC55Emulator& alternate
     if (alternate.lcdBackend == nullptr)
         return copyLcdDisplay (destination, destinationStride);
 
+    lcdBackend->captureState();
+    alternate.lcdBackend->captureState();
     return lcdBackend->copyMergedMask (*alternate.lcdBackend,
                                        destination, destinationStride);
 }
