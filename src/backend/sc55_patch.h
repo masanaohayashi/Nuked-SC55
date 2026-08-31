@@ -67,3 +67,24 @@ private:
     int count = 0;
     uint32_t table_base = 0;
 };
+
+// 音色パラメータの展開（ファームウェア 00:2ed7-）。
+//
+// パーシャルの 1 バイトが 2 つに割れてボイス構造体へ入る。bit7 はフラグとして
+// voice-8+k へ 0 か 4 という形で、下位 7 ビットは値として voice+0x4f+k へ。
+// 5 要素ずつの組が 3 つある（+0x4f-0x53、+0x60-0x64、+0x65-0x69）。
+//
+// bit7 が立っていればフラグは 0、寝ていれば 4。逆に見えるが実機がそう書く。
+//
+// 実機との照合（値・フラグとも）:
+//   14DIZZY 1,608/1,608   01HELP 1,551/1,551   02BEFORE 1,170/1,170
+struct SC55ExpandedParameter
+{
+    uint8_t value = 0;   // voice+0x4f+k
+    uint8_t flag  = 0;   // voice-8+k、0 か 4
+};
+
+inline SC55ExpandedParameter SC55_ExpandParameter (uint8_t source)
+{
+    return { (uint8_t) (source & 0x7f), (uint8_t) ((source & 0x80) ? 0 : 4) };
+}
