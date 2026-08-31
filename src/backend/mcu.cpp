@@ -453,7 +453,7 @@ void MCU_UpdateAnalog(mcu_t& mcu, uint64_t cycles)
         mcu.analog_end_time = 0;
 }
 
-uint8_t MCU_Read(mcu_t& mcu, uint32_t address)
+uint8_t MCU_Read_Slow(mcu_t& mcu, uint32_t address)
 {
     uint32_t address_rom = address & 0x3ffff;
     if (address & 0x80000 && !mcu.is_jv880)
@@ -655,7 +655,7 @@ uint32_t MCU_Read32(mcu_t& mcu, uint32_t address)
     return (uint32_t)((b0 << 24) + (b1 << 16) + (b2 << 8) + b3);
 }
 
-void MCU_Write(mcu_t& mcu, uint32_t address, uint8_t value)
+void MCU_Write_Slow(mcu_t& mcu, uint32_t address, uint8_t value)
 {
     uint8_t page = (address >> 16) & 0xf;
     address &= 0xffff;
@@ -909,8 +909,17 @@ void MCU_UpdateUART_TX(mcu_t& mcu)
 
 void MCU_Step(mcu_t& mcu)
 {
+    // 1 命令ごとに周辺装置を全部訪ねているのがこの関数の本体で、毎秒 100 万回走る。
+    // どれも入口で「まだ来ていない」と判定して即座に戻るだけのことが多いので、
+    // 判定を呼び出し側に出す。関数呼び出しそのものが消える。
     if (!mcu.ex_ignore)
-        MCU_Interrupt_Handle(mcu);
+    {
+        // 保留が一つも無ければ何も起きない。
+        if (mcu.exception_pending >= 0
+            || mcu.trapa_pending.Size() != 0
+            || mcu.interrupt_pending.Size() != 0)
+            MCU_Interrupt_Handle(mcu);
+    }
     else
         mcu.ex_ignore = 0;
 
@@ -922,7 +931,9 @@ void MCU_Step(mcu_t& mcu)
     // if (mcu.cycles % 24000000 == 0)
     //     fprintf(stderr, "seconds: %i\n", (int)(mcu.cycles / 24000000));
 
-    PCM_Update(*mcu.pcm, mcu.cycles);
+    // PCM は while (pcm.cycles < cycles) で追いつく作り。追いついていれば何もしない。
+    if (mcu.pcm->cycles < mcu.cycles)
+        PCM_Update(*mcu.pcm, mcu.cycles);
 
     // Nothing in the timers can change before next_cycle, so most instructions
     // do not have to visit them at all.
@@ -930,7 +941,11 @@ void MCU_Step(mcu_t& mcu)
         TIMER_Clock(*mcu.timer, mcu.cycles);
 
     if (!mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55)
-        SM_Update(*mcu.sm, mcu.cycles);
+    {
+        // サブ MCU も同じ形（while (sm.cycles < cycles * 5)）。
+        if (mcu.sm->cycles < mcu.cycles * 5)
+            SM_Update(*mcu.sm, mcu.cycles);
+    }
     else
     {
         MCU_UpdateUART_RX(mcu);
