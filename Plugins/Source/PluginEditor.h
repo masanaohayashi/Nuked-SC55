@@ -37,8 +37,8 @@ class LcdDisplay;
 */
 class NukedSC55AudioProcessorEditor  : public juce::AudioProcessorEditor,
                                        public juce::FileDragAndDropTarget,
-                                       public juce::Button::Listener,
-                                       public juce::Slider::Listener
+                                       public juce::Slider::Listener,
+                                       public juce::Button::Listener
 {
 public:
     //==============================================================================
@@ -57,8 +57,8 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
-    void buttonClicked (juce::Button* buttonThatWasClicked) override;
     void sliderValueChanged (juce::Slider* sliderThatWasMoved) override;
+    void buttonClicked (juce::Button* buttonThatWasClicked) override;
 
 
 
@@ -75,25 +75,6 @@ private:
     //==============================================================================
     juce::Component contentComponent;
     std::unique_ptr<juce::Component> lcd;
-    std::unique_ptr<juce::TextButton> buttonLevelDec;
-    std::unique_ptr<juce::TextButton> buttonLevelInc;
-    std::unique_ptr<juce::TextButton> buttonReverbDec;
-    std::unique_ptr<juce::TextButton> buttonReverbInc;
-    std::unique_ptr<juce::TextButton> buttonPartDec;
-    std::unique_ptr<juce::TextButton> buttonPartInc;
-    std::unique_ptr<juce::TextButton> buttonKeyShiftDec;
-    std::unique_ptr<juce::TextButton> buttonKeyShiftInc;
-    std::unique_ptr<juce::TextButton> buttonAll;
-    std::unique_ptr<juce::TextButton> buttonAll2;
-    std::unique_ptr<juce::TextButton> buttonPanDec;
-    std::unique_ptr<juce::TextButton> buttonPanInc;
-    std::unique_ptr<juce::TextButton> buttonChorusDec;
-    std::unique_ptr<juce::TextButton> buttonChorusInc;
-    std::unique_ptr<juce::TextButton> buttonInstDec;
-    std::unique_ptr<juce::TextButton> buttonInstInc;
-    std::unique_ptr<juce::TextButton> buttonMidiChDec;
-    std::unique_ptr<juce::TextButton> buttonMidiChInc;
-    std::unique_ptr<juce::TextButton> buttonPower;
     std::unique_ptr<juce::Slider> sliderMasterVolume;
     struct FilmstripSliderLookAndFeel1  : public juce::LookAndFeel_V4
     {
@@ -143,10 +124,33 @@ private:
     };
 
     FilmstripSliderLookAndFeel1 filmstripSliderLookAndFeel1;
-    std::unique_ptr<juce::TextButton> button2x;
     std::unique_ptr<juce::Label> label2x;
     std::unique_ptr<juce::TextButton> buttonPlayPause;
     std::unique_ptr<juce::TextButton> buttonStop;
+    std::unique_ptr<juce::ImageButton> buttonPartDec2;
+    std::unique_ptr<juce::ImageButton> buttonPartInc2;
+    std::unique_ptr<juce::ImageButton> buttonInstDec2;
+    std::unique_ptr<juce::ImageButton> buttonInstInc2;
+    std::unique_ptr<r2juce::R2Led> ledPower;
+    std::unique_ptr<juce::ImageButton> buttonMakerLogo;
+    std::unique_ptr<juce::ImageButton> buttonSC;
+    std::unique_ptr<juce::ImageButton> buttonMk2;
+    std::unique_ptr<juce::ImageButton> buttonAll_new;
+    std::unique_ptr<juce::ImageButton> buttonMute_new;
+    std::unique_ptr<juce::ImageButton> button2x_new;
+    std::unique_ptr<juce::ImageButton> buttonPower2;
+    std::unique_ptr<juce::ImageButton> buttonLevelDec2;
+    std::unique_ptr<juce::ImageButton> buttonLevelInc2;
+    std::unique_ptr<juce::ImageButton> buttonPanDec2;
+    std::unique_ptr<juce::ImageButton> buttonPanInc2;
+    std::unique_ptr<juce::ImageButton> buttonReverbDec2;
+    std::unique_ptr<juce::ImageButton> buttonReverbInc2;
+    std::unique_ptr<juce::ImageButton> buttonChorusDec2;
+    std::unique_ptr<juce::ImageButton> buttonChorusInc2;
+    std::unique_ptr<juce::ImageButton> buttonKeyShiftDec2;
+    std::unique_ptr<juce::ImageButton> buttonKeyShiftInc2;
+    std::unique_ptr<juce::ImageButton> buttonMidiChDec2;
+    std::unique_ptr<juce::ImageButton> buttonMidiChInc2;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 

@@ -111,6 +111,45 @@
     </GROUP>
     <GROUP id="{2332326A-53B6-108E-8E08-9CEE12B684CC}" name="Images">
       <FILE id="YnkdNZ" name="Background.png" compile="0" resource="1" file="Images/Background.png"/>
+      <FILE id="dcM4KA" name="DecButton_down.png" compile="0" resource="1"
+            file="Images/DecButton_down.png"/>
+      <FILE id="qNU0tY" name="DecButton_normal.png" compile="0" resource="1"
+            file="Images/DecButton_normal.png"/>
+      <FILE id="OzhMZJ" name="DecButton_over.png" compile="0" resource="1"
+            file="Images/DecButton_over.png"/>
+      <FILE id="r1E6N9" name="GS_old.png" compile="0" resource="1" file="Images/GS_old.png"/>
+      <FILE id="Y3IcJG" name="IncButton_down.png" compile="0" resource="1"
+            file="Images/IncButton_down.png"/>
+      <FILE id="j2CuN0" name="IncButton_normal.png" compile="0" resource="1"
+            file="Images/IncButton_normal.png"/>
+      <FILE id="ec9ncT" name="IncButton_over.png" compile="0" resource="1"
+            file="Images/IncButton_over.png"/>
+      <FILE id="L3dPwr" name="Led.png" compile="0" resource="1" file="Images/Led.png"/>
+      <FILE id="LBOff1" name="LedButton_off.png" compile="0" resource="1"
+            file="Images/LedButton_off.png"/>
+      <FILE id="LBOn01" name="LedButton_on.png" compile="0" resource="1"
+            file="Images/LedButton_on.png"/>
+      <FILE id="yp6MML" name="MakerLogo.png" compile="0" resource="1" file="Images/MakerLogo.png"/>
+      <FILE id="CduRc9" name="mk2.png" compile="0" resource="1" file="Images/mk2.png"/>
+      <FILE id="PF7eUS" name="PartDecButton_down.png" compile="0" resource="1"
+            file="Images/PartDecButton_down.png"/>
+      <FILE id="TzOPua" name="PartDecButton_normal.png" compile="0" resource="1"
+            file="Images/PartDecButton_normal.png"/>
+      <FILE id="mIsUDw" name="PartDecButton_over.png" compile="0" resource="1"
+            file="Images/PartDecButton_over.png"/>
+      <FILE id="OBCjJ6" name="PartIncButton_down.png" compile="0" resource="1"
+            file="Images/PartIncButton_down.png"/>
+      <FILE id="ExlWit" name="PartIncButton_normal.png" compile="0" resource="1"
+            file="Images/PartIncButton_normal.png"/>
+      <FILE id="WXLkei" name="PartIncButton_over.png" compile="0" resource="1"
+            file="Images/PartIncButton_over.png"/>
+      <FILE id="SfC8pJ" name="PowerButton_down.png" compile="0" resource="1"
+            file="Images/PowerButton_down.png"/>
+      <FILE id="DFFv0h" name="PowerButton_normal.png" compile="0" resource="1"
+            file="Images/PowerButton_normal.png"/>
+      <FILE id="xYq6nn" name="PowerButton_over.png" compile="0" resource="1"
+            file="Images/PowerButton_over.png"/>
+      <FILE id="GZvHmf" name="SC.png" compile="0" resource="1" file="Images/SC.png"/>
       <FILE id="ORzYtp" name="Volume.png" compile="0" resource="1" file="Images/Volume.png"/>
     </GROUP>
     <GROUP id="{7A0A3230-48DC-FC14-DAE9-7F9AF05B6075}" name="Fonts">
@@ -134,6 +173,7 @@
     <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="R2JUCE" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
@@ -159,6 +199,7 @@
         <MODULEPATH id="juce_graphics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../3rdparty/JUCE/modules"/>
+        <MODULEPATH id="R2JUCE" path="../3rdparty/R2JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
     <XCODE_IPHONE targetFolder="Builds/iOS">
@@ -180,6 +221,7 @@
         <MODULEPATH id="juce_graphics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../3rdparty/JUCE/modules"/>
+        <MODULEPATH id="R2JUCE" path="../3rdparty/R2JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_IPHONE>
     <VS2026 targetFolder="Builds/VisualStudio2026">
@@ -202,6 +244,7 @@
         <MODULEPATH id="juce_graphics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../3rdparty/JUCE/modules"/>
+        <MODULEPATH id="R2JUCE" path="../3rdparty/R2JUCE/modules"/>
       </MODULEPATHS>
     </VS2026>
     <LINUX_MAKE targetFolder="Builds/LinuxMakefile">
@@ -223,6 +266,7 @@
         <MODULEPATH id="juce_graphics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../3rdparty/JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../3rdparty/JUCE/modules"/>
+        <MODULEPATH id="R2JUCE" path="../3rdparty/R2JUCE/modules"/>
       </MODULEPATHS>
     </LINUX_MAKE>
   </EXPORTFORMATS>

@@ -25,6 +25,19 @@ constexpr float wrdLogicalHeight = 400.0f;
 constexpr float wrdCellWidth = wrdLogicalWidth / static_cast<float> (WrdDisplayFrame::columns);
 constexpr float wrdCellHeight = wrdLogicalHeight / static_cast<float> (WrdDisplayFrame::rows);
 
+juce::Font makeWrdFont (const juce::Typeface::Ptr& typeface)
+{
+    // Timidity selects fixed-width 16-pixel fonts and places each glyph at a
+    // terminal cell origin.  DotGothic16 has the same native advances (8px
+    // for ASCII and 16px for Japanese), so keep the outline font and disable
+    // the layout features that could change those advances.
+    return juce::Font (juce::FontOptions (typeface)
+                           .withHeight (wrdCellHeight)
+                           .withHorizontalScale (1.0f)
+                           .withKerningFactor (0.0f)
+                           .withMetricsKind (juce::TypefaceMetricsKind::legacy));
+}
+
 juce::String decodeWrdText (const std::string& bytes)
 {
     if (bytes.empty())
@@ -204,7 +217,9 @@ public:
     Content()
         : typeface (juce::Typeface::createSystemTypefaceFor (
               BinaryData::DotGothic16Regular_ttf,
-              static_cast<std::size_t> (BinaryData::DotGothic16Regular_ttfSize)))
+              static_cast<std::size_t> (BinaryData::DotGothic16Regular_ttfSize))),
+          halfWidthFont (makeWrdFont (typeface)),
+          fullWidthFont (makeWrdFont (typeface))
     {
         setOpaque (true);
         rawLines.fill (" ");
@@ -294,15 +309,6 @@ public:
                                juce::roundToInt (wrdLogicalHeight));
         }
 
-        // DotGothic16 is deliberately rendered in logical WRD units.  MIMPI's
-        // fixed font cells are 8x16; rendering a whole Shift-JIS line as one
-        // Unicode string would render the storage blank after each full-width
-        // character as an additional visible advance.
-        auto fontOptions = juce::FontOptions (typeface)
-                               .withHeight (wrdCellHeight)
-                               .withMetricsKind (juce::TypefaceMetricsKind::legacy);
-        graphics.setFont (juce::Font (fontOptions));
-
         for (std::size_t row = 0; row < WrdDisplayFrame::rows; ++row)
         {
             graphics.setColour (colourForWrdValue (colours[row]));
@@ -336,12 +342,11 @@ private:
                 if (firstByte != 0x81 || static_cast<unsigned char> (rawLine[byteIndex + 1]) != 0x40)
                 {
                     const auto text = decodeWrdText (rawLine.substr (byteIndex, 2));
-                    graphics.drawText (text,
-                                       juce::roundToInt (wrdCellWidth * static_cast<float> (column)),
-                                       y,
-                                       juce::roundToInt (wrdCellWidth * 2.0f),
-                                       juce::roundToInt (wrdCellHeight),
-                                       juce::Justification::left, false);
+                    graphics.setFont (fullWidthFont);
+                    graphics.drawSingleLineText (
+                        text,
+                        juce::roundToInt (wrdCellWidth * static_cast<float> (column)),
+                        y + juce::roundToInt (fullWidthFont.getAscent()));
                 }
                 byteIndex += 2;
                 if (byteIndex < rawLine.size() && rawLine[byteIndex] == ' ')
@@ -353,12 +358,11 @@ private:
                 if (firstByte != static_cast<unsigned char> (' '))
                 {
                     const auto text = decodeWrdText (rawLine.substr (byteIndex, 1));
-                    graphics.drawText (text,
-                                       juce::roundToInt (wrdCellWidth * static_cast<float> (column)),
-                                       y,
-                                       juce::roundToInt (wrdCellWidth),
-                                       juce::roundToInt (wrdCellHeight),
-                                       juce::Justification::left, false);
+                    graphics.setFont (halfWidthFont);
+                    graphics.drawSingleLineText (
+                        text,
+                        juce::roundToInt (wrdCellWidth * static_cast<float> (column)),
+                        y + juce::roundToInt (halfWidthFont.getAscent()));
                 }
                 ++byteIndex;
                 ++column;
@@ -396,6 +400,8 @@ private:
     }
 
     juce::Typeface::Ptr typeface;
+    juce::Font halfWidthFont;
+    juce::Font fullWidthFont;
     std::array<std::string, WrdDisplayFrame::rows> rawLines;
     std::array<std::uint8_t, WrdDisplayFrame::rows> colours;
     juce::Image background;
