@@ -1440,6 +1440,9 @@ void SM_UpdateUART(submcu_t& sm)
 
 void SM_Update(submcu_t& sm, uint64_t cycles)
 {
+    if (cycles * 5 > sm.cycles + catch_up_limit)
+        sm.cycles = cycles * 5 - catch_up_limit;
+
     while (sm.cycles < cycles * 5)
     {
         SM_HandleInterrupt(sm);

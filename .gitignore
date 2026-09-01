@@ -63,6 +63,10 @@ build-*
 
 build/
 
+# Projucer-generated project files and JUCE amalgamation sources
+/Plugins/Builds/
+/Plugins/JuceLibraryCode/
+
 # MinGW generated files
 *.Debug
 *.Release
