@@ -93,6 +93,9 @@ public:
     /** Requests the standalone app's first-run ROM selection dialog. */
     void requestRomSelection();
 
+    /** Returns the directory used for persistent user-specific files. */
+    static juce::File getUserSettingsDirectory();
+
     /** Sends one momentary press through the SC-55's physical front-panel matrix. */
     void pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button);
 

@@ -91,6 +91,10 @@ CMakeSettings.json
 /Plugins/Builds/
 /Plugins/JuceLibraryCode/
 
+# macOS release artifacts and local signing/notarization configuration.
+/dist/
+/scripts/macos/config.env
+
 # Local ROM dumps must never enter the repository
 *.bin
 *.BIN

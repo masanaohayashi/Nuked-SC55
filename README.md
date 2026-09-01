@@ -24,6 +24,21 @@ Differences from upstream:
 
 See [BUILDING.md](BUILDING.md).
 
+## macOS Release
+
+The macOS release script builds a signed Universal app, creates and verifies a
+DMG, notarizes and staples it, then publishes a GitHub Release. Configure the
+machine-specific signing, notarization, and repository values first:
+
+```sh
+cp scripts/macos/config.env.example scripts/macos/config.env
+./scripts/macos/package-release.sh
+```
+
+The script must be run from a clean checkout of the configured release branch
+whose HEAD matches the configured release remote. Use `--draft` to create a
+draft GitHub Release.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

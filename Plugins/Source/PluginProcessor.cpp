@@ -34,10 +34,7 @@ bool containsRomSet (const juce::File& directory)
 
 juce::File getRememberedRomPathFile()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("Application Support")
-        .getChildFile ("STUDIO-R")
-        .getChildFile ("Nuked-SC55")
+    return NukedSC55AudioProcessor::getUserSettingsDirectory()
         .getChildFile ("rom-path.txt");
 }
 
@@ -160,6 +157,14 @@ void logStandaloneAudioDeviceState (const char* reason)
 }
 
 //==============================================================================
+juce::File NukedSC55AudioProcessor::getUserSettingsDirectory()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("Application Support")
+        .getChildFile ("STUDIO-R")
+        .getChildFile ("Nuked-SC55");
+}
+
 NukedSC55AudioProcessor::NukedSC55AudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
      : AudioProcessor (BusesProperties()

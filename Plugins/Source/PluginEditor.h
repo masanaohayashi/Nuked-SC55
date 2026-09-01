@@ -55,6 +55,10 @@ public:
     void syncPlaybackControls();
     void loadSequenceFile (const juce::File& file);
     void showSequenceFileChooser();
+    juce::Image loadMakerLogoImage() const;
+    void setMakerLogoImage (const juce::Image& image);
+    void replaceMakerLogoFromFile (const juce::File& file);
+    bool isPointOnMakerLogo (int x, int y);
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -165,4 +169,3 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-

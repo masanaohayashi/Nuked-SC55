@@ -142,6 +142,22 @@ private:
     bool romLoaded = false;
     bool displayEnabled = false;
 };
+
+namespace
+{
+constexpr const char* makerLogoFileName = "MakerLogo.png";
+
+bool isPngFile (const juce::String& path)
+{
+    return path.endsWithIgnoreCase (".png");
+}
+
+bool isSequenceFile (const juce::String& path)
+{
+    return path.endsWithIgnoreCase (".mid") || path.endsWithIgnoreCase (".midi")
+        || path.endsWithIgnoreCase (".smf") || path.endsWithIgnoreCase (".rcp");
+}
+}
 //[/MiscUserDefs]
 
 //==============================================================================
@@ -203,7 +219,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                                juce::ImageCache::getFromMemory (BinaryData::PartDecButton_normal_png, BinaryData::PartDecButton_normal_pngSize), 1.000f, juce::Colour (0x00000000),
                                juce::ImageCache::getFromMemory (BinaryData::PartDecButton_over_png, BinaryData::PartDecButton_over_pngSize), 1.000f, juce::Colour (0x00000000),
                                juce::ImageCache::getFromMemory (BinaryData::PartDecButton_down_png, BinaryData::PartDecButton_down_pngSize), 1.000f, juce::Colour (0x00000000));
-    buttonPartDec2->setBounds (768, 24, 52, 20);
+    buttonPartDec2->setBounds (768, 23, 52, 20);
 
     buttonPartInc2.reset (new juce::ImageButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonPartInc2.get());
@@ -213,7 +229,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                                juce::ImageCache::getFromMemory (BinaryData::PartIncButton_normal_png, BinaryData::PartIncButton_normal_pngSize), 1.000f, juce::Colour (0x00000000),
                                juce::ImageCache::getFromMemory (BinaryData::PartIncButton_over_png, BinaryData::PartIncButton_over_pngSize), 1.000f, juce::Colour (0x00000000),
                                juce::ImageCache::getFromMemory (BinaryData::PartIncButton_down_png, BinaryData::PartIncButton_down_pngSize), 1.000f, juce::Colour (0x00000000));
-    buttonPartInc2->setBounds (820, 24, 52, 20);
+    buttonPartInc2->setBounds (820, 23, 52, 20);
 
     buttonInstDec2.reset (new juce::ImageButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonInstDec2.get());
@@ -479,6 +495,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                                       [this] { syncFrontPanelIndicators(); }));
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
+    setMakerLogoImage (loadMakerLogoImage());
     masterVolumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         audioProcessor.getParameters(), "masterVolume", *sliderMasterVolume);
     audioProcessor.requestRomSelection();
@@ -826,6 +843,81 @@ void NukedSC55AudioProcessorEditor::showSequenceFileChooser()
     });
 }
 
+juce::Image NukedSC55AudioProcessorEditor::loadMakerLogoImage() const
+{
+    const auto customLogoFile = NukedSC55AudioProcessor::getUserSettingsDirectory()
+                                    .getChildFile (makerLogoFileName);
+    if (customLogoFile.existsAsFile())
+    {
+        const auto customLogo = juce::ImageFileFormat::loadFrom (customLogoFile);
+        if (customLogo.isValid())
+            return customLogo;
+    }
+
+    return juce::ImageCache::getFromMemory (BinaryData::MakerLogo_png,
+                                            BinaryData::MakerLogo_pngSize);
+}
+
+void NukedSC55AudioProcessorEditor::setMakerLogoImage (const juce::Image& image)
+{
+    if (buttonMakerLogo == nullptr || ! image.isValid())
+        return;
+
+    buttonMakerLogo->setImages (false, true, true,
+                                image, 1.000f, juce::Colour (0x00000000),
+                                juce::Image(), 1.000f, juce::Colour (0x00000000),
+                                juce::Image(), 1.000f, juce::Colour (0x00000000));
+}
+
+void NukedSC55AudioProcessorEditor::replaceMakerLogoFromFile (const juce::File& file)
+{
+    if (! file.existsAsFile() || ! isPngFile (file.getFullPathName()))
+        return;
+
+    const auto image = juce::ImageFileFormat::loadFrom (file);
+    if (! image.isValid())
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "このPNG画像をMakerLogoとして読み込めませんでした:\n" + file.getFileName());
+        juce::AlertWindow::showAsync (options, nullptr);
+        return;
+    }
+
+    const auto settingsDirectory = NukedSC55AudioProcessor::getUserSettingsDirectory();
+    if (settingsDirectory.createDirectory().failed() && ! settingsDirectory.isDirectory())
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "MakerLogoの保存先を作成できませんでした:\n"
+                + settingsDirectory.getFullPathName());
+        juce::AlertWindow::showAsync (options, nullptr);
+        return;
+    }
+
+    const auto customLogoFile = settingsDirectory.getChildFile (makerLogoFileName);
+    if (! file.copyFileTo (customLogoFile))
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "MakerLogoを保存できませんでした:\n" + customLogoFile.getFullPathName());
+        juce::AlertWindow::showAsync (options, nullptr);
+        return;
+    }
+
+    setMakerLogoImage (image);
+}
+
+bool NukedSC55AudioProcessorEditor::isPointOnMakerLogo (int x, int y)
+{
+    if (buttonMakerLogo == nullptr)
+        return false;
+
+    const auto pointInContent = contentComponent.getLocalPoint (
+        this, juce::Point<int> (x, y));
+    return buttonMakerLogo->getBounds().contains (pointInContent);
+}
+
 void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 {
     const auto uiStatus = audioProcessor.getUiStatus();
@@ -872,8 +964,7 @@ void NukedSC55AudioProcessorEditor::syncPlaybackControls()
 bool NukedSC55AudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
-        if (f.endsWithIgnoreCase (".mid") || f.endsWithIgnoreCase (".midi")
-            || f.endsWithIgnoreCase (".smf") || f.endsWithIgnoreCase (".rcp"))
+        if (isSequenceFile (f) || isPngFile (f))
             return true;
 
     return false;
@@ -891,15 +982,28 @@ void NukedSC55AudioProcessorEditor::fileDragExit (const juce::StringArray&)
     repaint();
 }
 
-void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
+void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     fileDragActive = false;
     repaint();
 
+    if (isPointOnMakerLogo (x, y))
+    {
+        for (const auto& f : files)
+        {
+            const juce::File file (f);
+            if (isPngFile (f))
+            {
+                replaceMakerLogoFromFile (file);
+                return;
+            }
+        }
+    }
+
     for (const auto& f : files)
     {
         const juce::File file (f);
-        if (! isInterestedInFileDrag ({ f }))
+        if (! isSequenceFile (f))
             continue;
 
         loadSequenceFile (file);
@@ -951,14 +1055,14 @@ BEGIN_JUCER_METADATA
               explicitFocusOrder="0" pos="16 144 64 24" buttonText="STOP" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <IMAGEBUTTON name="" id="bd7a7d1e8ecefc56" memberName="buttonPartDec2" virtualName=""
-               explicitFocusOrder="0" pos="768 24 52 20" buttonText="new button"
+               explicitFocusOrder="0" pos="768 23 52 20" buttonText="new button"
                connectedEdges="0" needsCallback="1" radioGroupId="0" keepProportions="1"
                resourceNormal="BinaryData::PartDecButton_normal_png" opacityNormal="1.0"
                colourNormal="0" resourceOver="BinaryData::PartDecButton_over_png"
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::PartDecButton_down_png"
                opacityDown="1.0" colourDown="0"/>
   <IMAGEBUTTON name="" id="e5595339a02d2464" memberName="buttonPartInc2" virtualName=""
-               explicitFocusOrder="0" pos="820 24 52 20" buttonText="" connectedEdges="0"
+               explicitFocusOrder="0" pos="820 23 52 20" buttonText="" connectedEdges="0"
                needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::PartIncButton_normal_png"
                opacityNormal="1.0" colourNormal="0" resourceOver="BinaryData::PartIncButton_over_png"
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::PartIncButton_down_png"
@@ -1117,4 +1221,3 @@ END_JUCER_METADATA
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-
