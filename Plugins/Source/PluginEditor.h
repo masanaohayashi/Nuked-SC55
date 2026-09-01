@@ -53,6 +53,8 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     void syncFrontPanelIndicators();
     void syncPlaybackControls();
+    void loadSequenceFile (const juce::File& file);
+    void showSequenceFileChooser();
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -70,6 +72,7 @@ private:
     std::unique_ptr<LcdDisplay> lcdDisplay;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
     bool fileDragActive = false;
+    std::unique_ptr<juce::FileChooser> sequenceFileChooser;
     //[/UserVariables]
 
     //==============================================================================
@@ -151,6 +154,8 @@ private:
     std::unique_ptr<juce::ImageButton> buttonKeyShiftInc2;
     std::unique_ptr<juce::ImageButton> buttonMidiChDec2;
     std::unique_ptr<juce::ImageButton> buttonMidiChInc2;
+    std::unique_ptr<juce::TextButton> buttonLoad;
+    std::unique_ptr<juce::Label> labelPlayer;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 

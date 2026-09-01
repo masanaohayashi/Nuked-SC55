@@ -38,6 +38,7 @@ public:
         : processor (processorToUse),
           refreshCallback (std::move (refreshCallbackToUse)),
           background (juce::Image::RGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, false),
+          noRomBackground (juce::Image::RGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, false),
           glyphLayer (juce::Image::ARGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, true)
     {
         setOpaque (true);
@@ -53,11 +54,12 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colour (0xffff6f0f));
+        g.fillAll (romLoaded ? juce::Colour (0xffff6f0f)
+                            : juce::Colour (0xff707070));
         g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
 
         const auto destination = getLocalBounds().toFloat();
-        g.drawImage (background, destination,
+        g.drawImage (romLoaded ? background : noRomBackground, destination,
                      juce::RectanglePlacement::stretchToFit, false);
 
         if (displayEnabled)
@@ -78,26 +80,36 @@ private:
             || BinaryData::back_dataSize < LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT * 4)
         {
             background.clear (background.getBounds(), juce::Colour (0xffff6f0f));
+            noRomBackground.clear (noRomBackground.getBounds(), juce::Colour (0xff707070));
             return;
         }
 
         juce::Image::BitmapData pixels (background,
                                        juce::Image::BitmapData::writeOnly);
+        juce::Image::BitmapData noRomPixels (noRomBackground,
+                                            juce::Image::BitmapData::writeOnly);
         for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
         {
             for (int x = 0; x < LCD_DISPLAY_WIDTH; ++x)
             {
                 const auto offset = (y * LCD_DISPLAY_WIDTH + x) * 4;
-                pixels.setPixelColour (x, y, juce::Colour::fromRGBA (
+                const auto colour = juce::Colour::fromRGBA (
                     source[offset + 0], source[offset + 1],
-                    source[offset + 2], source[offset + 3]));
+                    source[offset + 2], source[offset + 3]);
+                pixels.setPixelColour (x, y, colour);
+                noRomPixels.setPixelColour (x, y,
+                                            colour == juce::Colour (0xffff6f0f)
+                                                ? juce::Colour (0xff707070)
+                                                : colour);
             }
         }
     }
 
     void refreshDisplay()
     {
-        displayEnabled = processor.copyLcdDisplay (displayMask.data(), LCD_DISPLAY_WIDTH);
+        romLoaded = processor.getUiStatus().audioReady;
+        displayEnabled = romLoaded
+                      && processor.copyLcdDisplay (displayMask.data(), LCD_DISPLAY_WIDTH);
 
         juce::Image::BitmapData pixels (glyphLayer,
                                        juce::Image::BitmapData::writeOnly);
@@ -124,8 +136,10 @@ private:
     NukedSC55AudioProcessor& processor;
     std::function<void()> refreshCallback;
     juce::Image background;
+    juce::Image noRomBackground;
     juce::Image glyphLayer;
     std::array<uint8_t, LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT> displayMask {};
+    bool romLoaded = false;
     bool displayEnabled = false;
 };
 //[/MiscUserDefs]
@@ -171,14 +185,14 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     buttonPlayPause->setButtonText (TRANS ("PLAY"));
     buttonPlayPause->addListener (this);
 
-    buttonPlayPause->setBounds (120, 120, 80, 24);
+    buttonPlayPause->setBounds (88, 144, 64, 24);
 
     buttonStop.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonStop.get());
     buttonStop->setButtonText (TRANS ("STOP"));
     buttonStop->addListener (this);
 
-    buttonStop->setBounds (24, 120, 80, 24);
+    buttonStop->setBounds (16, 144, 64, 24);
 
     buttonPartDec2.reset (new juce::ImageButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonPartDec2.get());
@@ -425,6 +439,25 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                                  juce::ImageCache::getFromMemory (BinaryData::IncButton_over_png, BinaryData::IncButton_over_pngSize), 1.000f, juce::Colour (0x00000000));
     buttonMidiChInc2->setBounds (946, 154, 52, 20);
 
+    buttonLoad.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonLoad.get());
+    buttonLoad->setButtonText (TRANS ("LOAD"));
+    buttonLoad->addListener (this);
+
+    buttonLoad->setBounds (160, 144, 64, 24);
+
+    labelPlayer.reset (new juce::Label (juce::String(),
+                                        TRANS ("RCP/MID PLAYER")));
+    contentComponent.addAndMakeVisible (labelPlayer.get());
+    labelPlayer->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
+    labelPlayer->setJustificationType (juce::Justification::centredLeft);
+    labelPlayer->setEditable (false, false, false);
+    labelPlayer->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
+    labelPlayer->setColour (juce::TextEditor::textColourId, juce::Colours::black);
+    labelPlayer->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+
+    labelPlayer->setBounds (16, 120, 144, 16);
+
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -492,6 +525,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonKeyShiftInc2 = nullptr;
     buttonMidiChDec2 = nullptr;
     buttonMidiChInc2 = nullptr;
+    buttonLoad = nullptr;
+    labelPlayer = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -731,6 +766,12 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::midiChannelInc);
         //[/UserButtonCode_buttonMidiChInc2]
     }
+    else if (buttonThatWasClicked == buttonLoad.get())
+    {
+        //[UserButtonCode_buttonLoad] -- add your button handler code here..
+        showSequenceFileChooser();
+        //[/UserButtonCode_buttonLoad]
+    }
 
     //[UserbuttonClicked_Post]
     //[/UserbuttonClicked_Post]
@@ -739,6 +780,51 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
 
 
 //[MiscUserCode] You can add your own definitions of your custom methods or any other code here...
+
+void NukedSC55AudioProcessorEditor::loadSequenceFile (const juce::File& file)
+{
+    if (file == juce::File {})
+        return;
+
+    if (! audioProcessor.loadMidiFile (file))
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "このシーケンスファイルを再生できませんでした:\n" + file.getFileName());
+        juce::AlertWindow::showAsync (options, nullptr);
+    }
+
+    syncPlaybackControls();
+}
+
+void NukedSC55AudioProcessorEditor::showSequenceFileChooser()
+{
+    sequenceFileChooser = std::make_unique<juce::FileChooser> (
+        "Load MIDI/RCP file",
+        juce::File::getCurrentWorkingDirectory(),
+        "*.mid;*.midi;*.smf;*.rcp",
+        true);
+
+    const auto chooserFlags = juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles;
+    const juce::Component::SafePointer<NukedSC55AudioProcessorEditor> safeThis (this);
+    sequenceFileChooser->launchAsync (chooserFlags,
+                                      [safeThis] (const juce::FileChooser& chooser)
+    {
+        if (safeThis == nullptr)
+            return;
+
+        const auto file = chooser.getResult();
+        if (file == juce::File {})
+        {
+            safeThis->sequenceFileChooser = nullptr;
+            return;
+        }
+
+        safeThis->loadSequenceFile (file);
+        safeThis->sequenceFileChooser = nullptr;
+    });
+}
 
 void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 {
@@ -816,15 +902,7 @@ void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files
         if (! isInterestedInFileDrag ({ f }))
             continue;
 
-        if (! audioProcessor.loadMidiFile (file))
-        {
-            const auto options = juce::MessageBoxOptions::makeOptionsOk (
-                juce::AlertWindow::WarningIcon, "SC-55",
-                "このシーケンスファイルを再生できませんでした:\n" + file.getFileName());
-            juce::AlertWindow::showAsync (options, nullptr);
-        }
-
-        syncPlaybackControls();
+        loadSequenceFile (file);
 
         return;
     }
@@ -867,10 +945,10 @@ BEGIN_JUCER_METADATA
          editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
          fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="34"/>
   <TEXTBUTTON name="" id="d38aac467e703aaf" memberName="buttonPlayPause" virtualName=""
-              explicitFocusOrder="0" pos="120 120 80 24" buttonText="PLAY"
-              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+              explicitFocusOrder="0" pos="88 144 64 24" buttonText="PLAY" connectedEdges="0"
+              needsCallback="1" radioGroupId="0"/>
   <TEXTBUTTON name="" id="ae0fc65259da31ea" memberName="buttonStop" virtualName=""
-              explicitFocusOrder="0" pos="24 120 80 24" buttonText="STOP" connectedEdges="0"
+              explicitFocusOrder="0" pos="16 144 64 24" buttonText="STOP" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
   <IMAGEBUTTON name="" id="bd7a7d1e8ecefc56" memberName="buttonPartDec2" virtualName=""
                explicitFocusOrder="0" pos="768 24 52 20" buttonText="new button"
@@ -1021,6 +1099,15 @@ BEGIN_JUCER_METADATA
                opacityNormal="1.0" colourNormal="0" resourceOver="BinaryData::IncButton_down_png"
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::IncButton_over_png"
                opacityDown="1.0" colourDown="0"/>
+  <TEXTBUTTON name="" id="fc55a74cb8cec1ed" memberName="buttonLoad" virtualName=""
+              explicitFocusOrder="0" pos="160 144 64 24" buttonText="LOAD"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <LABEL name="" id="461158e76b2fd0d6" memberName="labelPlayer" virtualName=""
+         explicitFocusOrder="0" pos="16 120 144 16" textCol="80ffffff"
+         edTextCol="ff000000" edBkgCol="0" labelText="RCP/MID PLAYER"
+         editableSingleClick="0" editableDoubleClick="0" focusDiscardsChanges="0"
+         fontname="Default font" fontsize="15.0" kerning="0.0" bold="0"
+         italic="0" justification="33"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
