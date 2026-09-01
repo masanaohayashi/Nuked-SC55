@@ -152,6 +152,31 @@ resolve_release_remote() {
   RELEASE_REMOTE="$candidate"
 }
 
+resolve_github_repo() {
+  local remote_url
+
+  [[ -n "$GH_REPO" ]] && return
+
+  remote_url="$(git -C "$REPO_ROOT" remote get-url "$RELEASE_REMOTE")"
+  case "$remote_url" in
+    https://github.com/*|http://github.com/*)
+      GH_REPO="${remote_url#*github.com/}"
+      ;;
+    git@github.com:*)
+      GH_REPO="${remote_url#git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      GH_REPO="${remote_url#ssh://git@github.com/}"
+      ;;
+  esac
+
+  GH_REPO="${GH_REPO%.git}"
+  [[ "$GH_REPO" == */* ]] && return
+
+  GH_REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')" \
+    || die "could not determine GitHub repository"
+}
+
 check_repository() {
   local current_branch status_text remote_head submodules
 
@@ -420,10 +445,7 @@ main() {
 
   check_repository
   gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run gh auth login first"
-  if [[ -z "$GH_REPO" ]]; then
-    GH_REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')" \
-      || die "could not determine GitHub repository"
-  fi
+  resolve_github_repo
   check_release_target
   check_signing_identity
 
