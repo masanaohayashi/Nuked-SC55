@@ -38,6 +38,10 @@
       <FILE id="f1Jr78" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
       <FILE id="ZpCy4W" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="v8fmiQ" name="SettingsComponent.cpp" compile="1" resource="0"
+            file="Source/SettingsComponent.cpp"/>
+      <FILE id="w1jO05" name="SettingsComponent.h" compile="0" resource="0"
+            file="Source/SettingsComponent.h"/>
     </GROUP>
     <GROUP id="{6CC5D0AE-BEEF-4D2F-9B8B-1F08C1E4A55B}" name="jcmoyer SC-55 Backend">
       <FILE id="NScDiagC" name="diagnostics.cpp" compile="1" resource="0"
@@ -130,6 +134,10 @@
             file="Images/LedButton_off.png"/>
       <FILE id="LBOn01" name="LedButton_on.png" compile="0" resource="1"
             file="Images/LedButton_on.png"/>
+      <FILE id="iyrwz4" name="Logo_SC55.png" compile="0" resource="1" file="Images/Logo_SC55.png"/>
+      <FILE id="r9fQNT" name="Logo_SC55mk2.png" compile="0" resource="1"
+            file="Images/Logo_SC55mk2.png"/>
+      <FILE id="E9XFTW" name="Logo_SC155.png" compile="0" resource="1" file="Images/Logo_SC155.png"/>
       <FILE id="yp6MML" name="MakerLogo.png" compile="0" resource="1" file="Images/MakerLogo.png"/>
       <FILE id="CduRc9" name="mk2.png" compile="0" resource="1" file="Images/mk2.png"/>
       <FILE id="PF7eUS" name="PartDecButton_down.png" compile="0" resource="1"
@@ -179,8 +187,8 @@
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX" applicationCategory="public.app-category.music"
-               appSandbox="0" hardenedRuntime="0" iosBluetoothPermissionNeeded="1"
-               smallIcon="mYcW6q" bigIcon="mYcW6q">
+               appSandbox="1" hardenedRuntime="1" iosBluetoothPermissionNeeded="1"
+               smallIcon="mYcW6q" bigIcon="mYcW6q" appSandboxOptions="com.apple.security.files.user-selected.read-write">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="SC-55" enablePluginBinaryCopyStep="0"
                        macOSDeploymentTarget="10.15"/>
@@ -204,7 +212,8 @@
         <MODULEPATH id="R2JUCE" path="../3rdparty/R2JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
-    <XCODE_IPHONE targetFolder="Builds/iOS" smallIcon="mYcW6q" bigIcon="mYcW6q">
+    <XCODE_IPHONE targetFolder="Builds/iOS" smallIcon="mYcW6q" bigIcon="mYcW6q"
+                  iosDevelopmentTeamID="P5G28RMWUN" UISupportsDocumentBrowser="1">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" iosDeploymentTarget="13.0" iosCompatibility="13.0"/>
         <CONFIGURATION isDebug="0" name="Release" fastMath="1" iosDeploymentTarget="13.0"

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -557,6 +558,60 @@ bool NukedSC55Emulator::hasRomSet (const std::string& romDirectory)
         return false;
 
     return true;
+}
+
+void NukedSC55Emulator::logRomSetDiagnostics (const std::string& romDirectory)
+{
+#if JUCE_DEBUG
+    const auto path = std::filesystem::path (romDirectory);
+    std::fprintf (stderr, "[DEBUG-SC55] ROM diagnostics path=\"%s\"\n",
+                  romDirectory.c_str());
+
+    std::error_code filesystemError;
+    if (! std::filesystem::is_directory (path, filesystemError))
+    {
+        std::fprintf (stderr, "[DEBUG-SC55] ROM diagnostics directory=0 error=\"%s\"\n",
+                      filesystemError ? filesystemError.message().c_str() : "not a directory");
+        std::fflush (stderr);
+        return;
+    }
+
+    size_t regularFileCount = 0;
+    std::error_code iteratorError;
+    std::filesystem::directory_iterator iterator (path, iteratorError);
+    const std::filesystem::directory_iterator end;
+    for (; iterator != end && ! iteratorError; iterator.increment (iteratorError))
+    {
+        std::error_code entryError;
+        if (! iterator->is_regular_file (entryError))
+            continue;
+
+        ++regularFileCount;
+        const auto fileSize = iterator->file_size (entryError);
+        std::fprintf (stderr, "[DEBUG-SC55] ROM file[%zu]=\"%s\" bytes=%llu readable=%d\n",
+                      regularFileCount,
+                      iterator->path().generic_string().c_str(),
+                      static_cast<unsigned long long> (entryError ? 0 : fileSize),
+                      entryError ? 0 : 1);
+    }
+
+    if (iteratorError)
+        std::fprintf (stderr, "[DEBUG-SC55] ROM directory iteration error=\"%s\"\n",
+                      iteratorError.message().c_str());
+
+    common::LoadRomsetResult result {};
+    common::RomOverrides overrides {};
+    const auto loadError = common::LoadRomset (path, {}, common::RomLoader::Hashing, overrides, result);
+    std::fprintf (stderr,
+                  "[DEBUG-SC55] ROM scan files=%zu error=\"%s\" picked=\"%s\"\n",
+                  regularFileCount,
+                  common::ToCString (loadError),
+                  result.picked_name.c_str());
+    common::PrintLoadRomsetDiagnostics (stderr, loadError, result);
+    std::fflush (stderr);
+#else
+    (void) romDirectory;
+#endif
 }
 
 bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newHostSampleRate)

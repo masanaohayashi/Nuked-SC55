@@ -80,6 +80,9 @@ public:
     /** Returns true when the directory contains a supported SC-55 ROM set. */
     static bool hasRomSet (const std::string& romDirectory);
 
+    /** Writes detailed ROM detection diagnostics in Debug builds. */
+    static void logRomSetDiagnostics (const std::string& romDirectory);
+
     void sendMidi (const uint8_t* data, int size);
     void pressFrontPanelButton (FrontPanelButton button);
     void render (float* left, float* right, int numSamples);

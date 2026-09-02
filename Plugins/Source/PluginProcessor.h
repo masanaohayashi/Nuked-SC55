@@ -93,6 +93,9 @@ public:
     /** Requests the standalone app's first-run ROM selection dialog. */
     void requestRomSelection();
 
+    /** Loads a ROM set from the URL returned by JUCE's native file chooser. */
+    bool loadRomSelection (const juce::URL& selection);
+
     /** Returns the directory used for persistent user-specific files. */
     static juce::File getUserSettingsDirectory();
 
@@ -101,6 +104,9 @@ public:
 
     /** Queues the Roland GS reset SysEx used by the SC-55 reset path. */
     void requestGsReset();
+
+    /** Queues the standard MIDI GM System On reset SysEx. */
+    void requestGmReset();
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
 

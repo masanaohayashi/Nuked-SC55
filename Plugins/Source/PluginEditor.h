@@ -23,6 +23,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 class LcdDisplay;
+class SettingsComponent;
 //[/Headers]
 
 
@@ -55,10 +56,13 @@ public:
     void syncPlaybackControls();
     void loadSequenceFile (const juce::File& file);
     void showSequenceFileChooser();
+    void showRomFileChooser();
     juce::Image loadMakerLogoImage() const;
     void setMakerLogoImage (const juce::Image& image);
     void replaceMakerLogoFromFile (const juce::File& file);
     bool isPointOnMakerLogo (int x, int y);
+    void setSettingsVisible (bool shouldBeVisible);
+    void showStandaloneAudioSettings();
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -77,6 +81,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
     bool fileDragActive = false;
     std::unique_ptr<juce::FileChooser> sequenceFileChooser;
+    std::unique_ptr<juce::FileChooser> romFileChooser;
+    std::unique_ptr<SettingsComponent> settingsComponent;
     //[/UserVariables]
 
     //==============================================================================
@@ -169,4 +175,3 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-
