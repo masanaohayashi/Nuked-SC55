@@ -117,6 +117,7 @@ juce::File findRomChooserDirectory()
 
 void logStartupDirectories()
 {
+#if JUCE_DEBUG
     static std::once_flag logged;
     std::call_once (logged, []
     {
@@ -125,10 +126,13 @@ void logStartupDirectories()
         const auto downloadsDirectory = juce::File::getSpecialLocation
             (juce::File::userHomeDirectory).getChildFile ("Downloads");
 
-        sc55debug::log ("startup paths documents=\"%s\" downloads=\"%s\"",
-                        documentsDirectory.getFullPathName().toRawUTF8(),
-                        downloadsDirectory.getFullPathName().toRawUTF8());
+        DBG ("[DEBUG-SC55] startup paths documents=\""
+             << documentsDirectory.getFullPathName()
+             << "\" downloads=\""
+             << downloadsDirectory.getFullPathName()
+             << "\"");
     });
+#endif
 }
 
 void logStandaloneAudioDeviceState (const char* reason)
