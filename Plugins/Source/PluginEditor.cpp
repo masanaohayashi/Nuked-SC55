@@ -146,6 +146,70 @@ private:
 namespace
 {
 constexpr const char* makerLogoFileName = "MakerLogo.png";
+constexpr float editorDesignWidth = 1024.0f;
+constexpr float editorDesignHeight = 200.0f;
+
+float getEditorScale (float width, float height) noexcept
+{
+    // Fit the authored faceplate into its parent, preserving the same aspect
+    // ratio as TWV_Wrapper's hosted editor.  JUCE/iOS gives us logical points
+    // here; the display's Retina scale must not be treated as a 1x cap.
+    return juce::jmin (width / editorDesignWidth,
+                       height / editorDesignHeight);
+}
+
+juce::Rectangle<float> getAvailableDisplayBounds()
+{
+#if JUCE_IOS
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+    {
+        if (! display->userBounds.isEmpty())
+            return display->userBounds;
+
+        return display->logicalBounds;
+    }
+#endif
+
+    return {};
+}
+
+juce::Point<int> getInitialEditorSize()
+{
+#if JUCE_IOS
+    const auto displayBounds = getAvailableDisplayBounds();
+
+    if (! displayBounds.isEmpty())
+    {
+        const auto scale = getEditorScale (displayBounds.getWidth(),
+                                           displayBounds.getHeight());
+
+        if (scale > 0.0f)
+            return { juce::jmax (1, juce::roundToInt (editorDesignWidth * scale)),
+                     juce::jmax (1, juce::roundToInt (editorDesignHeight * scale)) };
+    }
+#endif
+
+    return { juce::roundToInt (editorDesignWidth),
+             juce::roundToInt (editorDesignHeight) };
+}
+
+juce::Point<int> getMaximumEditorSize()
+{
+#if JUCE_IOS
+    const auto displayBounds = getAvailableDisplayBounds();
+
+    if (! displayBounds.isEmpty())
+    {
+        const auto longestSide = juce::roundToInt (juce::jmax (displayBounds.getWidth(),
+                                                               displayBounds.getHeight()));
+
+        if (longestSide > 0)
+            return { longestSide, longestSide };
+    }
+#endif
+
+    return { 2048, 400 };
+}
 
 bool isPngFile (const juce::String& path)
 {
@@ -483,14 +547,22 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
 
     //[Constructor] You can add your own custom stuff here..
-    // The faceplate is rendered at its native 1024x200 size and scaled in
-    // resized().  Keep the host window locked to the faceplate's aspect ratio,
-    // as on the TX81Z reference editor, so a resize never leaves a stretched
-    // panel surrounded by large empty margins.
+    // The faceplate is authored at 1024x200.  resized() fits that panel into
+    // the editor while preserving its aspect ratio, like TWV_Wrapper's
+    // targetBounds calculation.  Desktop windows keep the panel's aspect
+    // ratio; on iOS the host owns the full-screen parent and the panel is
+    // letterboxed inside it.
     setResizable (true, false);
+#if JUCE_IOS
+    const auto maximumSize = getMaximumEditorSize();
+    setResizeLimits (1, 1, maximumSize.x, maximumSize.y);
+    const auto initialSize = getInitialEditorSize();
+    setSize (initialSize.x, initialSize.y);
+#else
     setResizeLimits (512, 100, 2048, 400);
     if (auto* constrainer = getConstrainer())
-        constrainer->setFixedAspectRatio (1024.0 / 200.0);
+        constrainer->setFixedAspectRatio (editorDesignWidth / editorDesignHeight);
+#endif
     lcdDisplay.reset (new LcdDisplay (audioProcessor,
                                       [this] { syncFrontPanelIndicators(); }));
     lcd->addAndMakeVisible (lcdDisplay.get());
@@ -554,6 +626,9 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
 void NukedSC55AudioProcessorEditor::paint (juce::Graphics& g)
 {
     //[UserPrePaint] Add your own custom painting code here..
+    // The iOS host may give the editor a full-screen aspect ratio.  Paint the
+    // letterbox area before the generated keep-aspect transform is applied.
+    g.fillAll (juce::Colour (0xff323e44));
     //[/UserPrePaint]
 
     juce::Graphics::ScopedSaveState scaledContentState (g);
