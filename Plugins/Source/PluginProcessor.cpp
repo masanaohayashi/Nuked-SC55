@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <mutex>
 
 namespace
 {
@@ -114,6 +115,22 @@ juce::File findRomChooserDirectory()
     return juce::File::getCurrentWorkingDirectory();
 }
 
+void logStartupDirectories()
+{
+    static std::once_flag logged;
+    std::call_once (logged, []
+    {
+        const auto documentsDirectory = juce::File::getSpecialLocation
+            (juce::File::userDocumentsDirectory);
+        const auto downloadsDirectory = juce::File::getSpecialLocation
+            (juce::File::userHomeDirectory).getChildFile ("Downloads");
+
+        sc55debug::log ("startup paths documents=\"%s\" downloads=\"%s\"",
+                        documentsDirectory.getFullPathName().toRawUTF8(),
+                        downloadsDirectory.getFullPathName().toRawUTF8());
+    });
+}
+
 void logStandaloneAudioDeviceState (const char* reason)
 {
 #if JUCE_STANDALONE_APPLICATION
@@ -180,6 +197,7 @@ NukedSC55AudioProcessor::NukedSC55AudioProcessor()
      : parameters (*this, nullptr, "PARAMETERS", createParameterLayout())
 #endif
 {
+    logStartupDirectories();
     sc55debug::log ("processor constructed wrapper=%d acceptsMidi=%d",
                     wrapperType, acceptsMidi() ? 1 : 0);
 }

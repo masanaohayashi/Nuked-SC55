@@ -211,6 +211,41 @@ juce::Point<int> getMaximumEditorSize()
     return { 2048, 400 };
 }
 
+juce::Rectangle<float> getSafeEditorBounds (const juce::Component& editor)
+{
+    const auto editorBounds = editor.getLocalBounds().toFloat();
+
+#if JUCE_IOS
+    if (const auto* display = juce::Desktop::getInstance().getDisplays()
+                                  .getDisplayForRect (editor.getScreenBounds()))
+    {
+        const auto safeBounds = display->safeAreaInsets.subtractedFrom (
+            display->userBounds.getLargestIntegerWithin());
+        const auto safeBoundsInEditor = editor.getLocalArea (nullptr, safeBounds);
+        const auto intersection = editorBounds.getIntersection (safeBoundsInEditor.toFloat());
+
+        if (! intersection.isEmpty())
+            return intersection;
+    }
+#endif
+
+    return editorBounds;
+}
+
+juce::Rectangle<float> getFittedContentBounds (const juce::Component& editor)
+{
+    const auto safeBounds = getSafeEditorBounds (editor);
+    const auto scale = getEditorScale (safeBounds.getWidth(), safeBounds.getHeight());
+
+    if (scale <= 0.0f)
+        return {};
+
+    juce::Rectangle<float> targetBounds (editorDesignWidth * scale,
+                                         editorDesignHeight * scale);
+    targetBounds.setCentre (safeBounds.getCentre());
+    return targetBounds;
+}
+
 bool isPngFile (const juce::String& path)
 {
     return path.endsWithIgnoreCase (".png");
@@ -626,9 +661,28 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
 void NukedSC55AudioProcessorEditor::paint (juce::Graphics& g)
 {
     //[UserPrePaint] Add your own custom painting code here..
-    // The iOS host may give the editor a full-screen aspect ratio.  Paint the
-    // letterbox area before the generated keep-aspect transform is applied.
     g.fillAll (juce::Colour (0xff323e44));
+#if JUCE_IOS
+    const auto contentBounds = getFittedContentBounds (*this);
+    if (! contentBounds.isEmpty())
+    {
+        g.setColour (juce::Colours::black);
+        g.drawImage (cachedImage_BinaryData_Background_png_2,
+                     contentBounds,
+                     juce::RectanglePlacement::stretchToFit,
+                     false);
+    }
+
+    if (fileDragActive)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.fillAll();
+        g.setColour (juce::Colours::white);
+        g.drawRect (getLocalBounds(), 3);
+    }
+
+    return;
+#endif
     //[/UserPrePaint]
 
     juce::Graphics::ScopedSaveState scaledContentState (g);
@@ -677,6 +731,16 @@ void NukedSC55AudioProcessorEditor::resized()
                                                     (getHeight() - 200 * scale) * 0.5f));
 
     //[UserResized] Add your own custom resize handling here..
+#if JUCE_IOS
+    const auto contentBounds = getFittedContentBounds (*this);
+    if (! contentBounds.isEmpty())
+    {
+        const auto contentScale = contentBounds.getWidth() / editorDesignWidth;
+        contentComponent.setTransform (juce::AffineTransform::scale (contentScale)
+                                           .translated (contentBounds.getX(),
+                                                        contentBounds.getY()));
+    }
+#endif
     if (lcdDisplay != nullptr && lcd != nullptr)
         lcdDisplay->setBounds (lcd->getLocalBounds());
     //[/UserResized]
