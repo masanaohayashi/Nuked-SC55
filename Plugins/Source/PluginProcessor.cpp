@@ -121,12 +121,15 @@ void logStartupDirectories()
     static std::once_flag logged;
     std::call_once (logged, []
     {
+        const auto sandboxDirectory = juce::File::getSpecialLocation
+            (juce::File::userHomeDirectory);
         const auto documentsDirectory = juce::File::getSpecialLocation
             (juce::File::userDocumentsDirectory);
-        const auto downloadsDirectory = juce::File::getSpecialLocation
-            (juce::File::userHomeDirectory).getChildFile ("Downloads");
+        const auto downloadsDirectory = sandboxDirectory.getChildFile ("Downloads");
 
-        DBG ("[DEBUG-SC55] startup paths documents=\""
+        DBG ("[DEBUG-SC55] startup paths sandbox=\""
+             << sandboxDirectory.getFullPathName()
+             << "\" documents=\""
              << documentsDirectory.getFullPathName()
              << "\" downloads=\""
              << downloadsDirectory.getFullPathName()
