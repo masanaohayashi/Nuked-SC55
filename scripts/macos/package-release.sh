@@ -33,6 +33,9 @@ DRAFT_RELEASE=0
 
 JUCER_FILE="${REPO_ROOT}/Plugins/Nuked-SC55.jucer"
 XCODE_PROJECT="${REPO_ROOT}/Plugins/Builds/MacOSX/SC-55.xcodeproj"
+MACOS_PROJECT_DIR="${REPO_ROOT}/Plugins/Builds/MacOSX"
+APP_ENTITLEMENTS="${MACOS_PROJECT_DIR}/Standalone_Plugin.entitlements"
+APPEX_ENTITLEMENTS="${MACOS_PROJECT_DIR}/AUv3_AppExtension.entitlements"
 
 log() {
   printf '==> %s\n' "$*" >&2
@@ -248,6 +251,9 @@ archive_app() {
   local archive_log="$WORK_DIR/xcodebuild-archive.log"
 
   log "Archiving SC-55 - Standalone Plugin (${BUILD_CONFIGURATION}, ${BUILD_ARCHS})"
+  # The checked-in project has a custom Sign Target phase. Build the archive
+  # with an ad-hoc signature and without install-time stripping; the final
+  # Developer ID signatures are applied below after all binary transformations.
   if ! xcodebuild archive \
     -project "$XCODE_PROJECT" \
     -scheme "SC-55 - Standalone Plugin" \
@@ -258,11 +264,15 @@ archive_app() {
     ARCHS="$BUILD_ARCHS" \
     VALID_ARCHS="$BUILD_ARCHS" \
     CODE_SIGN_STYLE=Manual \
-    CODE_SIGN_IDENTITY="$APP_IDENTITY" \
+    CODE_SIGN_IDENTITY=- \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     ENABLE_HARDENED_RUNTIME=YES \
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     OTHER_CODE_SIGN_FLAGS="--timestamp" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    STRIP_INSTALLED_PRODUCT=NO \
+    COPY_PHASE_STRIP=NO \
     2>&1 | tee "$archive_log"; then
     die "xcodebuild archive failed; see $archive_log"
   fi
@@ -270,6 +280,18 @@ archive_app() {
   [[ -d "$APP_PATH" ]] || die "archive did not produce: $APP_PATH"
   [[ -d "$APP_PATH/Contents/PlugIns/SC-55.appex" ]] \
     || die "AUv3 app extension is missing from the archived app"
+
+  log "Applying final Developer ID signatures (AUv3, then app)"
+  codesign --force --sign "$APP_IDENTITY" \
+    --verbose=4 --timestamp --options runtime \
+    --entitlements "$APPEX_ENTITLEMENTS" \
+    --generate-entitlement-der \
+    "$APP_PATH/Contents/PlugIns/SC-55.appex"
+  codesign --force --sign "$APP_IDENTITY" \
+    --verbose=4 --timestamp --options runtime \
+    --entitlements "$APP_ENTITLEMENTS" \
+    --generate-entitlement-der \
+    "$APP_PATH"
 
   log "Verifying Developer ID signature on the archived app"
   codesign --verify --deep --strict --verbose=2 "$APP_PATH"
