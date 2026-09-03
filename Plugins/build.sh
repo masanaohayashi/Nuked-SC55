@@ -4,14 +4,18 @@
 #   git clone --recurse-submodules <repo>
 #   cd Nuked-SC55/Plugins && ./build.sh
 #
-# JUCE 9 のモジュールは同じバージョンの Projucer でしか保存できないため、
-# サブモジュールの Projucer を先にビルドしてから Xcode プロジェクトを生成する。
+# XcodeプロジェクトとJuceLibraryCodeはリポジトリに固定しているため、
+# このスクリプトは生成元ファイルを変更しない。
 set -euo pipefail
-cd "$(dirname "$0")"
 
-JUCE=../3rdparty/JUCE
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+JUCE="$SCRIPT_DIR/../3rdparty/JUCE"
 CONFIG=${1:-Release}
-PROJUCER="$JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
+XCODE_PROJECT="$SCRIPT_DIR/Builds/MacOSX/SC-55.xcodeproj"
+JUCE_HEADER="$SCRIPT_DIR/JuceLibraryCode/JuceHeader.h"
+DERIVED_DATA_PATH="${SC55_DERIVED_DATA_PATH:-$SCRIPT_DIR/Builds/MacOSX/build/DerivedData}"
 
 if [ ! -d "$JUCE/modules" ]; then
     echo "JUCE のサブモジュールがありません。以下を実行してください:"
@@ -19,19 +23,21 @@ if [ ! -d "$JUCE/modules" ]; then
     exit 1
 fi
 
-if [ ! -x "$PROJUCER" ]; then
-    echo "==> Projucer をビルド ($(cd "$JUCE" && git describe --tags 2>/dev/null || echo unknown))"
-    xcodebuild -project "$JUCE/extras/Projucer/Builds/MacOSX/Projucer.xcodeproj" \
-               -configuration Release -target "Projucer - App" build | tail -1
+if [ ! -d "$XCODE_PROJECT" ]; then
+    echo "生成済みXcodeプロジェクトがありません: $XCODE_PROJECT" >&2
+    echo "リポジトリのBuilds/JuceLibraryCodeを取得してください。" >&2
+    exit 1
 fi
 
-echo "==> Xcode プロジェクトを生成"
-"$PROJUCER" --resave Nuked-SC55.jucer
+if [ ! -f "$JUCE_HEADER" ]; then
+    echo "生成済みJuceLibraryCodeがありません: $JUCE_HEADER" >&2
+    exit 1
+fi
 
 # 署名は既定でアドホック（誰でもビルドできる）。配布用に自分のチームで署名したい
 # ときだけ、リポジトリを汚さずに外から渡す:
 #   SC55_TEAM_ID=XXXXXXXXXX ./build.sh
-SIGN_ARGS=()
+SIGN_ARGS=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=-)
 if [ -n "${SC55_TEAM_ID:-}" ]; then
     echo "==> Team $SC55_TEAM_ID で署名"
     SIGN_ARGS=(DEVELOPMENT_TEAM="$SC55_TEAM_ID" CODE_SIGN_STYLE=Automatic)
@@ -39,10 +45,12 @@ fi
 
 echo "==> ビルド ($CONFIG)"
 # 前回の archive が残したシンボリックリンクがあると出力先を作れない
-find "Builds/MacOSX/build/$CONFIG" -maxdepth 1 -type l -delete 2>/dev/null || true
-xcodebuild -project Builds/MacOSX/SC-55.xcodeproj \
-           -target "SC-55 - Standalone Plugin" -configuration "$CONFIG" \
-           ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} build | tail -1
+find "$SCRIPT_DIR/Builds/MacOSX/build/$CONFIG" -maxdepth 1 -type l -delete 2>/dev/null || true
+xcodebuild -project "$XCODE_PROJECT" \
+           -scheme "SC-55 - Standalone Plugin" -configuration "$CONFIG" \
+           -derivedDataPath "$DERIVED_DATA_PATH" \
+           ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
+           -destination 'platform=macOS' build
 
 echo
 echo "完了: Plugins/Builds/MacOSX/build/$CONFIG/SC-55.app"

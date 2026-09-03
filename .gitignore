@@ -95,6 +95,35 @@ CMakeSettings.json
 /Plugins/Builds/
 /Plugins/JuceLibraryCode/
 
+# The plugin build scripts use these generated inputs as checked-in files.
+# They must not be regenerated as part of a normal build.
+!/Plugins/Builds/
+!/Plugins/Builds/MacOSX/
+!/Plugins/Builds/MacOSX/SC-55.xcodeproj/
+!/Plugins/Builds/MacOSX/SC-55.xcodeproj/project.pbxproj
+!/Plugins/Builds/MacOSX/*.entitlements
+!/Plugins/Builds/MacOSX/*.icns
+!/Plugins/Builds/MacOSX/*.plist
+!/Plugins/Builds/MacOSX/RecentFilesMenuTemplate.nib
+!/Plugins/Builds/iOS/
+!/Plugins/Builds/iOS/SC-55.xcodeproj/
+!/Plugins/Builds/iOS/SC-55.xcodeproj/project.pbxproj
+!/Plugins/Builds/iOS/*.entitlements
+!/Plugins/Builds/iOS/*.icns
+!/Plugins/Builds/iOS/*.plist
+!/Plugins/Builds/iOS/*.storyboard
+!/Plugins/Builds/iOS/manifest.json
+!/Plugins/Builds/iOS/SC-55/
+!/Plugins/Builds/iOS/SC-55/Images.xcassets/
+!/Plugins/Builds/iOS/SC-55/Images.xcassets/**
+/Plugins/Builds/MacOSX/build/
+/Plugins/Builds/iOS/build/
+/Plugins/Builds/LinuxMakefile/
+/Plugins/Builds/VisualStudio2026/
+/Plugins/Builds/**/xcuserdata/
+!/Plugins/JuceLibraryCode/
+!/Plugins/JuceLibraryCode/**
+
 # macOS release artifacts and local signing/notarization configuration.
 /dist/
 /scripts/macos/config.env

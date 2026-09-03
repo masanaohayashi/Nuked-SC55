@@ -1,0 +1,365 @@
+{
+  "name": "SC-55",
+  "bundleId": "tokyo.studio-r.sc55",
+  "minimumOSVersion": "13.0",
+  "infoPlist": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n\r\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\r\n<plist>\r\n  <dict>\r\n    <key>LSRequiresIPhoneOS</key>\r\n    <true/>\r\n    <key>UIViewControllerBasedStatusBarAppearance</key>\r\n    <true/>\r\n    <key>UIApplicationSceneManifest</key>\r\n    <dict>\r\n      <key>UIApplicationSupportsMultipleScenes</key>\r\n      <false/>\r\n      <key>UISceneConfigurations</key>\r\n      <dict/>\r\n    </dict>\r\n    <key>CFBundleExecutable</key>\r\n    <string>SC-55</string>\r\n    <key>CFBundleIdentifier</key>\r\n    <string>tokyo.studio-r.sc55</string>\r\n    <key>CFBundleName</key>\r\n    <string>SC-55</string>\r\n    <key>CFBundleDisplayName</key>\r\n    <string>SC-55</string>\r\n    <key>CFBundlePackageType</key>\r\n    <string>APPL</string>\r\n    <key>CFBundleSignature</key>\r\n    <string>????</string>\r\n    <key>CFBundleShortVersionString</key>\r\n    <string>0.0.1</string>\r\n    <key>CFBundleVersion</key>\r\n    <string>1</string>\r\n    <key>NSHumanReadableCopyright</key>\r\n    <string>2026 STUDIO-R</string>\r\n    <key>NSHighResolutionCapable</key>\r\n    <true/>\r\n    <key>UISupportsDocumentBrowser</key>\r\n    <true/>\r\n    <key>UIRequiresFullScreen</key>\r\n    <true/>\r\n    <key>UISupportedInterfaceOrientations</key>\r\n    <array>\r\n      <string>UIInterfaceOrientationPortrait</string>\r\n      <string>UIInterfaceOrientationLandscapeLeft</string>\r\n      <string>UIInterfaceOrientationLandscapeRight</string>\r\n    </array>\r\n    <key>UIBackgroundModes</key>\r\n    <array/>\r\n  </dict>\r\n</plist>\r\n",
+  "cppStandard": "c++20",
+  "defines": [
+    "JUCE_PROJUCER_VERSION=0x90000",
+    "JUCE_MODULE_AVAILABLE_juce_audio_basics=1",
+    "JUCE_MODULE_AVAILABLE_juce_audio_devices=1",
+    "JUCE_MODULE_AVAILABLE_juce_audio_formats=1",
+    "JUCE_MODULE_AVAILABLE_juce_audio_plugin_client=1",
+    "JUCE_MODULE_AVAILABLE_juce_audio_processors=1",
+    "JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1",
+    "JUCE_MODULE_AVAILABLE_juce_audio_utils=1",
+    "JUCE_MODULE_AVAILABLE_juce_core=1",
+    "JUCE_MODULE_AVAILABLE_juce_data_structures=1",
+    "JUCE_MODULE_AVAILABLE_juce_events=1",
+    "JUCE_MODULE_AVAILABLE_juce_graphics=1",
+    "JUCE_MODULE_AVAILABLE_juce_gui_basics=1",
+    "JUCE_MODULE_AVAILABLE_juce_gui_extra=1",
+    "JUCE_MODULE_AVAILABLE_R2JUCE=1",
+    "JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1",
+    "JUCE_VST3_CAN_REPLACE_VST2=0",
+    "JUCE_STRICT_REFCOUNTEDPOINTER=1",
+    "JucePlugin_Build_VST=0",
+    "JucePlugin_Build_VST3=1",
+    "JucePlugin_Build_AU=1",
+    "JucePlugin_Build_AUv3=1",
+    "JucePlugin_Build_AAX=0",
+    "JucePlugin_Build_Standalone=1",
+    "JucePlugin_Build_Unity=0",
+    "JucePlugin_Build_LV2=0",
+    "JucePlugin_Enable_IAA=0",
+    "JucePlugin_Enable_ARA=0",
+    "JucePlugin_Name=\"SC-55\"",
+    "JucePlugin_Desc=\"SC-55\"",
+    "JucePlugin_Manufacturer=\"STUDIO-R\"",
+    "JucePlugin_ManufacturerWebsite=\"studio-r.tokyo\"",
+    "JucePlugin_ManufacturerEmail=\"\"",
+    "JucePlugin_ManufacturerCode=0x52696e32",
+    "JucePlugin_PluginCode=0x53633535",
+    "JucePlugin_IsSynth=1",
+    "JucePlugin_WantsMidiInput=1",
+    "JucePlugin_ProducesMidiOutput=0",
+    "JucePlugin_IsMidiEffect=0",
+    "JucePlugin_EditorRequiresKeyboardFocus=0",
+    "JucePlugin_Version=0.0.1",
+    "JucePlugin_VersionCode=0x1",
+    "JucePlugin_VersionString=\"0.0.1\"",
+    "JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
+    "JucePlugin_VSTCategory=kPlugCategSynth",
+    "JucePlugin_LV2PluginClass=InstrumentPlugin",
+    "JucePlugin_Vst3Category=\"Instrument|Synth\"",
+    "JucePlugin_AUMainType='aumu'",
+    "JucePlugin_AUSubType=JucePlugin_PluginCode",
+    "JucePlugin_AUExportPrefix=SC55AU",
+    "JucePlugin_AUExportPrefixQuoted=\"SC55AU\"",
+    "JucePlugin_AUManufacturerCode=JucePlugin_ManufacturerCode",
+    "JucePlugin_CFBundleIdentifier=tokyo.studio-r.sc55",
+    "JucePlugin_AAXIdentifier=com.STUDIOR.SC55",
+    "JucePlugin_AAXManufacturerCode=JucePlugin_ManufacturerCode",
+    "JucePlugin_AAXProductId=JucePlugin_PluginCode",
+    "JucePlugin_AAXCategory=2048",
+    "JucePlugin_AAXDisableBypass=0",
+    "JucePlugin_AAXDisableMultiMono=0",
+    "JucePlugin_IAAType=0x61757269",
+    "JucePlugin_IAASubType=JucePlugin_PluginCode",
+    "JucePlugin_IAAName=\"STUDIO-R: SC-55\"",
+    "JucePlugin_VSTNumMidiInputs=16",
+    "JucePlugin_VSTNumMidiOutputs=16",
+    "JucePlugin_ARAContentTypes=0",
+    "JucePlugin_ARATransformationFlags=0",
+    "JucePlugin_ARAFactoryID=\"com.STUDIOR.SC55.factory\"",
+    "JucePlugin_ARADocumentArchiveID=\"com.STUDIOR.SC55.aradocumentarchive.0.0.1\"",
+    "JucePlugin_ARACompatibleArchiveIDs=\"\"",
+    "JucePlugin_MaxNumInputChannels=0",
+    "JucePlugin_MaxNumOutputChannels=2",
+    "JucePlugin_PreferredChannelConfigurations={0,2}",
+    "JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
+    "NUKED_SC55_NO_MAIN=1",
+    "JUCER_XCODE_IPHONE_5BC26AE3=1",
+    "JUCE_APP_VERSION=0.0.1",
+    "JUCE_APP_VERSION_HEX=0x1",
+    "JUCE_IOS=1",
+    "JUCE_IPHONE=1",
+    "_NDEBUG=1",
+    "NDEBUG=1"
+  ],
+  "includes": [
+    "JuceLibraryCode",
+    "../3rdparty/JUCE/modules",
+    "../3rdparty/R2JUCE/modules",
+    "../src/backend",
+    "../src/common",
+    "../3rdparty/Utf8Main",
+    "../3rdparty/JUCE/modules/juce_audio_plugin_client/AU"
+  ],
+  "compilerFlags": [],
+  "linkerFlags": [],
+  "libSearchPaths": [],
+  "sources": [
+    {
+      "file": "Source/PluginProcessor.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/MidiFilePlayer.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/RcpFilePlayer.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/WrdFilePlayer.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/WrdDisplayWindow.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/NukedSC55Emulator.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/PluginEditor.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "Source/SettingsComponent.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/diagnostics.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/emu.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/file_hashing.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/file_io.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/lcd.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/mcu_interrupt.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/mcu_opcodes.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/mcu_timer.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/mcu.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/pcm.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/pcm_sim.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/rom.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/rom_io.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/standard_romsets.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/submcu.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "../src/backend/sha/sha224-256.c",
+      "language": "c"
+    },
+    {
+      "file": "../src/common/rom_loader.cpp",
+      "language": "c++"
+    },
+    {
+      "file": "JuceLibraryCode/BinaryData.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_basics.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_devices.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_formats.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_formats_flac_1.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_formats_flac_2.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_plugin_client_ARA.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_plugin_client_AUv3.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_plugin_client_Standalone.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_processors.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_processors_headless.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_processors_headless_ara.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_processors_headless_lv2_libs.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_audio_utils.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_core.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_core_CompilationTime.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_core_zlib.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_data_structures.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_events.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_libjpg_1.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_libjpg_2.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_libjpg_3.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_libpng.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_lunasvg.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_graphics_Sheenbidi.c",
+      "language": "c"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_gui_basics.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_gui_basics_2.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_gui_basics_3.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_gui_basics_4.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_gui_basics_5.cpp",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_juce_gui_extra.mm",
+      "language": "objective-c++"
+    },
+    {
+      "file": "JuceLibraryCode/include_R2JUCE.mm",
+      "language": "objective-c++"
+    }
+  ],
+  "resources": [],
+  "frameworks": [
+    "Accelerate",
+    "CoreAudio",
+    "CoreMIDI",
+    "AudioToolbox",
+    "AVFoundation",
+    "QuartzCore",
+    "CoreAudioKit",
+    "Foundation",
+    "CoreGraphics",
+    "CoreImage",
+    "CoreText",
+    "CoreServices",
+    "UIKit",
+    "WebKit",
+    "Metal",
+    "MetalKit",
+    "UniformTypeIdentifiers",
+    "UserNotifications"
+  ],
+  "libraries": [
+    "System",
+    "c++"
+  ]
+}
