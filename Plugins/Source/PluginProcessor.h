@@ -93,11 +93,20 @@ public:
     /** Requests the standalone app's first-run ROM selection dialog. */
     void requestRomSelection();
 
-    /** Loads a ROM set from the URL returned by JUCE's native file chooser. */
+    /** Imports a ROM set from the URL returned by JUCE's native file chooser. */
     bool loadRomSelection (const juce::URL& selection);
 
-    /** Returns the directory used for persistent user-specific files. */
+    /** Returns the valid ROM folders imported into the shared ROM library. */
+    juce::StringArray getStoredRomNames() const;
+
+    /** Selects one of the ROM folders returned by getStoredRomNames(). */
+    bool selectStoredRom (const juce::String& name);
+
+    /** Returns the App Group-backed directory used for persistent user-specific files. */
     static juce::File getUserSettingsDirectory();
+
+    /** Returns the shared directory containing imported ROM folders. */
+    static juce::File getRomStorageDirectory();
 
     /** Sends one momentary press through the SC-55's physical front-panel matrix. */
     void pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button);
@@ -146,6 +155,8 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void handleAsyncUpdate() override;
     bool initialiseRomDirectory (const juce::File& directory);
+    bool selectStoredRomInternal (const juce::String& name, bool notifyHost);
+    void notifyRomSelectionChanged();
     void launchRomChooser();
     void sendMidiToEmulators (const uint8_t* data, int size) noexcept;
     void processMidiPlaybackCommands() noexcept;

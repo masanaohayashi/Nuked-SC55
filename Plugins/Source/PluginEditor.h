@@ -57,12 +57,19 @@ public:
     void loadSequenceFile (const juce::File& file);
     void showSequenceFileChooser();
     void showRomFileChooser();
+    void showLogoFileChooser (bool forMakerLogo);
     juce::Image loadMakerLogoImage() const;
     void setMakerLogoImage (const juce::Image& image);
     void replaceMakerLogoFromFile (const juce::File& file);
     bool isPointOnMakerLogo (int x, int y);
+    juce::Image loadScLogoImage() const;
+    void setScLogoImage (const juce::Image& image);
+    void replaceScLogoFromFile (const juce::File& file);
+    bool isPointOnScLogo (int x, int y);
     void setSettingsVisible (bool shouldBeVisible);
     void showStandaloneAudioSettings();
+    void refreshRomChoices();
+    void updateRomLogo (NukedSC55Emulator::RomFamily romFamily);
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -82,7 +89,10 @@ private:
     bool fileDragActive = false;
     std::unique_ptr<juce::FileChooser> sequenceFileChooser;
     std::unique_ptr<juce::FileChooser> romFileChooser;
+    std::unique_ptr<juce::FileChooser> logoFileChooser;
     std::unique_ptr<SettingsComponent> settingsComponent;
+    NukedSC55Emulator::RomFamily displayedRomFamily = NukedSC55Emulator::RomFamily::unknown;
+    bool romLogoInitialised = false;
     //[/UserVariables]
 
     //==============================================================================

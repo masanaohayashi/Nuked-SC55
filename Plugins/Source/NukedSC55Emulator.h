@@ -21,10 +21,20 @@ struct LoadRomsetResult;
 class NukedSC55Emulator final
 {
 public:
+    enum class RomFamily : uint8_t
+    {
+        unknown,
+        sc55,
+        sc55mk2,
+        sc155,
+        other
+    };
+
     struct DebugState
     {
         bool ready = false;
         bool backendRunning = false;
+        RomFamily romFamily = RomFamily::unknown;
         uint8_t cp = 0;
         uint16_t pc = 0;
         uint64_t cycles = 0;
@@ -183,6 +193,7 @@ private:
     std::atomic<uint8_t> debugPcmConfig3d { 0 };
     std::atomic<uint32_t> debugUartWrite { 0 };
     std::atomic<uint32_t> debugUartRead { 0 };
+    std::atomic<uint8_t> debugRomFamily { static_cast<uint8_t> (RomFamily::unknown) };
     std::atomic<bool> debugAllLed { false };
     std::atomic<bool> debugMuteLed { false };
 

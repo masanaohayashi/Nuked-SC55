@@ -78,6 +78,18 @@ uint32_t frontPanelButtonMask (NukedSC55Emulator::FrontPanelButton button) noexc
     return 0;
 }
 
+NukedSC55Emulator::RomFamily romFamilyForRomset (Romset romset) noexcept
+{
+    switch (romset)
+    {
+        case Romset::MK1:       return NukedSC55Emulator::RomFamily::sc55;
+        case Romset::MK2:       return NukedSC55Emulator::RomFamily::sc55mk2;
+        case Romset::SC155:
+        case Romset::SC155MK2:  return NukedSC55Emulator::RomFamily::sc155;
+        default:                return NukedSC55Emulator::RomFamily::other;
+    }
+}
+
 const char* frontPanelButtonName (NukedSC55Emulator::FrontPanelButton button) noexcept
 {
     using Button = NukedSC55Emulator::FrontPanelButton;
@@ -675,6 +687,9 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
         loadedRoms = std::move (nextRoms);
     }
 
+    debugRomFamily.store (static_cast<uint8_t> (romFamilyForRomset (loadedRoms->romset)),
+                          std::memory_order_release);
+
     sourceRead.store (0, std::memory_order_relaxed);
     sourceWrite.store (0, std::memory_order_relaxed);
     renderCallCount = 0;
@@ -717,6 +732,8 @@ void NukedSC55Emulator::release()
     }
 
     ready.store (false, std::memory_order_release);
+    debugRomFamily.store (static_cast<uint8_t> (RomFamily::unknown),
+                          std::memory_order_release);
 
     {
         const std::lock_guard lock (coreMutex);
@@ -960,6 +977,7 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
     DebugState state;
     state.ready = ready.load (std::memory_order_acquire);
     state.backendRunning = state.ready;
+    state.romFamily = static_cast<RomFamily> (debugRomFamily.load (std::memory_order_acquire));
     state.cp = debugCp.load (std::memory_order_relaxed);
     state.pc = debugPc.load (std::memory_order_relaxed);
     state.cycles = debugCycles.load (std::memory_order_relaxed);

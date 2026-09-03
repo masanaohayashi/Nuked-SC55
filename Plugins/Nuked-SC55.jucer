@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="rm0YrK" name="SC-55" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.1"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.2"
               companyName="STUDIO-R" companyCopyright="2026 STUDIO-R" companyWebsite="studio-r.tokyo"
-              bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAU,buildAUv3,buildStandalone,buildVST3"
+              bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAUv3,buildStandalone"
               pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn"
               pluginManufacturerCode="Rin2" pluginCode="Sc55" pluginChannelConfigs="{0,2}"
               cppLanguageStandard="20" headerPath="../../../src/backend&#10;../../../src/common&#10;../../../3rdparty/Utf8Main"
@@ -134,6 +134,7 @@
             file="Images/LedButton_off.png"/>
       <FILE id="LBOn01" name="LedButton_on.png" compile="0" resource="1"
             file="Images/LedButton_on.png"/>
+      <FILE id="Z8Y6nH" name="Logo_GS.png" compile="0" resource="1" file="Images/Logo_GS.png"/>
       <FILE id="iyrwz4" name="Logo_SC55.png" compile="0" resource="1" file="Images/Logo_SC55.png"/>
       <FILE id="r9fQNT" name="Logo_SC55mk2.png" compile="0" resource="1"
             file="Images/Logo_SC55mk2.png"/>
@@ -188,7 +189,8 @@
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX" applicationCategory="public.app-category.music"
                appSandbox="1" hardenedRuntime="1" iosBluetoothPermissionNeeded="1"
-               smallIcon="mYcW6q" bigIcon="mYcW6q" appSandboxOptions="com.apple.security.files.user-selected.read-write">
+               smallIcon="mYcW6q" bigIcon="mYcW6q" appSandboxOptions="com.apple.security.files.user-selected.read-write"
+               iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55" iosDevelopmentTeamID="P5G28RMWUN">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="SC-55" enablePluginBinaryCopyStep="0"
                        macOSDeploymentTarget="10.15"/>
@@ -213,7 +215,8 @@
       </MODULEPATHS>
     </XCODE_MAC>
     <XCODE_IPHONE targetFolder="Builds/iOS" smallIcon="mYcW6q" bigIcon="mYcW6q"
-                  iosDevelopmentTeamID="P5G28RMWUN" UISupportsDocumentBrowser="1">
+                  iosDevelopmentTeamID="P5G28RMWUN" UISupportsDocumentBrowser="1"
+                  iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" iosDeploymentTarget="13.0" iosCompatibility="13.0"/>
         <CONFIGURATION isDebug="0" name="Release" fastMath="1" iosDeploymentTarget="13.0"

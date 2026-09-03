@@ -21,13 +21,56 @@
 
 namespace
 {
-const char* const romDirectoryEnvironmentVariable = "NUKED_SC55_ROM_PATH";
+#if JUCE_MAC || JUCE_IOS
+constexpr const char* appGroupIdentifier = "group.tokyo.studio-r.sc55";
+#endif
+constexpr const char* userDataDirectoryName = "Nuked-SC55";
 constexpr uint8_t gsResetMessage[] =
     { 0xf0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7f, 0x00, 0x41, 0xf7 };
 constexpr uint8_t gmResetMessage[] =
     { 0xf0, 0x7e, 0x7f, 0x09, 0x01, 0xf7 };
 constexpr uint32_t midiPauseCommand = 1u << 0;
 constexpr uint32_t midiStopCommand = 1u << 1;
+constexpr const char* romNameStateProperty = "romName";
+// Strip this property from newly-written state blobs.  It is not used for
+// loading because ROMs must come from the App Group's shared library.
+constexpr const char* romDirectoryStateProperty = "romDirectory";
+
+#if ! (JUCE_MAC || JUCE_IOS)
+juce::File getLegacyUserSettingsDirectory()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("Application Support")
+        .getChildFile ("STUDIO-R")
+        .getChildFile (userDataDirectoryName);
+}
+#endif
+
+#if JUCE_MAC || JUCE_IOS
+juce::File getAppGroupUserSettingsDirectory()
+{
+    const auto container = juce::File::getContainerForSecurityApplicationGroupIdentifier (
+        appGroupIdentifier);
+
+    if (! container.isDirectory())
+    {
+        DBG ("[DEBUG-SC55] App Group container unavailable id=\""
+             << appGroupIdentifier << "\" path=\""
+             << container.getFullPathName() << "\"");
+        return {};
+    }
+
+    const auto settingsDirectory = container.getChildFile (userDataDirectoryName);
+    if (! settingsDirectory.isDirectory() && settingsDirectory.createDirectory().failed())
+    {
+        DBG ("[DEBUG-SC55] App Group data directory could not be created path=\""
+             << settingsDirectory.getFullPathName() << "\"");
+        return {};
+    }
+
+    return settingsDirectory;
+}
+#endif
 
 bool containsRomSet (const juce::File& directory)
 {
@@ -35,10 +78,15 @@ bool containsRomSet (const juce::File& directory)
         && NukedSC55Emulator::hasRomSet (directory.getFullPathName().toStdString());
 }
 
+juce::File getRomStorageDirectoryForProcessor();
+bool isStoredRomDirectoryForProcessor (const juce::File& directory);
+
 juce::File getRememberedRomPathFile()
 {
-    return NukedSC55AudioProcessor::getUserSettingsDirectory()
-        .getChildFile ("rom-path.txt");
+    const auto settingsDirectory = NukedSC55AudioProcessor::getUserSettingsDirectory();
+    return settingsDirectory.isDirectory()
+        ? settingsDirectory.getChildFile ("rom-path.txt")
+        : juce::File {};
 }
 
 juce::File loadRememberedRomDirectory()
@@ -53,51 +101,30 @@ juce::File loadRememberedRomDirectory()
 
 void rememberRomDirectory (const juce::File& directory)
 {
+    if (! isStoredRomDirectoryForProcessor (directory))
+        return;
+
     const auto pathFile = getRememberedRomPathFile();
+    if (pathFile == juce::File {})
+        return;
+
     pathFile.getParentDirectory().createDirectory();
     pathFile.replaceWithText (directory.getFullPathName(), false, false, "\n");
 }
 
 juce::File findRomDirectory()
 {
-    if (const auto* environmentPath = std::getenv (romDirectoryEnvironmentVariable);
-        environmentPath != nullptr && *environmentPath != '\0')
-    {
-        juce::File environmentDirectory { juce::String (environmentPath) };
-        if (containsRomSet (environmentDirectory))
-            return environmentDirectory;
-    }
+    const auto storageDirectory = getRomStorageDirectoryForProcessor();
+    if (! storageDirectory.isDirectory())
+        return {};
 
     const auto rememberedDirectory = loadRememberedRomDirectory();
-    if (containsRomSet (rememberedDirectory))
+    if (isStoredRomDirectoryForProcessor (rememberedDirectory)
+        && containsRomSet (rememberedDirectory))
         return rememberedDirectory;
 
-    const auto executableDirectory = juce::File::getSpecialLocation
-        (juce::File::currentExecutableFile).getParentDirectory();
-
-    juce::Array<juce::File> candidates;
-    auto candidate = executableDirectory;
-    for (int i = 0; i < 5; ++i)
-    {
-        candidates.addIfNotAlreadyThere (candidate);
-
-        // A sandboxed AUv3 extension can read its own bundle and nothing else,
-        // so a ROM set placed in Resources is the only one it can ever find.
-        candidates.addIfNotAlreadyThere (candidate.getChildFile ("Resources"));
-        candidates.addIfNotAlreadyThere (candidate.getChildFile ("Contents/Resources"));
-
-        candidate = candidate.getParentDirectory();
-    }
-    candidates.addIfNotAlreadyThere (juce::File::getCurrentWorkingDirectory());
-
-    // Inside the AUv3 sandbox this resolves to the extension's own container,
-    // which the user can populate through Finder; outside it, it is ~/Documents.
-    const auto documentsDirectory = juce::File::getSpecialLocation
-        (juce::File::userDocumentsDirectory);
-    candidates.addIfNotAlreadyThere (documentsDirectory.getChildFile ("SC-55 ROM"));
-    candidates.addIfNotAlreadyThere (documentsDirectory);
-
-    for (const auto& directory : candidates)
+    for (const auto& directory : storageDirectory.findChildFiles (
+             juce::File::findDirectories, false, "*"))
     {
         if (containsRomSet (directory))
             return directory;
@@ -108,35 +135,173 @@ juce::File findRomDirectory()
 
 juce::File findRomChooserDirectory()
 {
-    const auto rememberedDirectory = loadRememberedRomDirectory();
-    if (rememberedDirectory.isDirectory())
-        return rememberedDirectory;
+    const auto storageDirectory = getRomStorageDirectoryForProcessor();
+    if (storageDirectory.isDirectory())
+        return storageDirectory;
 
-    const auto executableDirectory = juce::File::getSpecialLocation
-        (juce::File::currentExecutableFile).getParentDirectory();
-    if (executableDirectory.isDirectory())
-        return executableDirectory;
-
-    return juce::File::getCurrentWorkingDirectory();
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
 }
 
+juce::File getRomStorageDirectoryForProcessor()
+{
+    const auto settingsDirectory = NukedSC55AudioProcessor::getUserSettingsDirectory();
+    return settingsDirectory.isDirectory()
+        ? settingsDirectory.getChildFile ("roms")
+        : juce::File {};
+}
+
+bool isStoredRomDirectoryForProcessor (const juce::File& directory)
+{
+    const auto storageDirectory = getRomStorageDirectoryForProcessor();
+    return storageDirectory.isDirectory()
+        && directory.isDirectory()
+        && directory.getParentDirectory() == storageDirectory;
+}
+
+juce::String makeRomStorageFolderName (const juce::String& sourceName)
+{
+    const auto folderName = juce::File::createLegalFileName (sourceName).trim();
+    if (folderName.isEmpty() || folderName == "." || folderName == "..")
+        return {};
+
+    return folderName;
+}
+
+juce::File installStagedRomDirectory (const juce::File& storageDirectory,
+                                      const juce::String& folderName,
+                                      const juce::File& stagingDirectory)
+{
+    const auto destinationDirectory = storageDirectory.getChildFile (folderName);
+    const auto backupDirectory = storageDirectory.getChildFile (
+        juce::String (".") + folderName + ".backup");
+    backupDirectory.deleteRecursively();
+
+    const bool movedExisting = destinationDirectory.exists()
+                            && destinationDirectory.moveFileTo (backupDirectory);
+    if (destinationDirectory.exists()
+        || ! stagingDirectory.moveFileTo (destinationDirectory))
+    {
+        stagingDirectory.deleteRecursively();
+        if (movedExisting)
+            backupDirectory.moveFileTo (destinationDirectory);
+        return {};
+    }
+
+    if (movedExisting)
+        backupDirectory.deleteRecursively();
+
+    return destinationDirectory;
+}
+
+#if ! JUCE_IOS
+bool copyDirectoryContents (const juce::File& sourceDirectory,
+                            const juce::File& destinationDirectory,
+                            int& copiedFiles)
+{
+    const auto sourceFiles = sourceDirectory.findChildFiles (
+        juce::File::findFiles, false, "*");
+    if (sourceFiles.isEmpty())
+        return false;
+
+    for (const auto& sourceFile : sourceFiles)
+    {
+        const auto destinationFile = destinationDirectory.getChildFile (
+            sourceFile.getFileName());
+        if (! sourceFile.copyFileTo (destinationFile))
+        {
+            DBG ("[DEBUG-SC55] failed to copy ROM file source=\""
+                 + sourceFile.getFullPathName()
+                 + "\" destination=\""
+                 + destinationFile.getFullPathName() + "\"");
+            return false;
+        }
+
+        ++copiedFiles;
+    }
+
+    return copiedFiles > 0;
+}
+
+juce::File importRomDirectoryFromFile (const juce::File& sourceDirectory)
+{
+    if (! sourceDirectory.isDirectory())
+        return {};
+
+    const auto folderName = makeRomStorageFolderName (sourceDirectory.getFileName());
+    if (folderName.isEmpty())
+        return {};
+
+    const auto storageDirectory = getRomStorageDirectoryForProcessor();
+    if (storageDirectory.createDirectory().failed() && ! storageDirectory.isDirectory())
+        return {};
+
+    const auto stagingDirectory = storageDirectory.getChildFile (
+        juce::String (".") + folderName + ".importing");
+    stagingDirectory.deleteRecursively();
+    if (stagingDirectory.createDirectory().failed() && ! stagingDirectory.isDirectory())
+        return {};
+
+    int copiedFiles = 0;
+    if (! copyDirectoryContents (sourceDirectory, stagingDirectory, copiedFiles)
+        || ! containsRomSet (stagingDirectory))
+    {
+        DBG ("[DEBUG-SC55] ROM import rejected source=\""
+             + sourceDirectory.getFullPathName()
+             + "\" staging=\""
+             + stagingDirectory.getFullPathName()
+             + "\" copiedFiles=" + juce::String (copiedFiles));
+        NukedSC55Emulator::logRomSetDiagnostics (stagingDirectory.getFullPathName().toStdString());
+        stagingDirectory.deleteRecursively();
+        return {};
+    }
+
+    const auto destinationDirectory = installStagedRomDirectory (
+        storageDirectory, folderName, stagingDirectory);
+    sc55debug::log ("ROM import source=\"%s\" destination=\"%s\" files=%d result=%d",
+                    sourceDirectory.getFullPathName().toRawUTF8(),
+                    destinationDirectory.getFullPathName().toRawUTF8(),
+                    copiedFiles, destinationDirectory.isDirectory() ? 1 : 0);
+    return destinationDirectory;
+}
+#endif
+
 #if JUCE_IOS
-const std::array<const char*, 8> sc55RomFileNames =
+const std::array<const char*, 34> supportedRomFileNames =
 {
     "rom1.bin",
     "rom2.bin",
+    "rom2_st.bin",
     "rom_sm.bin",
     "waverom1.bin",
     "waverom2.bin",
     "sc55_rom1.bin",
     "sc55_rom2.bin",
     "sc55_waverom1.bin",
-};
-
-const std::array<const char*, 2> sc55Mk1WaveRomFileNames =
-{
     "sc55_waverom2.bin",
     "sc55_waverom3.bin",
+    "cm300_rom1.bin",
+    "cm300_rom2.bin",
+    "cm300_waverom1.bin",
+    "cm300_waverom2.bin",
+    "cm300_waverom3.bin",
+    "jv880_rom1.bin",
+    "jv880_rom2.bin",
+    "jv880_waverom1.bin",
+    "jv880_waverom2.bin",
+    "jv880_waverom_pcmcard.bin",
+    "jv880_waverom_expansion.bin",
+    "scb55_rom1.bin",
+    "scb55_rom2.bin",
+    "scb55_waverom1.bin",
+    "scb55_waverom2.bin",
+    "rlp3237_rom1.bin",
+    "rlp3237_rom2.bin",
+    "rlp3237_waverom1.bin",
+    "sc155_rom1.bin",
+    "sc155_rom2.bin",
+    "sc155_waverom1.bin",
+    "sc155_waverom2.bin",
+    "sc155_waverom3.bin",
 };
 
 bool copyUrlToFile (const juce::URL& sourceUrl, const juce::File& destination)
@@ -184,10 +349,20 @@ bool copyUrlToFile (const juce::URL& sourceUrl, const juce::File& destination)
 
 juce::File importRomDirectoryFromUrl (const juce::URL& sourceDirectoryUrl)
 {
-    const auto documentsDirectory = juce::File::getSpecialLocation
-        (juce::File::userDocumentsDirectory);
-    const auto stagingDirectory = documentsDirectory.getChildFile (".SC-55 ROM.importing");
-    const auto destinationDirectory = documentsDirectory.getChildFile ("SC-55 ROM");
+    const auto localFolderName = sourceDirectoryUrl.getLocalFile().getFileName();
+    const auto folderNameFromUrl = localFolderName.isNotEmpty()
+                                 ? localFolderName
+                                 : sourceDirectoryUrl.getFileName();
+    const auto folderName = makeRomStorageFolderName (folderNameFromUrl);
+    if (folderName.isEmpty())
+        return {};
+
+    const auto storageDirectory = getRomStorageDirectoryForProcessor();
+    if (storageDirectory.createDirectory().failed() && ! storageDirectory.isDirectory())
+        return {};
+
+    const auto stagingDirectory = storageDirectory.getChildFile (
+        juce::String (".") + folderName + ".importing");
 
     stagingDirectory.deleteRecursively();
     if (stagingDirectory.createDirectory().failed() && ! stagingDirectory.isDirectory())
@@ -201,34 +376,27 @@ juce::File importRomDirectoryFromUrl (const juce::URL& sourceDirectoryUrl)
             ++copiedFiles;
     };
 
-    for (const auto fileName : sc55RomFileNames)
-        copyNamedFile (fileName);
-    for (const auto fileName : sc55Mk1WaveRomFileNames)
+    for (const auto fileName : supportedRomFileNames)
         copyNamedFile (fileName);
 
     if (copiedFiles == 0 || ! containsRomSet (stagingDirectory))
     {
+        DBG ("[DEBUG-SC55] iOS ROM import rejected source=\""
+             + sourceDirectoryUrl.toString (false)
+             + "\" staging=\""
+             + stagingDirectory.getFullPathName()
+             + "\" copiedFiles=" + juce::String (copiedFiles));
+        NukedSC55Emulator::logRomSetDiagnostics (stagingDirectory.getFullPathName().toStdString());
         stagingDirectory.deleteRecursively();
         return {};
     }
 
-    const auto backupDirectory = documentsDirectory.getChildFile (".SC-55 ROM.backup");
-    backupDirectory.deleteRecursively();
-
-    const bool movedExisting = destinationDirectory.exists()
-                            && destinationDirectory.moveFileTo (backupDirectory);
-    if (destinationDirectory.exists()
-        || ! stagingDirectory.moveFileTo (destinationDirectory))
-    {
-        stagingDirectory.deleteRecursively();
-        if (movedExisting)
-            backupDirectory.moveFileTo (destinationDirectory);
-        return {};
-    }
-
-    if (movedExisting)
-        backupDirectory.deleteRecursively();
-
+    const auto destinationDirectory = installStagedRomDirectory (
+        storageDirectory, folderName, stagingDirectory);
+    sc55debug::log ("iOS ROM import source=\"%s\" destination=\"%s\" files=%d result=%d",
+                    sourceDirectoryUrl.toString (false).toRawUTF8(),
+                    destinationDirectory.getFullPathName().toRawUTF8(),
+                    copiedFiles, destinationDirectory.isDirectory() ? 1 : 0);
     return destinationDirectory;
 }
 #endif
@@ -244,6 +412,8 @@ void logStartupDirectories()
         const auto documentsDirectory = juce::File::getSpecialLocation
             (juce::File::userDocumentsDirectory);
         const auto downloadsDirectory = sandboxDirectory.getChildFile ("Downloads");
+        const auto settingsDirectory = NukedSC55AudioProcessor::getUserSettingsDirectory();
+        const auto romStorageDirectory = settingsDirectory.getChildFile ("roms");
 
         DBG ("[DEBUG-SC55] startup paths sandbox=\""
              << sandboxDirectory.getFullPathName()
@@ -251,6 +421,10 @@ void logStartupDirectories()
              << documentsDirectory.getFullPathName()
              << "\" downloads=\""
              << downloadsDirectory.getFullPathName()
+             << "\" settings=\""
+             << settingsDirectory.getFullPathName()
+             << "\" roms=\""
+             << romStorageDirectory.getFullPathName()
              << "\"");
     });
 #endif
@@ -301,10 +475,16 @@ void logStandaloneAudioDeviceState (const char* reason)
 //==============================================================================
 juce::File NukedSC55AudioProcessor::getUserSettingsDirectory()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("Application Support")
-        .getChildFile ("STUDIO-R")
-        .getChildFile ("Nuked-SC55");
+#if JUCE_MAC || JUCE_IOS
+    return getAppGroupUserSettingsDirectory();
+#else
+    return getLegacyUserSettingsDirectory();
+#endif
+}
+
+juce::File NukedSC55AudioProcessor::getRomStorageDirectory()
+{
+    return getRomStorageDirectoryForProcessor();
 }
 
 NukedSC55AudioProcessor::NukedSC55AudioProcessor()
@@ -443,6 +623,73 @@ NukedSC55AudioProcessor::UiStatus NukedSC55AudioProcessor::getUiStatus() const
     status.error = uiError;
     status.emulator = emulators[0].getDebugState();
     return status;
+}
+
+juce::StringArray NukedSC55AudioProcessor::getStoredRomNames() const
+{
+    juce::StringArray names;
+    const auto storageDirectory = getRomStorageDirectory();
+    if (! storageDirectory.isDirectory())
+        return names;
+
+    for (const auto& directory : storageDirectory.findChildFiles (
+             juce::File::findDirectories, false, "*"))
+    {
+        const auto name = directory.getFileName();
+        if (name.startsWithChar ('.'))
+            continue;
+
+        if (containsRomSet (directory))
+            names.add (name);
+    }
+
+    names.sortNatural();
+    return names;
+}
+
+bool NukedSC55AudioProcessor::selectStoredRom (const juce::String& name)
+{
+    return selectStoredRomInternal (name, true);
+}
+
+bool NukedSC55AudioProcessor::selectStoredRomInternal (const juce::String& name,
+                                                       bool notifyHost)
+{
+    if (name.isEmpty() || name == "." || name == ".."
+        || name.containsAnyOf ("/\\"))
+    {
+        uiError = "Invalid stored ROM name";
+        return false;
+    }
+
+    const auto directory = getRomStorageDirectory().getChildFile (name);
+    DBG ("[DEBUG-SC55] selectStoredRom name=\"" + name
+         + "\" path=\"" + directory.getFullPathName()
+         + "\" isDirectory=" + juce::String (directory.isDirectory() ? 1 : 0));
+
+    if (! directory.isDirectory() || ! containsRomSet (directory))
+    {
+        uiError = "The stored ROM folder is not usable";
+        sc55debug::log ("stored ROM rejected: \"%s\"", directory.getFullPathName().toRawUTF8());
+        NukedSC55Emulator::logRomSetDiagnostics (directory.getFullPathName().toStdString());
+        return false;
+    }
+
+    if (! initialiseRomDirectory (directory))
+        return false;
+
+    if (notifyHost)
+        notifyRomSelectionChanged();
+
+    return true;
+}
+
+void NukedSC55AudioProcessor::notifyRomSelectionChanged()
+{
+    // ROM selection is part of the non-parameter state.  Tell the host so it
+    // asks for a new state blob before the instance is closed or replaced.
+    updateHostDisplay (juce::AudioProcessorListener::ChangeDetails {}
+                           .withNonParameterStateChanged (true));
 }
 
 NukedSC55AudioProcessor::WrdDisplayState NukedSC55AudioProcessor::getWrdDisplayState() const noexcept
@@ -848,6 +1095,7 @@ void NukedSC55AudioProcessor::requestRomSelection()
 bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
 {
     juce::File directory;
+    uiError.clear();
 
     const auto selectedPath = selection.getLocalFile();
     DBG ("[DEBUG-SC55] loadRomSelection url=\"" + selection.toString (false)
@@ -861,9 +1109,10 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
     // The ROM set is a directory, and App Sandbox grants access to the
     // directory the user selected.  Selecting one ROM file only grants access
     // to that file, so hashing its siblings fails under the sandbox.
-    directory = selectedPath.isDirectory()
+    const auto selectedDirectory = selectedPath.isDirectory()
         ? selectedPath
         : selectedPath.getParentDirectory();
+    directory = importRomDirectoryFromFile (selectedDirectory);
 #endif
 
     const auto directoryIsValid = directory.isDirectory();
@@ -873,11 +1122,14 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
     if (directoryIsValid && initialiseRomDirectory (directory))
     {
         DBG ("[DEBUG-SC55] loadRomSelection succeeded");
+        notifyRomSelectionChanged();
         romSelectionRequested.store (false, std::memory_order_release);
         triggerAsyncUpdate();
         return true;
     }
 
+    if (uiError.isEmpty())
+        uiError = "Could not import the selected ROM folder";
     DBG ("[DEBUG-SC55] loadRomSelection failed error=\"" + uiError + "\"");
     return false;
 }
@@ -983,7 +1235,7 @@ void NukedSC55AudioProcessor::handleAsyncUpdate()
     const auto sampleRate = currentSampleRate.load (std::memory_order_acquire);
     if (! audioReady.load (std::memory_order_acquire))
     {
-        const auto candidateDirectory = selectedRomDirectory.isDirectory()
+        const auto candidateDirectory = isStoredRomDirectoryForProcessor (selectedRomDirectory)
             ? selectedRomDirectory
             : findRomDirectory();
 
@@ -1011,10 +1263,12 @@ void NukedSC55AudioProcessor::handleAsyncUpdate()
 
 bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& directory)
 {
-    const auto directoryIsValid = directory.isDirectory();
+    const auto isStoredDirectory = isStoredRomDirectoryForProcessor (directory);
+    const auto directoryIsValid = directory.isDirectory() && isStoredDirectory;
     const auto hasRomSet = directoryIsValid && containsRomSet (directory);
     DBG ("[DEBUG-SC55] initialiseRomDirectory path=\"" + directory.getFullPathName()
          + "\" isDirectory=" + juce::String (directoryIsValid ? 1 : 0)
+         + " inAppGroup=" + juce::String (isStoredDirectory ? 1 : 0)
          + " hasRomSet=" + juce::String (hasRomSet ? 1 : 0));
 
     if (! directoryIsValid || ! hasRomSet)
@@ -1072,7 +1326,7 @@ void NukedSC55AudioProcessor::launchRomChooser()
     sc55debug::log ("launching ROM chooser");
     const auto weakLifetime = std::weak_ptr<int> (lifetimeToken);
     romChooser = std::make_unique<juce::FileChooser> (
-        "Select the folder containing the SC-55 ROM files",
+        "Import ROM",
         findRomChooserDirectory(),
         "*",
         true);
@@ -1116,7 +1370,7 @@ void NukedSC55AudioProcessor::launchRomChooser()
             return;
         }
 
-        directory = selectedDirectory;
+        directory = importRomDirectoryFromFile (selectedDirectory);
 #endif
 
         juce::MessageManager::callAsync ([this, weakLifetime]
@@ -1127,6 +1381,7 @@ void NukedSC55AudioProcessor::launchRomChooser()
 
         if (directory.isDirectory() && initialiseRomDirectory (directory))
         {
+            notifyRomSelectionChanged();
             romSelectionRequested.store (false, std::memory_order_release);
             triggerAsyncUpdate();
             return;
@@ -1135,9 +1390,9 @@ void NukedSC55AudioProcessor::launchRomChooser()
         juce::String message =
             "The selected folder does not contain a usable SC-55 ROM set.\n\n"
 #if JUCE_IOS
-            "Select the folder containing all of the ROM files. The app will copy them into its Documents folder.\n\n"
+            "Select the folder containing all of the ROM files. The app will copy them into its shared roms folder.\n\n"
 #else
-            "Select the folder containing all of the ROM files.\n\n"
+            "Select the folder containing all of the ROM files. The app will copy them into its shared roms folder.\n\n"
 #endif
             "SC-55 v1.x: sc55_rom1.bin, sc55_rom2.bin, sc55_waverom1.bin, "
             "sc55_waverom2.bin, sc55_waverom3.bin\n"
@@ -1172,7 +1427,16 @@ juce::AudioProcessorEditor* NukedSC55AudioProcessor::createEditor()
 //==============================================================================
 void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    const auto state = parameters.copyState();
+    auto state = parameters.copyState();
+    const auto selectedRomIsStored = selectedRomDirectory.isDirectory()
+                                  && selectedRomDirectory.getParentDirectory()
+                                         == getRomStorageDirectory();
+    state.setProperty (juce::Identifier (romNameStateProperty),
+                       selectedRomIsStored
+                           ? selectedRomDirectory.getFileName()
+                           : juce::String(),
+                       nullptr);
+    state.removeProperty (juce::Identifier (romDirectoryStateProperty), nullptr);
     if (const auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -1180,11 +1444,31 @@ void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 void NukedSC55AudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     const std::unique_ptr<juce::XmlElement> xml (getXmlFromBinary (data, sizeInBytes));
-    if (xml != nullptr)
+    if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
+        return;
+
+    const auto state = juce::ValueTree::fromXml (*xml);
+    if (! state.isValid())
+        return;
+
+    parameters.replaceState (state);
+
+    const auto savedRomName = state.getProperty (
+        juce::Identifier (romNameStateProperty)).toString().trim();
+    if (savedRomName.isNotEmpty())
     {
-        if (xml->hasTagName (parameters.state.getType()))
-            parameters.replaceState (juce::ValueTree::fromXml (*xml));
+        DBG ("[DEBUG-SC55] restoring ROM from state name=\"" + savedRomName + "\"");
+        if (selectStoredRomInternal (savedRomName, false))
+            return;
+
+        uiError = "The ROM saved in this state is unavailable. Use Import ROM";
+        sc55debug::log ("state ROM unavailable: \"%s\"", savedRomName.toRawUTF8());
+        return;
     }
+
+    // Older development states may still contain an absolute romDirectory
+    // property.  It is intentionally ignored: ROMs are restored only by the
+    // folder name inside the App Group's shared roms directory.
 }
 
 //==============================================================================

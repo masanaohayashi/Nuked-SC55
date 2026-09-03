@@ -151,6 +151,7 @@ private:
 namespace
 {
 constexpr const char* makerLogoFileName = "MakerLogo.png";
+constexpr const char* scLogoFileName = "SCLogo.png";
 constexpr float editorDesignWidth = 1024.0f;
 constexpr float editorDesignHeight = 200.0f;
 
@@ -262,6 +263,27 @@ bool isSequenceFile (const juce::String& path)
         || path.endsWithIgnoreCase (".smf") || path.endsWithIgnoreCase (".rcp");
 }
 
+bool copyUserImageFile (const juce::File& sourceFile, const juce::File& destinationFile)
+{
+    if (sourceFile == destinationFile)
+        return true;
+
+    const auto temporaryFile = destinationFile.getSiblingFile (
+        destinationFile.getFileName() + ".tmp");
+    temporaryFile.deleteFile();
+
+    if (! sourceFile.copyFileTo (temporaryFile))
+        return false;
+
+    if (! temporaryFile.replaceFileIn (destinationFile))
+    {
+        temporaryFile.deleteFile();
+        return false;
+    }
+
+    return true;
+}
+
 #if JUCE_IOS
 bool copyUrlToFile (const juce::URL& sourceUrl, const juce::File& destination)
 {
@@ -313,8 +335,8 @@ juce::File copySelectedSequenceUrl (const juce::URL& sourceUrl)
     if (fileName.isEmpty() || ! isSequenceFile (fileName))
         return {};
 
-    const auto importDirectory = juce::File::getSpecialLocation
-        (juce::File::userDocumentsDirectory).getChildFile (".SC-55 Sequence imports");
+    const auto importDirectory = NukedSC55AudioProcessor::getUserSettingsDirectory()
+        .getChildFile (".SC-55 Sequence imports");
     if (importDirectory.createDirectory().failed() && ! importDirectory.isDirectory())
         return {};
 
@@ -642,7 +664,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
-    buttonMk2->setVisible(false);
     //[/UserPreSize]
 
     setSize (1024, 200);
@@ -670,6 +691,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
     setMakerLogoImage (loadMakerLogoImage());
+    setScLogoImage (loadScLogoImage());
     masterVolumeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         audioProcessor.getParameters(), "masterVolume", *sliderMasterVolume);
 
@@ -677,12 +699,24 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     addAndMakeVisible (settingsComponent.get());
     settingsComponent->setOnClose ([this] { setSettingsVisible (false); });
     settingsComponent->setOnAudioDeviceSettings ([this] { showStandaloneAudioSettings(); });
-    settingsComponent->setOnLoadRom ([this] { showRomFileChooser(); });
+    settingsComponent->setOnImportRom ([this] { showRomFileChooser(); });
+    settingsComponent->setOnRomSelected ([this] (const juce::String& name)
+    {
+        if (! audioProcessor.selectStoredRom (name))
+        {
+            refreshRomChoices();
+            return;
+        }
+
+        refreshRomChoices();
+        syncFrontPanelIndicators();
+        setSettingsVisible (false);
+    });
     settingsComponent->setOnGsReset ([this] { audioProcessor.requestGsReset(); });
     settingsComponent->setOnGmReset ([this] { audioProcessor.requestGmReset(); });
     settingsComponent->setAudioDeviceButtonEnabled (
         audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
-    settingsComponent->setCurrentRomDirectory (audioProcessor.getUiStatus().romDirectory);
+    refreshRomChoices();
     settingsComponent->setVisible (false);
 
     // The iOS AUv3 and Standalone targets link the same Shared Code library.
@@ -909,11 +943,13 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     else if (buttonThatWasClicked == buttonMakerLogo.get())
     {
         //[UserButtonCode_buttonMakerLogo] -- add your button handler code here..
+        showLogoFileChooser (true);
         //[/UserButtonCode_buttonMakerLogo]
     }
     else if (buttonThatWasClicked == buttonSC.get())
     {
         //[UserButtonCode_buttonSC] -- add your button handler code here..
+        showLogoFileChooser (false);
         //[/UserButtonCode_buttonSC]
     }
     else if (buttonThatWasClicked == buttonMk2.get())
@@ -1104,7 +1140,7 @@ void NukedSC55AudioProcessorEditor::showRomFileChooser()
 
 #if JUCE_IOS
     romFileChooser = std::make_unique<juce::FileChooser> (
-        "Select the folder containing the SC-55 ROM files",
+        "Import ROM",
         juce::File(),
         "*",
         true,
@@ -1112,7 +1148,7 @@ void NukedSC55AudioProcessorEditor::showRomFileChooser()
         this);
 #else
     romFileChooser = std::make_unique<juce::FileChooser> (
-        "Select the folder containing the SC-55 ROM files",
+        "Import ROM",
         juce::File(),
         "*");
 #endif
@@ -1128,33 +1164,95 @@ void NukedSC55AudioProcessorEditor::showRomFileChooser()
             return;
 
         const auto selection = chooser.getURLResult();
-        const auto selectedPath = selection.getLocalFile();
-        DBG ("[DEBUG-SC55] ROM chooser returned url=\"" + selection.toString (false)
-             + "\" path=\"" + selectedPath.getFullPathName()
-             + "\" isDirectory=" + juce::String (selectedPath.isDirectory() ? 1 : 0)
-             + " isFile=" + juce::String (selectedPath.existsAsFile() ? 1 : 0));
-
         if (selection.isEmpty())
         {
             safeThis->romFileChooser = nullptr;
             return;
         }
 
+        const auto selectedPath = selection.getLocalFile();
+        DBG ("[DEBUG-SC55] ROM chooser returned url=\"" + selection.toString (false)
+             + "\" path=\"" + selectedPath.getFullPathName()
+             + "\" isDirectory=" + juce::String (selectedPath.isDirectory() ? 1 : 0)
+             + " isFile=" + juce::String (selectedPath.existsAsFile() ? 1 : 0));
+
         const auto loaded = safeThis->audioProcessor.loadRomSelection (selection);
         safeThis->romFileChooser = nullptr;
 
-        if (! loaded)
+        if (loaded)
         {
-            const auto options = juce::MessageBoxOptions::makeOptionsOk (
-                juce::AlertWindow::WarningIcon,
-                "SC-55 ROM files not found",
-                "The selected folder does not contain a usable SC-55 ROM set.\n\n"
-                "Select the folder containing all of the ROM files.\n\n"
-                "SC-55 v1.x: sc55_rom1.bin, sc55_rom2.bin, sc55_waverom1.bin, "
-                "sc55_waverom2.bin, sc55_waverom3.bin\n"
-                "SC-55mkII: rom1.bin, rom2.bin, waverom1.bin, waverom2.bin, rom_sm.bin");
-            juce::AlertWindow::showAsync (options, nullptr);
+            safeThis->refreshRomChoices();
+            safeThis->syncFrontPanelIndicators();
+            safeThis->setSettingsVisible (false);
+            return;
         }
+
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon,
+            "Import ROM failed",
+            "The selected folder does not contain a usable SC-55 ROM set.\n\n"
+            "Select the folder containing all of the ROM files.\n\n"
+            "SC-55 v1.x: sc55_rom1.bin, sc55_rom2.bin, sc55_waverom1.bin, "
+            "sc55_waverom2.bin, sc55_waverom3.bin\n"
+            "SC-55mkII: rom1.bin, rom2.bin, waverom1.bin, waverom2.bin, rom_sm.bin");
+        juce::AlertWindow::showAsync (options, nullptr);
+    });
+}
+
+void NukedSC55AudioProcessorEditor::showLogoFileChooser (bool forMakerLogo)
+{
+    if (logoFileChooser != nullptr)
+        return;
+
+#if JUCE_IOS
+    logoFileChooser = std::make_unique<juce::FileChooser> (
+        forMakerLogo ? "Load MakerLogo PNG" : "Load SC Logo PNG",
+        juce::File(),
+        "*.png",
+        true,
+        false,
+        this);
+#else
+    logoFileChooser = std::make_unique<juce::FileChooser> (
+        forMakerLogo ? "Load MakerLogo PNG" : "Load SC Logo PNG",
+        juce::File(),
+        "*.png");
+#endif
+
+    const auto chooserFlags = juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles;
+    const juce::Component::SafePointer<NukedSC55AudioProcessorEditor> safeThis (this);
+    logoFileChooser->launchAsync (chooserFlags,
+                                  [safeThis, forMakerLogo] (const juce::FileChooser& chooser)
+    {
+        if (safeThis == nullptr)
+            return;
+
+        juce::File imageFile;
+#if JUCE_IOS
+        const auto sourceUrl = chooser.getURLResult();
+        if (! sourceUrl.isEmpty())
+        {
+            const auto temporaryFile = juce::File::createTempFile (".png");
+            if (copyUrlToFile (sourceUrl, temporaryFile))
+                imageFile = temporaryFile;
+        }
+#else
+        imageFile = chooser.getResult();
+#endif
+
+        if (imageFile.existsAsFile())
+        {
+            if (forMakerLogo)
+                safeThis->replaceMakerLogoFromFile (imageFile);
+            else
+                safeThis->replaceScLogoFromFile (imageFile);
+        }
+
+#if JUCE_IOS
+        imageFile.deleteFile();
+#endif
+        safeThis->logoFileChooser = nullptr;
     });
 }
 
@@ -1184,6 +1282,111 @@ void NukedSC55AudioProcessorEditor::setMakerLogoImage (const juce::Image& image)
                                 juce::Image(), 1.000f, juce::Colour (0x00000000));
 }
 
+juce::Image NukedSC55AudioProcessorEditor::loadScLogoImage() const
+{
+    const auto customLogoFile = NukedSC55AudioProcessor::getUserSettingsDirectory()
+                                    .getChildFile (scLogoFileName);
+    if (customLogoFile.existsAsFile())
+    {
+        const auto customLogo = juce::ImageFileFormat::loadFrom (customLogoFile);
+        if (customLogo.isValid())
+            return customLogo;
+    }
+
+    return {};
+}
+
+void NukedSC55AudioProcessorEditor::setScLogoImage (const juce::Image& image)
+{
+    if (buttonSC == nullptr || ! image.isValid())
+        return;
+
+    buttonSC->setImages (false, true, true,
+                         image, 1.000f, juce::Colour (0x00000000),
+                         juce::Image(), 1.000f, juce::Colour (0x00000000),
+                         juce::Image(), 1.000f, juce::Colour (0x00000000));
+}
+
+void NukedSC55AudioProcessorEditor::replaceScLogoFromFile (const juce::File& file)
+{
+    if (! file.existsAsFile() || ! isPngFile (file.getFullPathName()))
+        return;
+
+    const auto image = juce::ImageFileFormat::loadFrom (file);
+    if (! image.isValid())
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "このPNG画像をSCロゴとして読み込めませんでした:\n" + file.getFileName());
+        juce::AlertWindow::showAsync (options, nullptr);
+        return;
+    }
+
+    const auto settingsDirectory = NukedSC55AudioProcessor::getUserSettingsDirectory();
+    if (settingsDirectory.createDirectory().failed() && ! settingsDirectory.isDirectory())
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "SCロゴの保存先を作成できませんでした:\n"
+                + settingsDirectory.getFullPathName());
+        juce::AlertWindow::showAsync (options, nullptr);
+        return;
+    }
+
+    const auto customLogoFile = settingsDirectory.getChildFile (scLogoFileName);
+    if (! copyUserImageFile (file, customLogoFile))
+    {
+        const auto options = juce::MessageBoxOptions::makeOptionsOk (
+            juce::AlertWindow::WarningIcon, "SC-55",
+            "SCロゴを保存できませんでした:\n" + customLogoFile.getFullPathName());
+        juce::AlertWindow::showAsync (options, nullptr);
+        return;
+    }
+
+    setScLogoImage (image);
+}
+
+void NukedSC55AudioProcessorEditor::updateRomLogo (NukedSC55Emulator::RomFamily romFamily)
+{
+    if (buttonMk2 == nullptr)
+        return;
+
+    if (romLogoInitialised && displayedRomFamily == romFamily)
+        return;
+
+    juce::Image logo;
+    switch (romFamily)
+    {
+        case NukedSC55Emulator::RomFamily::sc55:
+            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_SC55_png,
+                                                    BinaryData::Logo_SC55_pngSize);
+            break;
+
+        case NukedSC55Emulator::RomFamily::sc55mk2:
+            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_SC55mk2_png,
+                                                    BinaryData::Logo_SC55mk2_pngSize);
+            break;
+
+        case NukedSC55Emulator::RomFamily::sc155:
+            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_SC155_png,
+                                                    BinaryData::Logo_SC155_pngSize);
+            break;
+
+        case NukedSC55Emulator::RomFamily::unknown:
+        case NukedSC55Emulator::RomFamily::other:
+            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_GS_png,
+                                                    BinaryData::Logo_GS_pngSize);
+            break;
+    }
+
+    buttonMk2->setImages (false, true, true,
+                          logo, 1.000f, juce::Colour (0x00000000),
+                          juce::Image(), 1.000f, juce::Colour (0x00000000),
+                          juce::Image(), 1.000f, juce::Colour (0x00000000));
+    displayedRomFamily = romFamily;
+    romLogoInitialised = true;
+}
+
 void NukedSC55AudioProcessorEditor::replaceMakerLogoFromFile (const juce::File& file)
 {
     if (! file.existsAsFile() || ! isPngFile (file.getFullPathName()))
@@ -1211,7 +1414,7 @@ void NukedSC55AudioProcessorEditor::replaceMakerLogoFromFile (const juce::File& 
     }
 
     const auto customLogoFile = settingsDirectory.getChildFile (makerLogoFileName);
-    if (! file.copyFileTo (customLogoFile))
+    if (! copyUserImageFile (file, customLogoFile))
     {
         const auto options = juce::MessageBoxOptions::makeOptionsOk (
             juce::AlertWindow::WarningIcon, "SC-55",
@@ -1233,6 +1436,29 @@ bool NukedSC55AudioProcessorEditor::isPointOnMakerLogo (int x, int y)
     return buttonMakerLogo->getBounds().contains (pointInContent);
 }
 
+bool NukedSC55AudioProcessorEditor::isPointOnScLogo (int x, int y)
+{
+    if (buttonSC == nullptr)
+        return false;
+
+    const auto pointInContent = contentComponent.getLocalPoint (
+        this, juce::Point<int> (x, y));
+    return buttonSC->getBounds().contains (pointInContent);
+}
+
+void NukedSC55AudioProcessorEditor::refreshRomChoices()
+{
+    if (settingsComponent == nullptr)
+        return;
+
+    const auto uiStatus = audioProcessor.getUiStatus();
+    const auto selectedRomName = uiStatus.romDirectory.isEmpty()
+                               ? juce::String()
+                               : juce::File (uiStatus.romDirectory).getFileName();
+    settingsComponent->setRomChoices (audioProcessor.getStoredRomNames(),
+                                      selectedRomName);
+}
+
 void NukedSC55AudioProcessorEditor::setSettingsVisible (bool shouldBeVisible)
 {
     if (settingsComponent == nullptr)
@@ -1243,7 +1469,7 @@ void NukedSC55AudioProcessorEditor::setSettingsVisible (bool shouldBeVisible)
 
     if (shouldBeVisible)
     {
-        settingsComponent->setCurrentRomDirectory (audioProcessor.getUiStatus().romDirectory);
+        refreshRomChoices();
         settingsComponent->toFront (false);
     }
     else
@@ -1269,6 +1495,7 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 {
     const auto uiStatus = audioProcessor.getUiStatus();
     const auto& state = uiStatus.emulator;
+    updateRomLogo (state.romFamily);
     const auto syncIndicatorState = [] (juce::ImageButton* button, bool isLit)
     {
         if (button == nullptr)
@@ -1285,7 +1512,12 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
     if (button2x_new != nullptr)
         button2x_new->setToggleState (twoXEnabled, juce::dontSendNotification);
     if (settingsComponent != nullptr)
-        settingsComponent->setCurrentRomDirectory (uiStatus.romDirectory);
+    {
+        const auto selectedRomName = uiStatus.romDirectory.isEmpty()
+                                   ? juce::String()
+                                   : juce::File (uiStatus.romDirectory).getFileName();
+        settingsComponent->setSelectedRomName (selectedRomName);
+    }
     syncPlaybackControls();
 }
 
@@ -1344,6 +1576,19 @@ void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files
             if (isPngFile (f))
             {
                 replaceMakerLogoFromFile (file);
+                return;
+            }
+        }
+    }
+
+    if (isPointOnScLogo (x, y))
+    {
+        for (const auto& f : files)
+        {
+            const juce::File file (f);
+            if (isPngFile (f))
+            {
+                replaceScLogoFromFile (file);
                 return;
             }
         }

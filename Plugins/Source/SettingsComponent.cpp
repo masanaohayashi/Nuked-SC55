@@ -50,18 +50,6 @@ SettingsComponent::SettingsComponent ()
 
     buttonAudioDevice->setBounds (24, 80, 272, 24);
 
-    labelCurrentRom.reset (new juce::Label (juce::String(),
-                                            TRANS ("n/a")));
-    contentComponent.addAndMakeVisible (labelCurrentRom.get());
-    labelCurrentRom->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
-    labelCurrentRom->setJustificationType (juce::Justification::centredLeft);
-    labelCurrentRom->setEditable (false, false, false);
-    labelCurrentRom->setColour (juce::Label::backgroundColourId, juce::Colours::black);
-    labelCurrentRom->setColour (juce::TextEditor::textColourId, juce::Colours::black);
-    labelCurrentRom->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
-
-    labelCurrentRom->setBounds (344, 48, 208, 24);
-
     labelCurrentRomCaption.reset (new juce::Label (juce::String(),
                                                    TRANS ("ROM")));
     contentComponent.addAndMakeVisible (labelCurrentRomCaption.get());
@@ -71,14 +59,17 @@ SettingsComponent::SettingsComponent ()
     labelCurrentRomCaption->setColour (juce::TextEditor::textColourId, juce::Colours::black);
     labelCurrentRomCaption->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
 
-    labelCurrentRomCaption->setBounds (344, 16, 150, 24);
+    labelCurrentRomCaption->setBounds (344, 48, 208, 24);
 
-    buttonLoadRom.reset (new juce::TextButton (juce::String()));
-    contentComponent.addAndMakeVisible (buttonLoadRom.get());
-    buttonLoadRom->setButtonText (TRANS ("Load ROM"));
-    buttonLoadRom->addListener (this);
+    comboRoms.reset (new ImportAwareComboBox (juce::String()));
+    contentComponent.addAndMakeVisible (comboRoms.get());
+    comboRoms->setEditableText (false);
+    comboRoms->setJustificationType (juce::Justification::centredLeft);
+    comboRoms->setTextWhenNothingSelected (TRANS ("Import ROM"));
+    comboRoms->setTextWhenNoChoicesAvailable (TRANS ("(no choices)"));
+    comboRoms->addListener (this);
 
-    buttonLoadRom->setBounds (344, 80, 208, 24);
+    comboRoms->setBounds (344, 80, 208, 24);
 
 
     //[UserPreSize]
@@ -106,12 +97,8 @@ SettingsComponent::SettingsComponent ()
     setAudioDeviceButtonEnabled (false);
 #endif
 
-    labelCurrentRom->setColour (juce::Label::textColourId, juce::Colours::white);
     labelCurrentRomCaption->setColour (juce::Label::textColourId,
                                        juce::Colours::white.withAlpha (0.7f));
-#if JUCE_IOS
-    buttonLoadRom->setButtonText (TRANS ("Load ROM Folder"));
-#endif
     //[/Constructor]
 }
 
@@ -122,9 +109,8 @@ SettingsComponent::~SettingsComponent()
 
     buttonClose = nullptr;
     buttonAudioDevice = nullptr;
-    labelCurrentRom = nullptr;
     labelCurrentRomCaption = nullptr;
-    buttonLoadRom = nullptr;
+    comboRoms = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -204,21 +190,88 @@ void SettingsComponent::buttonClicked (juce::Button* buttonThatWasClicked)
             onAudioDeviceSettings();
         //[/UserButtonCode_buttonAudioDevice]
     }
-    else if (buttonThatWasClicked == buttonLoadRom.get())
-    {
-        //[UserButtonCode_buttonLoadRom] -- add your button handler code here..
-        if (onLoadRom)
-            onLoadRom();
-        //[/UserButtonCode_buttonLoadRom]
-    }
 
     //[UserbuttonClicked_Post]
     //[/UserbuttonClicked_Post]
 }
 
+void SettingsComponent::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
+{
+    //[UsercomboBoxChanged_Pre]
+    //[/UsercomboBoxChanged_Pre]
+
+    if (comboBoxThatHasChanged == comboRoms.get())
+    {
+        //[UserComboBoxCode_comboRoms] -- add your combo box handling code here..
+        const auto selectedId = comboRoms->getSelectedId();
+        if (selectedId == importRomItemId)
+        {
+            const auto previousSelection = selectedRomName;
+            setSelectedRomName (previousSelection);
+
+            if (onImportRom)
+                onImportRom();
+        }
+        else if (selectedId > 0)
+        {
+            selectedRomName = comboRoms->getText();
+            if (onRomSelected)
+                onRomSelected (selectedRomName);
+        }
+        //[/UserComboBoxCode_comboRoms]
+    }
+
+    //[UsercomboBoxChanged_Post]
+    //[/UsercomboBoxChanged_Post]
+}
+
 
 
 //[MiscUserCode] You can add your own definitions of your custom methods or any other code here...
+void SettingsComponent::setRomChoices (const juce::StringArray& names,
+                                       const juce::String& selectedName)
+{
+    selectedRomName = selectedName;
+
+    if (comboRoms == nullptr)
+        return;
+
+    comboRoms->setImportOnly (names.isEmpty());
+    comboRoms->setEnabled (true);
+    comboRoms->setTextWhenNothingSelected (names.isEmpty()
+                                                ? TRANS ("Import ROM")
+                                                : juce::String());
+    comboRoms->clear (juce::dontSendNotification);
+    comboRoms->addItemList (names, 1);
+    if (! names.isEmpty())
+        comboRoms->addSeparator();
+    comboRoms->addItem (TRANS ("Import ROM"), importRomItemId);
+    setSelectedRomName (selectedName);
+
+    DBG ("[DEBUG-SC55] ROM combo refreshed names=" + juce::String (names.size())
+         + " items=" + juce::String (comboRoms->getNumItems())
+         + " importOnly=" + juce::String (names.isEmpty() ? 1 : 0));
+}
+
+void SettingsComponent::setSelectedRomName (const juce::String& name)
+{
+    selectedRomName = name;
+
+    if (comboRoms == nullptr)
+        return;
+
+    for (int index = 0; index < comboRoms->getNumItems(); ++index)
+    {
+        if (comboRoms->getItemText (index) == name)
+        {
+            comboRoms->setSelectedId (comboRoms->getItemId (index),
+                                      juce::dontSendNotification);
+            return;
+        }
+    }
+
+    comboRoms->setText (name, juce::dontSendNotification);
+}
 //[/MiscUserCode]
 
 
@@ -246,19 +299,14 @@ BEGIN_JUCER_METADATA
   <TEXTBUTTON name="new button" id="1612e0a2446926a8" memberName="buttonAudioDevice"
               virtualName="" explicitFocusOrder="0" pos="24 80 272 24" buttonText="Audio Device Settings"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
-  <LABEL name="" id="b3f525f54d13d91a" memberName="labelCurrentRom" virtualName=""
-         explicitFocusOrder="0" pos="344 48 208 24" bkgCol="ff000000"
-         edTextCol="ff000000" edBkgCol="0" labelText="n/a" editableSingleClick="0"
-         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
-         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
   <LABEL name="" id="22d6c36a912254f9" memberName="labelCurrentRomCaption"
-         virtualName="" explicitFocusOrder="0" pos="344 16 150 24" edTextCol="ff000000"
+         virtualName="" explicitFocusOrder="0" pos="344 48 208 24" edTextCol="ff000000"
          edBkgCol="0" labelText="ROM" editableSingleClick="0" editableDoubleClick="0"
          focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
          kerning="0.0" bold="0" italic="0" justification="33"/>
-  <TEXTBUTTON name="" id="c4b632db3f5c1446" memberName="buttonLoadRom" virtualName=""
-              explicitFocusOrder="0" pos="344 80 208 24" buttonText="Load ROM"
-              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <COMBOBOX name="" id="fc40b79ca6ae887" memberName="comboRoms" virtualName=""
+            explicitFocusOrder="0" pos="344 80 208 24" editable="0" layout="33"
+            items="" textWhenNonSelected="" textWhenNoItems="(no choices)"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
