@@ -3,7 +3,7 @@
 <JUCERPROJECT id="rm0YrK" name="SC-55" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.2"
               companyName="STUDIO-R" companyCopyright="2026 STUDIO-R" companyWebsite="studio-r.tokyo"
-              bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAUv3,buildStandalone"
+              bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAUv3,buildStandalone,buildVST3"
               pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn"
               pluginManufacturerCode="Rin2" pluginCode="Sc55" pluginChannelConfigs="{0,2}"
               cppLanguageStandard="20" headerPath="../../../src/backend&#10;../../../src/common&#10;../../../3rdparty/Utf8Main"
@@ -244,11 +244,11 @@
         <MODULEPATH id="R2JUCE" path="../3rdparty/R2JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_IPHONE>
-    <VS2026 targetFolder="Builds/VisualStudio2026">
+    <VS2026 targetFolder="Builds/VisualStudio2026" extraCompilerFlags="/utf-8">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" winArchitecture="ARM64,x64"/>
         <CONFIGURATION isDebug="0" name="Release" useRuntimeLibDLL="0" fastMath="1"
-                       winArchitecture="ARM64,x64"/>
+                       linkTimeOptimisation="0" winArchitecture="ARM64,x64"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="../3rdparty/JUCE/modules"/>

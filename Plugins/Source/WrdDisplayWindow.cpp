@@ -14,6 +14,9 @@
 #if JUCE_MAC
  #include <CoreFoundation/CoreFoundation.h>
 #elif JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
  #include <windows.h>
 #endif
 
