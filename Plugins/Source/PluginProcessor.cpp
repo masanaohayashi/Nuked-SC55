@@ -101,8 +101,10 @@ juce::File loadRememberedRomDirectory()
 
 void rememberRomDirectory (const juce::File& directory)
 {
+#if ! JUCE_LINUX
     if (! isStoredRomDirectoryForProcessor (directory))
         return;
+#endif
 
     const auto pathFile = getRememberedRomPathFile();
     if (pathFile == juce::File {})
@@ -114,14 +116,22 @@ void rememberRomDirectory (const juce::File& directory)
 
 juce::File findRomDirectory()
 {
+#if JUCE_LINUX
+    const auto rememberedDirectory = loadRememberedRomDirectory();
+    if (containsRomSet (rememberedDirectory))
+        return rememberedDirectory;
+#endif
+
     const auto storageDirectory = getRomStorageDirectoryForProcessor();
     if (! storageDirectory.isDirectory())
         return {};
 
+#if ! JUCE_LINUX
     const auto rememberedDirectory = loadRememberedRomDirectory();
     if (isStoredRomDirectoryForProcessor (rememberedDirectory)
         && containsRomSet (rememberedDirectory))
         return rememberedDirectory;
+#endif
 
     for (const auto& directory : storageDirectory.findChildFiles (
              juce::File::findDirectories, false, "*"))
@@ -156,6 +166,15 @@ bool isStoredRomDirectoryForProcessor (const juce::File& directory)
     return storageDirectory.isDirectory()
         && directory.isDirectory()
         && directory.getParentDirectory() == storageDirectory;
+}
+
+bool canUseExternalRomDirectoryForProcessor()
+{
+#if JUCE_LINUX
+    return true;
+#else
+    return false;
+#endif
 }
 
 juce::String makeRomStorageFolderName (const juce::String& sourceName)
@@ -1112,7 +1131,11 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
     const auto selectedDirectory = selectedPath.isDirectory()
         ? selectedPath
         : selectedPath.getParentDirectory();
+#if JUCE_LINUX
+    directory = selectedDirectory;
+#else
     directory = importRomDirectoryFromFile (selectedDirectory);
+#endif
 #endif
 
     const auto directoryIsValid = directory.isDirectory();
@@ -1264,7 +1287,8 @@ void NukedSC55AudioProcessor::handleAsyncUpdate()
 bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& directory)
 {
     const auto isStoredDirectory = isStoredRomDirectoryForProcessor (directory);
-    const auto directoryIsValid = directory.isDirectory() && isStoredDirectory;
+    const auto directoryIsValid = directory.isDirectory()
+                               && (isStoredDirectory || canUseExternalRomDirectoryForProcessor());
     const auto hasRomSet = directoryIsValid && containsRomSet (directory);
     DBG ("[DEBUG-SC55] initialiseRomDirectory path=\"" + directory.getFullPathName()
          + "\" isDirectory=" + juce::String (directoryIsValid ? 1 : 0)
@@ -1370,7 +1394,11 @@ void NukedSC55AudioProcessor::launchRomChooser()
             return;
         }
 
+#if JUCE_LINUX
+        directory = selectedDirectory;
+#else
         directory = importRomDirectoryFromFile (selectedDirectory);
+#endif
 #endif
 
         juce::MessageManager::callAsync ([this, weakLifetime]

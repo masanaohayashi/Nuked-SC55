@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="rm0YrK" name="SC-55" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.2"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.3"
               companyName="STUDIO-R" companyCopyright="2026 STUDIO-R" companyWebsite="studio-r.tokyo"
               bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAUv3,buildStandalone,buildVST3"
               pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn"
