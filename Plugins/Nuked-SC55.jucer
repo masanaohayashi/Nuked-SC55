@@ -38,6 +38,9 @@
       <FILE id="f1Jr78" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
       <FILE id="ZpCy4W" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="RE843m" name="SC55Component.cpp" compile="1" resource="0"
+            file="Source/SC55Component.cpp"/>
+      <FILE id="iMq7dW" name="SC55Component.h" compile="0" resource="0" file="Source/SC55Component.h"/>
       <FILE id="v8fmiQ" name="SettingsComponent.cpp" compile="1" resource="0"
             file="Source/SettingsComponent.cpp"/>
       <FILE id="w1jO05" name="SettingsComponent.h" compile="0" resource="0"
@@ -121,7 +124,9 @@
             file="Images/DecButton_normal.png"/>
       <FILE id="OzhMZJ" name="DecButton_over.png" compile="0" resource="1"
             file="Images/DecButton_over.png"/>
+      <FILE id="SixH38" name="GMButton.png" compile="0" resource="1" file="Images/GMButton.png"/>
       <FILE id="r1E6N9" name="GS_old.png" compile="0" resource="1" file="Images/GS_old.png"/>
+      <FILE id="Mqudi1" name="GSButton.png" compile="0" resource="1" file="Images/GSButton.png"/>
       <FILE id="mYcW6q" name="Icon.png" compile="0" resource="1" file="Images/Icon.png"/>
       <FILE id="Y3IcJG" name="IncButton_down.png" compile="0" resource="1"
             file="Images/IncButton_down.png"/>

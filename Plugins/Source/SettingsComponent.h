@@ -23,6 +23,39 @@
 #include <JuceHeader.h>
 #include <functional>
 #include <utility>
+
+class ImportAwareComboBox final : public juce::ComboBox
+{
+public:
+    using juce::ComboBox::ComboBox;
+
+    void setImportOnly (bool shouldImportOnly) noexcept
+    {
+        importOnly = shouldImportOnly;
+    }
+
+    void setOnImportRequested (std::function<void()> callback)
+    {
+        onImportRequested = std::move (callback);
+    }
+
+    void showPopup() override
+    {
+        if (importOnly && onImportRequested)
+        {
+            DBG ("[DEBUG-SC55] ROM combo clicked with no stored ROM; opening import chooser");
+            hidePopup();
+            onImportRequested();
+            return;
+        }
+
+        juce::ComboBox::showPopup();
+    }
+
+private:
+    bool importOnly = false;
+    std::function<void()> onImportRequested;
+};
 //[/Headers]
 
 
@@ -39,43 +72,6 @@ class SettingsComponent  : public juce::Component,
                            public juce::Button::Listener,
                            public juce::ComboBox::Listener
 {
-private:
-    class ImportAwareComboBox final : public juce::ComboBox
-    {
-    public:
-        using juce::ComboBox::ComboBox;
-
-        void setImportOnly (bool shouldImportOnly) noexcept
-        {
-            importOnly = shouldImportOnly;
-        }
-
-        void setOnImportRequested (std::function<void()> callback)
-        {
-            onImportRequested = std::move (callback);
-        }
-
-        void showPopup() override
-        {
-            if (importOnly && onImportRequested)
-            {
-                // With no stored ROM, the only menu item is Import ROM.  Open
-                // the native folder chooser directly so this state remains
-                // usable in AUv3 hosts that don't display a one-item popup.
-                DBG ("[DEBUG-SC55] ROM combo clicked with no stored ROM; opening import chooser");
-                hidePopup();
-                onImportRequested();
-                return;
-            }
-
-            juce::ComboBox::showPopup();
-        }
-
-    private:
-        bool importOnly = false;
-        std::function<void()> onImportRequested;
-    };
-
 public:
     //==============================================================================
     SettingsComponent ();
@@ -87,7 +83,6 @@ public:
     using RomSelectionAction = std::function<void(const juce::String&)>;
 
     void setOnClose (Action callback) { onClose = std::move (callback); }
-    void setOnAudioDeviceSettings (Action callback) { onAudioDeviceSettings = std::move (callback); }
     void setOnImportRom (Action callback)
     {
         onImportRom = std::move (callback);
@@ -100,18 +95,11 @@ public:
             });
     }
     void setOnRomSelected (RomSelectionAction callback) { onRomSelected = std::move (callback); }
-    void setOnGsReset (Action callback) { onGsReset = std::move (callback); }
-    void setOnGmReset (Action callback) { onGmReset = std::move (callback); }
 
     void setRomChoices (const juce::StringArray& names,
                        const juce::String& selectedName);
     void setSelectedRomName (const juce::String& name);
-
-    void setAudioDeviceButtonEnabled (bool enabled)
-    {
-        if (buttonAudioDevice != nullptr)
-            buttonAudioDevice->setEnabled (enabled);
-    }
+    void setAudioDeviceManager (juce::AudioDeviceManager* manager);
 
     //[/UserMethods]
 
@@ -124,14 +112,10 @@ public:
 
 private:
     //[UserVariables]   -- You can add your own custom variables in this section.
-    std::unique_ptr<juce::TextButton> buttonGsReset;
-    std::unique_ptr<juce::TextButton> buttonGmReset;
     Action onClose;
-    Action onAudioDeviceSettings;
     Action onImportRom;
     RomSelectionAction onRomSelected;
-    Action onGsReset;
-    Action onGmReset;
+    std::unique_ptr<juce::AudioDeviceSelectorComponent> audioDeviceSettings;
     juce::String selectedRomName;
     static constexpr int importRomItemId = 0x10000;
     //[/UserVariables]
@@ -139,9 +123,10 @@ private:
     //==============================================================================
     juce::Component contentComponent;
     std::unique_ptr<juce::ImageButton> buttonClose;
-    std::unique_ptr<juce::TextButton> buttonAudioDevice;
     std::unique_ptr<juce::Label> labelCurrentRomCaption;
     std::unique_ptr<ImportAwareComboBox> comboRoms;
+    std::unique_ptr<juce::Label> juce__label;
+    std::unique_ptr<juce::Viewport> viewport;
 
 
     //==============================================================================

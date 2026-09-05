@@ -12,7 +12,7 @@ namespace BinaryData
     const int            back_dataSize = 794352;
 
     extern const char*   Background_png;
-    const int            Background_pngSize = 440709;
+    const int            Background_pngSize = 437586;
 
     extern const char*   DecButton_down_png;
     const int            DecButton_down_pngSize = 4744;
@@ -23,8 +23,14 @@ namespace BinaryData
     extern const char*   DecButton_over_png;
     const int            DecButton_over_pngSize = 6123;
 
+    extern const char*   GMButton_png;
+    const int            GMButton_pngSize = 10526;
+
     extern const char*   GS_old_png;
     const int            GS_old_pngSize = 3585;
+
+    extern const char*   GSButton_png;
+    const int            GSButton_pngSize = 6083;
 
     extern const char*   Icon_png;
     const int            Icon_pngSize = 65121;
@@ -102,7 +108,7 @@ namespace BinaryData
     const int            DotGothic16Regular_ttfSize = 2027048;
 
     // Number of elements in the namedResourceList and originalFileNames arrays.
-    const int namedResourceListSize = 31;
+    const int namedResourceListSize = 33;
 
     // Points to the start of a list of resource names.
     extern const char* namedResourceList[];

@@ -67,7 +67,6 @@ public:
     void replaceScLogoFromFile (const juce::File& file);
     bool isPointOnScLogo (int x, int y);
     void setSettingsVisible (bool shouldBeVisible);
-    void showStandaloneAudioSettings();
     void refreshRomChoices();
     void updateRomLogo (NukedSC55Emulator::RomFamily romFamily);
     //[/UserMethods]
@@ -93,6 +92,7 @@ private:
     std::unique_ptr<SettingsComponent> settingsComponent;
     NukedSC55Emulator::RomFamily displayedRomFamily = NukedSC55Emulator::RomFamily::unknown;
     bool romLogoInitialised = false;
+    juce::Rectangle<float> cachedSafeEditorBounds;
     //[/UserVariables]
 
     //==============================================================================
@@ -176,6 +176,8 @@ private:
     std::unique_ptr<juce::ImageButton> buttonMidiChInc2;
     std::unique_ptr<juce::TextButton> buttonLoad;
     std::unique_ptr<juce::Label> labelPlayer;
+    std::unique_ptr<juce::ImageButton> buttonGM;
+    std::unique_ptr<juce::ImageButton> buttonGS;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 

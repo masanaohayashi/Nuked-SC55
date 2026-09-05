@@ -24,6 +24,7 @@
 
 /* Begin PBXBuildFile section */
 		01DF6FBC82B4892D634D10AC /* mcu_interrupt.cpp */ = {isa = PBXBuildFile; fileRef = 2DFC2CBB0D8ED9C6F575A18D; };
+		078CB8E5EDF13B3FF460CEBD /* SC55Component.cpp */ = {isa = PBXBuildFile; fileRef = CA0ED4D3A8CF2553688D8E27; };
 		078F843F7CFD07A294335BB4 /* include_juce_audio_utils.mm */ = {isa = PBXBuildFile; fileRef = 251E1CB020DDE16E4B4D6A45; };
 		08DD63A5BC23832AC8F157D8 /* include_juce_gui_basics_2.cpp */ = {isa = PBXBuildFile; fileRef = D6ABEF7A2BEBA42E9AEBCA68; };
 		0D8FE62911F90ECF68C74225 /* include_juce_audio_formats_flac_2.c */ = {isa = PBXBuildFile; fileRef = B1C1CE20FF705113E63067E3; };
@@ -156,6 +157,7 @@
 		1F67FBB0E7BBF3E7F5D062A1 /* Images.xcassets */ /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = "SC-55/Images.xcassets"; sourceTree = SOURCE_ROOT; };
 		2515B358311DE8E8E17FC665 /* standard_romsets.h */ /* standard_romsets.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = standard_romsets.h; path = ../../../src/backend/standard_romsets.h; sourceTree = SOURCE_ROOT; };
 		251E1CB020DDE16E4B4D6A45 /* include_juce_audio_utils.mm */ /* include_juce_audio_utils.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_audio_utils.mm; path = ../../JuceLibraryCode/include_juce_audio_utils.mm; sourceTree = SOURCE_ROOT; };
+		25C4C538ABF56B56842D3AC6 /* GSButton.png */ /* GSButton.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = GSButton.png; path = ../../Images/GSButton.png; sourceTree = SOURCE_ROOT; };
 		2683880A2B69B683553D6C64 /* CoreServices.framework */ /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
 		287A7269441CD076DFE25C36 /* include_juce_gui_basics_3.cpp */ /* include_juce_gui_basics_3.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_gui_basics_3.cpp; path = ../../JuceLibraryCode/include_juce_gui_basics_3.cpp; sourceTree = SOURCE_ROOT; };
 		2990E72604E0D4895C16990A /* sha-private.h */ /* sha-private.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "sha-private.h"; path = "../../../src/backend/sha/sha-private.h"; sourceTree = SOURCE_ROOT; };
@@ -196,6 +198,7 @@
 		6181442A20BF9BECDAF37E77 /* juce_gui_extra */ /* juce_gui_extra */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_gui_extra; path = ../../../3rdparty/JUCE/modules/juce_gui_extra; sourceTree = SOURCE_ROOT; };
 		622B308B336CCDD562E7B060 /* IncButton_normal.png */ /* IncButton_normal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = IncButton_normal.png; path = ../../Images/IncButton_normal.png; sourceTree = SOURCE_ROOT; };
 		62E2FC486240A5D139DA066F /* PartDecButton_normal.png */ /* PartDecButton_normal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = PartDecButton_normal.png; path = ../../Images/PartDecButton_normal.png; sourceTree = SOURCE_ROOT; };
+		64D2DF903AEE93F6F99E808A /* SC55Component.h */ /* SC55Component.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SC55Component.h; path = ../../Source/SC55Component.h; sourceTree = SOURCE_ROOT; };
 		6531B3F8F009C7D1F42C36DD /* include_juce_graphics_lunasvg.c */ /* include_juce_graphics_lunasvg.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = include_juce_graphics_lunasvg.c; path = ../../JuceLibraryCode/include_juce_graphics_lunasvg.c; sourceTree = SOURCE_ROOT; };
 		6544EF32561DDB50576BD6CC /* include_juce_audio_processors_headless_lv2_libs.cpp */ /* include_juce_audio_processors_headless_lv2_libs.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_audio_processors_headless_lv2_libs.cpp; path = ../../JuceLibraryCode/include_juce_audio_processors_headless_lv2_libs.cpp; sourceTree = SOURCE_ROOT; };
 		669272BD6E567FD9F9BAE67F /* Info-Standalone_Plugin.plist */ /* Info-Standalone_Plugin.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Info-Standalone_Plugin.plist"; path = "Info-Standalone_Plugin.plist"; sourceTree = SOURCE_ROOT; };
@@ -259,6 +262,7 @@
 		C1A5C3148933D44A2B04B55B /* LaunchScreen.storyboard */ /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = LaunchScreen.storyboard; sourceTree = SOURCE_ROOT; };
 		C1AD6909EE5184586A4C1B30 /* rom_io.cpp */ /* rom_io.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = rom_io.cpp; path = ../../../src/backend/rom_io.cpp; sourceTree = SOURCE_ROOT; };
 		C2A89D4811270C76A88B81E5 /* Standalone_Plugin.entitlements */ /* Standalone_Plugin.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Standalone_Plugin.entitlements; path = Standalone_Plugin.entitlements; sourceTree = SOURCE_ROOT; };
+		C2B12E16CEFDC7A474F2DA74 /* GMButton.png */ /* GMButton.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = GMButton.png; path = ../../Images/GMButton.png; sourceTree = SOURCE_ROOT; };
 		C39732EEA43FD7782A874B36 /* lcd.cpp */ /* lcd.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = lcd.cpp; path = ../../../src/backend/lcd.cpp; sourceTree = SOURCE_ROOT; };
 		C4BFD0E4316B0FA060073D15 /* Metal.framework */ /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		C5A322A63F9593D592B7A455 /* PartDecButton_over.png */ /* PartDecButton_over.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = PartDecButton_over.png; path = ../../Images/PartDecButton_over.png; sourceTree = SOURCE_ROOT; };
@@ -270,6 +274,7 @@
 		C92781521F064C2DF7653004 /* file_io.h */ /* file_io.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = file_io.h; path = ../../../src/backend/file_io.h; sourceTree = SOURCE_ROOT; };
 		C95D5733A0748F16F8B4A2FB /* Logo_GS.png */ /* Logo_GS.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = Logo_GS.png; path = ../../Images/Logo_GS.png; sourceTree = SOURCE_ROOT; };
 		C993C0EA5CFD410CD308ABCC /* include_juce_audio_processors.mm */ /* include_juce_audio_processors.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = include_juce_audio_processors.mm; path = ../../JuceLibraryCode/include_juce_audio_processors.mm; sourceTree = SOURCE_ROOT; };
+		CA0ED4D3A8CF2553688D8E27 /* SC55Component.cpp */ /* SC55Component.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SC55Component.cpp; path = ../../Source/SC55Component.cpp; sourceTree = SOURCE_ROOT; };
 		CBB7BD241C6A54943ED96D25 /* juce_audio_plugin_client */ /* juce_audio_plugin_client */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_audio_plugin_client; path = ../../../3rdparty/JUCE/modules/juce_audio_plugin_client; sourceTree = SOURCE_ROOT; };
 		CCA14B262069C4CB96E6EF5B /* IncButton_over.png */ /* IncButton_over.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = IncButton_over.png; path = ../../Images/IncButton_over.png; sourceTree = SOURCE_ROOT; };
 		CCED546E48E98C21A3178702 /* rom_io.h */ /* rom_io.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = rom_io.h; path = ../../../src/backend/rom_io.h; sourceTree = SOURCE_ROOT; };
@@ -393,6 +398,8 @@
 				9CCE5087AA249AAC497E5465,
 				6F144A7F4CD9B95634258A0C,
 				510AE40021472F1734910345,
+				CA0ED4D3A8CF2553688D8E27,
+				64D2DF903AEE93F6F99E808A,
 				7C200A4B9C671D7E22779E89,
 				742A780DE7AB3648CC97F143,
 			);
@@ -487,7 +494,9 @@
 				B6759039BC794D46B117144F,
 				B7C56968A6C5DD35B3D93333,
 				0E7E755690E59F445D3AB337,
+				C2B12E16CEFDC7A474F2DA74,
 				6ABF50028CECEAB82DE9CC36,
+				25C4C538ABF56B56842D3AC6,
 				14E290E4FC67D5BD38626480,
 				DCBAB130B446BFC866F83AAD,
 				622B308B336CCDD562E7B060,
@@ -878,6 +887,7 @@
 				8AA405F440FE5295C3094385,
 				CC548316E9D6BF78F397DDC7,
 				22F645C3A3215424492F8AFB,
+				078CB8E5EDF13B3FF460CEBD,
 				F1247EDB2AAC2032771B536F,
 				2589B747BE63BD85C5CEDFEA,
 				9046FC17D6A2A274CAC3C787,

@@ -43,13 +43,6 @@ SettingsComponent::SettingsComponent ()
                             juce::ImageCache::getFromMemory (BinaryData::PowerButton_down_png, BinaryData::PowerButton_down_pngSize), 1.000f, juce::Colour (0x00000000));
     buttonClose->setBounds (24, 24, 72, 20);
 
-    buttonAudioDevice.reset (new juce::TextButton ("new button"));
-    contentComponent.addAndMakeVisible (buttonAudioDevice.get());
-    buttonAudioDevice->setButtonText (TRANS ("Audio Device Settings"));
-    buttonAudioDevice->addListener (this);
-
-    buttonAudioDevice->setBounds (24, 80, 272, 24);
-
     labelCurrentRomCaption.reset (new juce::Label (juce::String(),
                                                    TRANS ("ROM")));
     contentComponent.addAndMakeVisible (labelCurrentRomCaption.get());
@@ -59,17 +52,33 @@ SettingsComponent::SettingsComponent ()
     labelCurrentRomCaption->setColour (juce::TextEditor::textColourId, juce::Colours::black);
     labelCurrentRomCaption->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
 
-    labelCurrentRomCaption->setBounds (344, 48, 208, 24);
+    labelCurrentRomCaption->setBounds (120, 24, 208, 24);
 
     comboRoms.reset (new ImportAwareComboBox (juce::String()));
     contentComponent.addAndMakeVisible (comboRoms.get());
     comboRoms->setEditableText (false);
     comboRoms->setJustificationType (juce::Justification::centredLeft);
-    comboRoms->setTextWhenNothingSelected (TRANS ("Import ROM"));
+    comboRoms->setTextWhenNothingSelected (juce::String());
     comboRoms->setTextWhenNoChoicesAvailable (TRANS ("(no choices)"));
     comboRoms->addListener (this);
 
-    comboRoms->setBounds (344, 80, 208, 24);
+    comboRoms->setBounds (120, 48, 208, 24);
+
+    juce__label.reset (new juce::Label ("new label",
+                                        TRANS ("CLOSE")));
+    contentComponent.addAndMakeVisible (juce__label.get());
+    juce__label->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
+    juce__label->setJustificationType (juce::Justification::centred);
+    juce__label->setEditable (false, false, false);
+    juce__label->setColour (juce::TextEditor::textColourId, juce::Colours::black);
+    juce__label->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+
+    juce__label->setBounds (24, 0, 72, 24);
+
+    viewport.reset (new juce::Viewport ("viewport"));
+    contentComponent.addAndMakeVisible (viewport.get());
+
+    viewport->setBounds (384, 0, 640, 200);
 
 
     //[UserPreSize]
@@ -79,23 +88,7 @@ SettingsComponent::SettingsComponent ()
 
 
     //[Constructor] You can add your own custom stuff here..
-    buttonGsReset = std::make_unique<juce::TextButton> ("GS");
-    contentComponent.addAndMakeVisible (buttonGsReset.get());
-    buttonGsReset->setButtonText (TRANS ("GS"));
-    buttonGsReset->addListener (this);
-    buttonGsReset->setBounds (600, 80, 80, 24);
-
-    buttonGmReset = std::make_unique<juce::TextButton> ("GM");
-    contentComponent.addAndMakeVisible (buttonGmReset.get());
-    buttonGmReset->setButtonText (TRANS ("GM"));
-    buttonGmReset->addListener (this);
-    buttonGmReset->setBounds (696, 80, 80, 24);
-
-#if JUCE_STANDALONE_APPLICATION
-    setAudioDeviceButtonEnabled (true);
-#else
-    setAudioDeviceButtonEnabled (false);
-#endif
+    viewport->setVisible (false);
 
     labelCurrentRomCaption->setColour (juce::Label::textColourId,
                                        juce::Colours::white.withAlpha (0.7f));
@@ -108,14 +101,13 @@ SettingsComponent::~SettingsComponent()
     //[/Destructor_pre]
 
     buttonClose = nullptr;
-    buttonAudioDevice = nullptr;
     labelCurrentRomCaption = nullptr;
     comboRoms = nullptr;
+    juce__label = nullptr;
+    viewport = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
-    buttonGsReset = nullptr;
-    buttonGmReset = nullptr;
     //[/Destructor]
 }
 
@@ -153,27 +145,14 @@ void SettingsComponent::resized()
                                                     (getHeight() - 200 * scale) * 0.5f));
 
     //[UserResized] Add your own custom resize handling here..
+    if (audioDeviceSettings != nullptr && viewport != nullptr)
+        audioDeviceSettings->setSize (viewport->getWidth(), 512);
     //[/UserResized]
 }
 
 void SettingsComponent::buttonClicked (juce::Button* buttonThatWasClicked)
 {
     //[UserbuttonClicked_Pre]
-    if (buttonThatWasClicked == buttonGsReset.get())
-    {
-        if (onGsReset)
-            onGsReset();
-
-        return;
-    }
-
-    if (buttonThatWasClicked == buttonGmReset.get())
-    {
-        if (onGmReset)
-            onGmReset();
-
-        return;
-    }
     //[/UserbuttonClicked_Pre]
 
     if (buttonThatWasClicked == buttonClose.get())
@@ -182,13 +161,6 @@ void SettingsComponent::buttonClicked (juce::Button* buttonThatWasClicked)
         if (onClose)
             onClose();
         //[/UserButtonCode_buttonClose]
-    }
-    else if (buttonThatWasClicked == buttonAudioDevice.get())
-    {
-        //[UserButtonCode_buttonAudioDevice] -- add your button handler code here..
-        if (onAudioDeviceSettings)
-            onAudioDeviceSettings();
-        //[/UserButtonCode_buttonAudioDevice]
     }
 
     //[UserbuttonClicked_Post]
@@ -228,6 +200,29 @@ void SettingsComponent::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
 
 
 //[MiscUserCode] You can add your own definitions of your custom methods or any other code here...
+void SettingsComponent::setAudioDeviceManager (juce::AudioDeviceManager* manager)
+{
+    if (viewport == nullptr)
+        return;
+
+    viewport->setViewedComponent (nullptr, false);
+    audioDeviceSettings = nullptr;
+
+    if (manager != nullptr)
+    {
+        audioDeviceSettings = std::make_unique<juce::AudioDeviceSelectorComponent> (
+            *manager,
+            0, 0,
+            0, 2,
+            true, false,
+            true, false);
+        audioDeviceSettings->setSize (viewport->getWidth(), 512);
+        viewport->setViewedComponent (audioDeviceSettings.get(), false);
+    }
+
+    viewport->setVisible (audioDeviceSettings != nullptr);
+}
+
 void SettingsComponent::setRomChoices (const juce::StringArray& names,
                                        const juce::String& selectedName)
 {
@@ -296,17 +291,23 @@ BEGIN_JUCER_METADATA
                opacityNormal="1.0" colourNormal="0" resourceOver="BinaryData::PowerButton_over_png"
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::PowerButton_down_png"
                opacityDown="1.0" colourDown="0"/>
-  <TEXTBUTTON name="new button" id="1612e0a2446926a8" memberName="buttonAudioDevice"
-              virtualName="" explicitFocusOrder="0" pos="24 80 272 24" buttonText="Audio Device Settings"
-              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
   <LABEL name="" id="22d6c36a912254f9" memberName="labelCurrentRomCaption"
-         virtualName="" explicitFocusOrder="0" pos="344 48 208 24" edTextCol="ff000000"
+         virtualName="" explicitFocusOrder="0" pos="120 24 208 24" edTextCol="ff000000"
          edBkgCol="0" labelText="ROM" editableSingleClick="0" editableDoubleClick="0"
          focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
          kerning="0.0" bold="0" italic="0" justification="33"/>
   <COMBOBOX name="" id="fc40b79ca6ae887" memberName="comboRoms" virtualName=""
-            explicitFocusOrder="0" pos="344 80 208 24" editable="0" layout="33"
+            explicitFocusOrder="0" pos="120 48 208 24" editable="0" layout="33"
             items="" textWhenNonSelected="" textWhenNoItems="(no choices)"/>
+  <LABEL name="new label" id="9df59162551224f7" memberName="juce__label"
+         virtualName="" explicitFocusOrder="0" pos="24 0 72 24" edTextCol="ff000000"
+         edBkgCol="0" labelText="CLOSE" editableSingleClick="0" editableDoubleClick="0"
+         focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
+         kerning="0.0" bold="0" italic="0" justification="36"/>
+  <VIEWPORT name="viewport" id="2e02ecad0806a8a3" memberName="viewport" virtualName=""
+            explicitFocusOrder="0" pos="384 0 640 200" vscroll="1" hscroll="1"
+            scrollbarThickness="8" contentType="0" jucerFile="" contentClass=""
+            constructorParams=""/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA

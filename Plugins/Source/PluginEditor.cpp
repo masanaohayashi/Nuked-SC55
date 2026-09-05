@@ -179,26 +179,6 @@ juce::Rectangle<float> getAvailableDisplayBounds()
     return {};
 }
 
-juce::Point<int> getInitialEditorSize()
-{
-#if JUCE_IOS
-    const auto displayBounds = getAvailableDisplayBounds();
-
-    if (! displayBounds.isEmpty())
-    {
-        const auto scale = getEditorScale (displayBounds.getWidth(),
-                                           displayBounds.getHeight());
-
-        if (scale > 0.0f)
-            return { juce::jmax (1, juce::roundToInt (editorDesignWidth * scale)),
-                     juce::jmax (1, juce::roundToInt (editorDesignHeight * scale)) };
-    }
-#endif
-
-    return { juce::roundToInt (editorDesignWidth),
-             juce::roundToInt (editorDesignHeight) };
-}
-
 juce::Point<int> getMaximumEditorSize()
 {
 #if JUCE_IOS
@@ -222,8 +202,13 @@ juce::Rectangle<float> getSafeEditorBounds (const juce::Component& editor)
     const auto editorBounds = editor.getLocalBounds().toFloat();
 
 #if JUCE_IOS
-    if (const auto* display = juce::Desktop::getInstance().getDisplays()
-                                  .getDisplayForRect (editor.getScreenBounds()))
+    // The editor is constructed before JUCE's Standalone window is attached
+    // to its UIScene.  Do not query Desktop::Displays during that phase: on
+    // iOS JUCE has to use a temporary UIWindow there, which has no reliable
+    // landscape cutout information yet.
+    if (editor.getPeer() != nullptr && editor.isShowing())
+        if (const auto* display = juce::Desktop::getInstance().getDisplays()
+                                      .getDisplayForRect (editor.getScreenBounds()))
     {
         const auto safeBounds = display->safeAreaInsets.subtractedFrom (
             display->userBounds.getLargestIntegerWithin());
@@ -238,9 +223,8 @@ juce::Rectangle<float> getSafeEditorBounds (const juce::Component& editor)
     return editorBounds;
 }
 
-juce::Rectangle<float> getFittedContentBounds (const juce::Component& editor)
+juce::Rectangle<float> getFittedContentBounds (const juce::Rectangle<float>& safeBounds)
 {
-    const auto safeBounds = getSafeEditorBounds (editor);
     const auto scale = getEditorScale (safeBounds.getWidth(), safeBounds.getHeight());
 
     if (scale <= 0.0f)
@@ -661,6 +645,26 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     labelPlayer->setBounds (16, 120, 144, 16);
 
+    buttonGM.reset (new juce::ImageButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonGM.get());
+    buttonGM->addListener (this);
+
+    buttonGM->setImages (false, true, true,
+                         juce::ImageCache::getFromMemory (BinaryData::GMButton_png, BinaryData::GMButton_pngSize), 1.000f, juce::Colour (0x00000000),
+                         juce::Image(), 1.000f, juce::Colour (0x00000000),
+                         juce::Image(), 1.000f, juce::Colour (0x00000000));
+    buttonGM->setBounds (649, 164, 40, 28);
+
+    buttonGS.reset (new juce::ImageButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonGS.get());
+    buttonGS->addListener (this);
+
+    buttonGS->setImages (false, true, true,
+                         juce::ImageCache::getFromMemory (BinaryData::GSButton_png, BinaryData::GSButton_pngSize), 1.000f, juce::Colour (0x00000000),
+                         juce::Image(), 1.000f, juce::Colour (0x00000000),
+                         juce::Image(), 1.000f, juce::Colour (0x00000000));
+    buttonGS->setBounds (695, 164, 40, 28);
+
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -679,8 +683,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 #if JUCE_IOS
     const auto maximumSize = getMaximumEditorSize();
     setResizeLimits (1, 1, maximumSize.x, maximumSize.y);
-    const auto initialSize = getInitialEditorSize();
-    setSize (initialSize.x, initialSize.y);
 #else
     setResizeLimits (512, 100, 2048, 400);
     if (auto* constrainer = getConstrainer())
@@ -698,7 +700,11 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     settingsComponent = std::make_unique<SettingsComponent>();
     addAndMakeVisible (settingsComponent.get());
     settingsComponent->setOnClose ([this] { setSettingsVisible (false); });
-    settingsComponent->setOnAudioDeviceSettings ([this] { showStandaloneAudioSettings(); });
+#if JUCE_STANDALONE_APPLICATION
+    if (audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            settingsComponent->setAudioDeviceManager (&holder->deviceManager);
+#endif
     settingsComponent->setOnImportRom ([this] { showRomFileChooser(); });
     settingsComponent->setOnRomSelected ([this] (const juce::String& name)
     {
@@ -712,10 +718,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
         syncFrontPanelIndicators();
         setSettingsVisible (false);
     });
-    settingsComponent->setOnGsReset ([this] { audioProcessor.requestGsReset(); });
-    settingsComponent->setOnGmReset ([this] { audioProcessor.requestGmReset(); });
-    settingsComponent->setAudioDeviceButtonEnabled (
-        audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone);
     refreshRomChoices();
     settingsComponent->setVisible (false);
 
@@ -771,6 +773,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonMidiChInc2 = nullptr;
     buttonLoad = nullptr;
     labelPlayer = nullptr;
+    buttonGM = nullptr;
+    buttonGS = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -783,7 +787,10 @@ void NukedSC55AudioProcessorEditor::paint (juce::Graphics& g)
     //[UserPrePaint] Add your own custom painting code here..
     g.fillAll (juce::Colour (0xff323e44));
 #if JUCE_IOS
-    const auto contentBounds = getFittedContentBounds (*this);
+    const auto safeBounds = cachedSafeEditorBounds.isEmpty()
+                              ? getLocalBounds().toFloat()
+                              : cachedSafeEditorBounds;
+    const auto contentBounds = getFittedContentBounds (safeBounds);
     if (! contentBounds.isEmpty())
     {
         g.setColour (juce::Colours::black);
@@ -852,7 +859,8 @@ void NukedSC55AudioProcessorEditor::resized()
 
     //[UserResized] Add your own custom resize handling here..
 #if JUCE_IOS
-    const auto contentBounds = getFittedContentBounds (*this);
+    cachedSafeEditorBounds = getSafeEditorBounds (*this);
+    const auto contentBounds = getFittedContentBounds (cachedSafeEditorBounds);
     if (! contentBounds.isEmpty())
     {
         const auto contentScale = contentBounds.getWidth() / editorDesignWidth;
@@ -864,7 +872,7 @@ void NukedSC55AudioProcessorEditor::resized()
     if (settingsComponent != nullptr)
     {
 #if JUCE_IOS
-        auto settingsBounds = getSafeEditorBounds (*this).toNearestInt();
+        auto settingsBounds = cachedSafeEditorBounds.toNearestInt();
         if (settingsBounds.isEmpty())
             settingsBounds = getLocalBounds();
 
@@ -1061,6 +1069,18 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         //[UserButtonCode_buttonLoad] -- add your button handler code here..
         showSequenceFileChooser();
         //[/UserButtonCode_buttonLoad]
+    }
+    else if (buttonThatWasClicked == buttonGM.get())
+    {
+        //[UserButtonCode_buttonGM] -- add your button handler code here..
+        audioProcessor.requestGmReset();
+        //[/UserButtonCode_buttonGM]
+    }
+    else if (buttonThatWasClicked == buttonGS.get())
+    {
+        //[UserButtonCode_buttonGS] -- add your button handler code here..
+        audioProcessor.requestGsReset();
+        //[/UserButtonCode_buttonGS]
     }
 
     //[UserbuttonClicked_Post]
@@ -1480,17 +1500,6 @@ void NukedSC55AudioProcessorEditor::setSettingsVisible (bool shouldBeVisible)
     resized();
 }
 
-void NukedSC55AudioProcessorEditor::showStandaloneAudioSettings()
-{
-#if JUCE_STANDALONE_APPLICATION
-    if (audioProcessor.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
-        return;
-
-    if (auto* holder = juce::StandalonePluginHolder::getInstance())
-        holder->showAudioSettingsDialog();
-#endif
-}
-
 void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 {
     const auto uiStatus = audioProcessor.getUiStatus();
@@ -1806,6 +1815,16 @@ BEGIN_JUCER_METADATA
          editableSingleClick="0" editableDoubleClick="0" focusDiscardsChanges="0"
          fontname="Default font" fontsize="15.0" kerning="0.0" bold="0"
          italic="0" justification="33"/>
+  <IMAGEBUTTON name="" id="a5a6da76c1066560" memberName="buttonGM" virtualName=""
+               explicitFocusOrder="0" pos="649 164 40 28" buttonText="" connectedEdges="0"
+               needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::GMButton_png"
+               opacityNormal="1.0" colourNormal="0" resourceOver="" opacityOver="1.0"
+               colourOver="0" resourceDown="" opacityDown="1.0" colourDown="0"/>
+  <IMAGEBUTTON name="" id="dbdf6ea51dc8983d" memberName="buttonGS" virtualName=""
+               explicitFocusOrder="0" pos="695 164 40 28" buttonText="" connectedEdges="0"
+               needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::GSButton_png"
+               opacityNormal="1.0" colourNormal="0" resourceOver="" opacityOver="1.0"
+               colourOver="0" resourceDown="" opacityDown="1.0" colourDown="0"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
