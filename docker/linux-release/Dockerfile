@@ -3,6 +3,7 @@
 FROM debian:bookworm-slim AS build
 
 ARG BUILD_TYPE=Release
+ARG BUILD_JOBS=2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -37,7 +38,7 @@ COPY src/common ./src/common
 RUN test -f Plugins/Builds/LinuxMakefile/Makefile \
     && test -f Plugins/JuceLibraryCode/JuceHeader.h \
     && make -C Plugins/Builds/LinuxMakefile CONFIG="${BUILD_TYPE}" clean \
-    && make -C Plugins/Builds/LinuxMakefile CONFIG="${BUILD_TYPE}" -j"$(nproc)" all \
+    && make -C Plugins/Builds/LinuxMakefile CONFIG="${BUILD_TYPE}" -j"${BUILD_JOBS}" all \
     && install -Dm755 Plugins/Builds/LinuxMakefile/build/SC-55 /out/bin/SC-55 \
     && mkdir -p /out/lib/vst3 \
     && cp -R Plugins/Builds/LinuxMakefile/build/SC-55.vst3 /out/lib/vst3/SC-55.vst3
