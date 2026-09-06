@@ -7,6 +7,9 @@ include(GNUInstallDirs)
 include(TargetWarnings)
 
 set(NUKED_SOURCE "unknown" CACHE STRING "Origin of this build")
+if(NOT DEFINED NUKED_VERSION OR "${NUKED_VERSION}" STREQUAL "")
+    set(NUKED_VERSION "${CMAKE_PROJECT_VERSION}")
+endif()
 
 #==============================================================================
 # Tests

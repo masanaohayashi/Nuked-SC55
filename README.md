@@ -24,6 +24,23 @@ Differences from upstream:
 
 See [BUILDING.md](BUILDING.md).
 
+## All Desktop Release
+
+To build every desktop package and create one GitHub draft Release, configure
+the macOS signing/notarization values in `scripts/macos/config.env`, start
+Docker Desktop and the `Windows 11` Parallels VM, then run:
+
+```bash
+./scripts/package-release.sh
+```
+
+The script requires a clean `master` checkout whose HEAD is already pushed to
+the configured remote. It creates a universal macOS DMG, Windows x64 and
+ARM64 installers, and Linux x64 and arm64 archives, then attaches all five
+artifacts to a draft release. The release version is read from
+`Plugins/Nuked-SC55.jucer`; use `--version` to override it. Run `gh auth login`
+before starting the release.
+
 ## macOS Release
 
 The macOS release script builds a signed Universal app, creates and verifies a

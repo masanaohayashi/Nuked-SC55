@@ -87,6 +87,23 @@ architectures, `--vm` to select another VM, or `--windows-repo` to override the
 Windows-side repository path. Parallels Tools must be installed in the guest
 and the Windows VM must already be running.
 
+### All desktop packages and GitHub draft release
+
+To build all desktop packages and create one draft GitHub Release with every
+artifact attached, configure `scripts/macos/config.env`, authenticate with
+`gh`, start Docker Desktop and the Windows 11 Parallels VM, and run from a
+clean, pushed `master` checkout:
+
+```bash
+./scripts/package-release.sh
+```
+
+This builds a universal macOS DMG, Windows x64 and ARM64 installers, and Linux
+x64 and arm64 archives. The script checks that `HEAD` exactly matches the
+configured remote branch before building and again before creating the tag.
+It never publishes the release automatically; the resulting GitHub Release is
+always a draft for review.
+
 # Development
 
 Requirements:

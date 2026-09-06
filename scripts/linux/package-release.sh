@@ -217,6 +217,7 @@ build_architecture() {
     --progress=plain
     --build-arg "BUILD_TYPE=${CONFIGURATION}"
     --build-arg "NUKED_SOURCE=${build_source}"
+    --build-arg "NUKED_VERSION=${VERSION}"
     --output "type=local,dest=${export_dir}"
   )
   if [[ "$NO_CACHE" -eq 1 ]]; then

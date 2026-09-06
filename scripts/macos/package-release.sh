@@ -29,7 +29,9 @@ fi
 : "${GH_REPO:=}"
 
 TAG_OVERRIDE=""
+VERSION_OVERRIDE=""
 DRAFT_RELEASE=0
+PACKAGE_ONLY=0
 
 JUCER_FILE="${REPO_ROOT}/Plugins/Nuked-SC55.jucer"
 XCODE_PROJECT="${REPO_ROOT}/Plugins/Builds/MacOSX/SC-55.xcodeproj"
@@ -56,15 +58,18 @@ Usage: ./scripts/macos/package-release.sh [options]
 
 Builds a signed Universal macOS app, creates a DMG containing SC-55.app and
 an Applications-folder link, notarizes and staples the DMG, then publishes a
-GitHub Release with the DMG attached.
+GitHub Release with the DMG attached unless --package-only is specified.
 
 Options:
   --tag vX.Y.Z           Override the Git tag (default: v<version>)
+  --version VERSION      Override the version read from Nuked-SC55.jucer
   --identity NAME        Developer ID Application identity
   --team-id ID           Apple Developer Team ID
   --notary-profile NAME  notarytool Keychain profile
   --remote NAME          Git remote used for fetch/tag checks and tag push
   --repo OWNER/REPO      GitHub repository (default: gh repo view result)
+  --architectures LIST   Space-separated macOS architectures (default: arm64 x86_64)
+  --package-only         Build and notarize the DMG without tagging or publishing
   --draft                Leave the GitHub Release as a draft
   -h, --help             Show this help
 
@@ -80,6 +85,11 @@ parse_args() {
       --tag)
         [[ $# -ge 2 ]] || die "--tag requires an argument"
         TAG_OVERRIDE="$2"
+        shift 2
+        ;;
+      --version)
+        [[ $# -ge 2 ]] || die "--version requires an argument"
+        VERSION_OVERRIDE="$2"
         shift 2
         ;;
       --identity)
@@ -106,6 +116,15 @@ parse_args() {
         [[ $# -ge 2 ]] || die "--repo requires an argument"
         GH_REPO="$2"
         shift 2
+        ;;
+      --architectures)
+        [[ $# -ge 2 ]] || die "--architectures requires an argument"
+        BUILD_ARCHS="$2"
+        shift 2
+        ;;
+      --package-only)
+        PACKAGE_ONLY=1
+        shift
         ;;
       --draft)
         DRAFT_RELEASE=1
@@ -437,10 +456,12 @@ main() {
   require_cmd ditto
   require_cmd security
   require_cmd xcrun
-  require_cmd gh
+  if [[ "$PACKAGE_ONLY" -eq 0 ]]; then
+    require_cmd gh
+  fi
 
   resolve_release_remote
-  version="$(read_jucer_version)"
+  version="${VERSION_OVERRIDE:-$(read_jucer_version)}"
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] \
     || die "invalid version: $version"
   RELEASE_TAG="${TAG_OVERRIDE:-v${version}}"
@@ -466,9 +487,11 @@ main() {
   trap cleanup EXIT
 
   check_repository
-  gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run gh auth login first"
-  resolve_github_repo
-  check_release_target
+  if [[ "$PACKAGE_ONLY" -eq 0 ]]; then
+    gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run gh auth login first"
+    resolve_github_repo
+    check_release_target
+  fi
   check_signing_identity
 
   mkdir -p "$DIST_DIR"
@@ -480,11 +503,13 @@ main() {
   create_dmg
   notarize_dmg
   verify_dmg_contents
-  publish_release
+  if [[ "$PACKAGE_ONLY" -eq 0 ]]; then
+    publish_release
+  fi
 
   cat <<EOF
 
-SC-55 release complete
+SC-55 package ready
   tag     : $RELEASE_TAG
   commit  : $RELEASE_COMMIT
   DMG     : $DMG_PATH
@@ -492,7 +517,9 @@ SC-55 release complete
   remote  : $RELEASE_REMOTE
   notary  : $NOTARY_PROFILE
 EOF
-  if [[ "$DRAFT_RELEASE" -eq 1 ]]; then
+  if [[ "$PACKAGE_ONLY" -eq 1 ]]; then
+    printf '  status  : package-only\n'
+  elif [[ "$DRAFT_RELEASE" -eq 1 ]]; then
     printf '  status  : draft\n'
   else
     printf '  status  : published\n'

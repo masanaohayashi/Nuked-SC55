@@ -4,6 +4,7 @@ FROM debian:bookworm-slim AS build
 
 ARG BUILD_TYPE=Release
 ARG NUKED_SOURCE=linux-docker
+ARG NUKED_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -31,6 +32,7 @@ RUN cmake -S . -B /build -G Ninja \
         -DCMAKE_INSTALL_PREFIX=/out \
         -DCMAKE_INSTALL_DOCDIR=share/doc/nuked-sc55 \
         -DNUKED_SOURCE="${NUKED_SOURCE}" \
+        -DNUKED_VERSION="${NUKED_VERSION}" \
     && cmake --build /build --parallel \
     && cmake --install /build
 

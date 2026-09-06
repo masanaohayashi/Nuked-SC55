@@ -193,7 +193,11 @@ main() {
   done
 
   log "Windows installers are available in ${REPO_ROOT}/dist"
-  find "${REPO_ROOT}/dist" -maxdepth 1 -type f -name 'SC-55 Windows * Setup.exe' -print | sort
+  for installer in "${REPO_ROOT}/dist"/SC-55\ Windows\ *\ Setup.exe; do
+    if [[ -f "$installer" ]]; then
+      printf '%s\n' "$installer"
+    fi
+  done
 }
 
 main "$@"
