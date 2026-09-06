@@ -266,8 +266,22 @@ check_signing_identity() {
   esac
 }
 
+prepare_entitlements() {
+  local source="$1"
+  local destination="$2"
+
+  [[ -f "$source" ]] || die "missing entitlements file: $source"
+  # Projucer-generated entitlements may use CRLF line endings. Normalize a
+  # temporary copy because codesign's AMFI parser rejects that XML on macOS.
+  plutil -convert xml1 -o "$destination" "$source" \
+    || die "could not normalize entitlements: $source"
+  [[ -s "$destination" ]] || die "normalized entitlements are empty: $destination"
+}
+
 archive_app() {
   local archive_log="$WORK_DIR/xcodebuild-archive.log"
+  local normalized_appex_entitlements="$WORK_DIR/AUv3_AppExtension.entitlements"
+  local normalized_app_entitlements="$WORK_DIR/Standalone_Plugin.entitlements"
 
   log "Archiving SC-55 - Standalone Plugin (${BUILD_CONFIGURATION}, ${BUILD_ARCHS})"
   # The checked-in project has a custom Sign Target phase. Build the archive
@@ -300,15 +314,18 @@ archive_app() {
   [[ -d "$APP_PATH/Contents/PlugIns/SC-55.appex" ]] \
     || die "AUv3 app extension is missing from the archived app"
 
+  prepare_entitlements "$APPEX_ENTITLEMENTS" "$normalized_appex_entitlements"
+  prepare_entitlements "$APP_ENTITLEMENTS" "$normalized_app_entitlements"
+
   log "Applying final Developer ID signatures (AUv3, then app)"
   codesign --force --sign "$APP_IDENTITY" \
     --verbose=4 --timestamp --options runtime \
-    --entitlements "$APPEX_ENTITLEMENTS" \
+    --entitlements "$normalized_appex_entitlements" \
     --generate-entitlement-der \
     "$APP_PATH/Contents/PlugIns/SC-55.appex"
   codesign --force --sign "$APP_IDENTITY" \
     --verbose=4 --timestamp --options runtime \
-    --entitlements "$APP_ENTITLEMENTS" \
+    --entitlements "$normalized_app_entitlements" \
     --generate-entitlement-der \
     "$APP_PATH"
 
@@ -456,6 +473,7 @@ main() {
   require_cmd ditto
   require_cmd security
   require_cmd xcrun
+  require_cmd plutil
   if [[ "$PACKAGE_ONLY" -eq 0 ]]; then
     require_cmd gh
   fi
