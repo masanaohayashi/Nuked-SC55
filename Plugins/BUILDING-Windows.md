@@ -28,6 +28,18 @@ Standalone and VST3 components. Use `-SkipBuild` to package existing build
 outputs or `-Clean` to remove the selected architecture's generated output
 before building. Install Inno Setup with `winget install --id JRSoftware.InnoSetup -e` if `ISCC.exe` is not found.
 
+When the repository is shared with a Windows 11 VM in Parallels Desktop, the
+same packager can be started from macOS:
+
+```bash
+./scripts/windows/package-release.sh --architecture x64
+./scripts/windows/package-release.sh --architecture arm64
+```
+
+This assumes the repository is mapped in Windows as
+`C:\Mac\Home\Documents\src\Nuked-SC55-jcmoyer` and that the VM named
+`Windows 11` is running. The installers appear in the shared `dist/` directory.
+
 If the solution is missing or needs regeneration, open `Nuked-SC55.jucer`
 with a Projucer built from this repository's `3rdparty/JUCE` and save it.
 The installed JUCE 8 Projucer does not support this project's VS2026 exporter.

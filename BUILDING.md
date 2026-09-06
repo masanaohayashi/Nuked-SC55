@@ -69,6 +69,24 @@ To enable ASIO support, pass `-DNUKED_ENABLE_ASIO=ON` and
 `-DNUKED_ASIO_SDK_DIR=<path>` where `<path>` points to the extracted ASIO SDK
 obtained from [here](https://www.steinberg.net/developers/).
 
+#### Windows release package from macOS with Parallels
+
+When Windows 11 is running in Parallels Desktop, the Windows packaging script
+can be invoked from macOS through the Parallels shared-folder mapping:
+
+```bash
+./scripts/windows/package-release.sh --architecture x64
+./scripts/windows/package-release.sh --architecture arm64
+```
+
+The wrapper calls `scripts/windows/package-release.ps1` inside the running VM.
+It assumes the repository is mapped to
+`C:\Mac\Home\Documents\src\Nuked-SC55-jcmoyer`, and writes the installers to
+the shared `dist/` directory. Use `--architecture all` to create both
+architectures, `--vm` to select another VM, or `--windows-repo` to override the
+Windows-side repository path. Parallels Tools must be installed in the guest
+and the Windows VM must already be running.
+
 # Development
 
 Requirements:

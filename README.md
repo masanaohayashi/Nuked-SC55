@@ -56,6 +56,22 @@ SDL2 and RtMidi runtime libraries are required on the target Linux system. The
 script performs a clean Docker build on every invocation; pass `--cache` only
 when a faster cached development build is desired.
 
+## Windows Release from macOS
+
+With Windows 11 running in Parallels Desktop, the Windows installer can be
+created from a Mac terminal by forwarding to the existing PowerShell release
+script:
+
+```bash
+./scripts/windows/package-release.sh --architecture x64
+```
+
+The wrapper uses the running VM named `Windows 11` and assumes the repository is
+available there at `C:\Mac\Home\Documents\src\Nuked-SC55-jcmoyer`. Use
+`--architecture arm64` or `--architecture all` as needed. Installers are written
+to the shared `dist/` directory on the Mac. Override the VM or Windows path
+with `--vm` and `--windows-repo`.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
