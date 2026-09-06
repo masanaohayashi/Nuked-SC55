@@ -10,6 +10,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 DOCKERFILE="${REPO_ROOT}/docker/linux-release/Dockerfile"
+JUCER_FILE="${REPO_ROOT}/Plugins/Nuked-SC55.jucer"
 DIST_DIR="${REPO_ROOT}/dist"
 BUILD_ROOT="${DIST_DIR}/.linux-release"
 
@@ -43,7 +44,7 @@ tar.gz archive for each requested architecture.
 Options:
   --architecture ARCH    x64, arm64, or all (default: all)
   --configuration NAME   Release or Debug (default: Release)
-  --version VERSION      Override the version read from CMakeLists.txt
+  --version VERSION      Override the version read from Plugins/Nuked-SC55.jucer
   --force                Replace archives with the same name
   --clean                Remove intermediate Linux release output first
   --cache                Reuse Docker Buildx layers (faster, not the default)
@@ -106,13 +107,13 @@ parse_args() {
   done
 }
 
-read_project_version() {
+read_jucer_version() {
   local version
 
-  version="$(sed -n \
-    's/^project[[:space:]]*(nuked-sc55[[:space:]]VERSION[[:space:]]\([^[:space:]]*\).*/\1/p' \
-    "${REPO_ROOT}/CMakeLists.txt" | head -n 1)"
-  [[ -n "$version" ]] || die "could not read the version from CMakeLists.txt"
+  version="$(tr '\n' ' ' <"$JUCER_FILE" \
+    | sed -n 's/.*<JUCERPROJECT[^>]* version="\([^"]*\)".*/\1/p' \
+    | head -n 1)"
+  [[ -n "$version" ]] || die "could not read the version from $JUCER_FILE"
   printf '%s' "$version"
 }
 
@@ -283,14 +284,16 @@ main() {
   require_cmd grep
   require_cmd sed
   require_cmd tar
+  require_cmd tr
 
   [[ -f "$DOCKERFILE" ]] || die "missing Dockerfile: ${DOCKERFILE}"
+  [[ -f "$JUCER_FILE" ]] || die "missing project file: ${JUCER_FILE}"
   docker buildx version >/dev/null 2>&1 \
     || die "Docker Buildx is required; install/start Docker Desktop first"
   docker info >/dev/null 2>&1 \
     || die "Docker is not running; start Docker Desktop first"
 
-  VERSION="${VERSION_OVERRIDE:-$(read_project_version)}"
+  VERSION="${VERSION_OVERRIDE:-$(read_jucer_version)}"
   [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] \
     || die "invalid version: ${VERSION}"
 

@@ -49,8 +49,10 @@ This creates `dist/SC-55-Linux-x64-<version>.tar.gz` and
 `--architecture x64` or `--architecture arm64`. The archive contains the
 standard frontend, renderer, documentation, and the default ROM directory at
 `share/nuked-sc55`; SDL2 and RtMidi runtime libraries are not bundled. The
-script disables the Docker Buildx cache by default so every invocation rebuilds
-the binaries; pass `--cache` to opt into cached development builds.
+script reads `<version>` from `Plugins/Nuked-SC55.jucer` and disables the Docker
+Buildx cache by default so every invocation rebuilds the binaries; pass
+`--version` to override the release version or `--cache` to opt into cached
+development builds.
 
 ### Windows
 
