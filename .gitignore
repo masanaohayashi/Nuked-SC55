@@ -116,9 +116,14 @@ CMakeSettings.json
 !/Plugins/Builds/iOS/SC-55/
 !/Plugins/Builds/iOS/SC-55/Images.xcassets/
 !/Plugins/Builds/iOS/SC-55/Images.xcassets/**
+!/Plugins/Builds/LinuxMakefile/
+!/Plugins/Builds/LinuxMakefile/Makefile
+!/Plugins/Builds/LinuxMakefile/make_helpers/
+!/Plugins/Builds/LinuxMakefile/make_helpers/**
 /Plugins/Builds/MacOSX/build/
 /Plugins/Builds/iOS/build/
-/Plugins/Builds/LinuxMakefile/
+/Plugins/Builds/LinuxMakefile/build/
+/Plugins/Builds/LinuxMakefile/pre_build/
 /Plugins/Builds/VisualStudio2026/
 /Plugins/Builds/**/xcuserdata/
 !/Plugins/JuceLibraryCode/

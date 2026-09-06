@@ -67,11 +67,12 @@ produce both x64 and arm64 Linux archives. Docker Desktop must be running:
 
 The archives are written to `dist/` as `tar.gz` files. Build one architecture
 only with `--architecture x64` or `--architecture arm64`; use `--force` to
-replace an existing archive. The package contains the standard frontend, the
-renderer, documentation, and an empty `share/nuked-sc55` directory for ROMs.
-SDL2 and RtMidi runtime libraries are required on the target Linux system. The
-script performs a clean Docker build on every invocation; pass `--cache` only
-when a faster cached development build is desired.
+replace an existing archive. Each package contains the `SC-55` standalone app
+at `bin/SC-55` and the VST3 plug-in at `lib/vst3/SC-55.vst3`, plus release
+documentation. SDL2, GTK3, WebKitGTK, ALSA, and related runtime libraries are
+required on the target Linux system. The script performs a clean Docker build
+on every invocation; pass `--cache` only when a faster cached development build
+is desired.
 
 ## Windows Release from macOS
 

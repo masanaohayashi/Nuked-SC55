@@ -324,10 +324,11 @@ check_artifacts() {
   for artifact in \
     "${DIST_DIR}/SC-55-Linux-x64-${VERSION}.tar.gz" \
     "${DIST_DIR}/SC-55-Linux-arm64-${VERSION}.tar.gz"; do
-    tar -tzf "$artifact" | grep -F 'bin/nuked-sc55' >/dev/null \
-      || die "Linux archive is missing nuked-sc55: $artifact"
-    tar -tzf "$artifact" | grep -F 'bin/nuked-sc55-render' >/dev/null \
-      || die "Linux archive is missing nuked-sc55-render: $artifact"
+    tar -tzf "$artifact" | grep -F 'bin/SC-55' >/dev/null \
+      || die "Linux archive is missing the standalone app: $artifact"
+    tar -tzf "$artifact" \
+      | grep -F 'lib/vst3/SC-55.vst3/Contents/Resources/moduleinfo.json' >/dev/null \
+      || die "Linux archive is missing the VST3 plug-in: $artifact"
   done
 }
 

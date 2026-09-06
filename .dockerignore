@@ -1,6 +1,6 @@
-# The Linux release Dockerfile copies only the root CMake frontend sources.
-# Keep the Docker Desktop build context small by excluding plugin projects,
-# submodules, generated products, and local ROM/build data.
+# The Linux release Dockerfile builds the JUCE LinuxMakefile exporter. Keep host
+# IDE products and generated build outputs out of the Docker Desktop context,
+# while retaining the generated JUCE project inputs required by that exporter.
 
 .git
 .github
@@ -13,9 +13,28 @@ build
 build-*
 cmake-build-*
 
-Plugins
-3rdparty/JUCE
-3rdparty/R2JUCE
+Plugins/Builds/MacOSX
+Plugins/Builds/iOS
+Plugins/Builds/VisualStudio2026
+Plugins/Builds/LinuxMakefile/build
+Plugins/Builds/**/xcuserdata
+
+# The Linux exporter needs these generated project inputs.
+!Plugins/Builds/LinuxMakefile
+!Plugins/Builds/LinuxMakefile/**
+!Plugins/JuceLibraryCode
+!Plugins/JuceLibraryCode/**
+!3rdparty/JUCE
+!3rdparty/JUCE/**
+!3rdparty/R2JUCE
+!3rdparty/R2JUCE/**
+
+# Do not send host-generated Linux products back into the Docker build.
+Plugins/Builds/LinuxMakefile/build
+Plugins/Builds/LinuxMakefile/build/**
+Plugins/Builds/LinuxMakefile/pre_build
+Plugins/Builds/LinuxMakefile/pre_build/**
+
 test
 tools
 

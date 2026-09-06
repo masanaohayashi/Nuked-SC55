@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build and archive the Linux command-line frontends using Docker Buildx.
+# Build and archive the Linux standalone app and VST3 plug-in using Docker
+# Buildx.
 #
 # The script is intended to run on macOS with Docker Desktop. Each requested
 # architecture is built inside its matching Linux container platform, so an
@@ -38,8 +39,8 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/linux/package-release.sh [options]
 
-Builds the Linux standard frontend and renderer in Docker, then creates one
-tar.gz archive for each requested architecture.
+Builds the Linux JUCE standalone app and VST3 plug-in in Docker, then creates
+one tar.gz archive for each requested architecture.
 
 Options:
   --architecture ARCH    x64, arm64, or all (default: all)
@@ -59,6 +60,8 @@ Examples:
 Archives are written to dist/:
   SC-55-Linux-x64-VERSION.tar.gz
   SC-55-Linux-arm64-VERSION.tar.gz
+
+Each archive contains bin/SC-55 and lib/vst3/SC-55.vst3.
 EOF
 }
 
@@ -196,7 +199,6 @@ build_architecture() {
   local package
   local export_dir
   local source_revision
-  local build_source
   local -a docker_args
 
   platform="$(docker_platform "$architecture")"
@@ -206,7 +208,6 @@ build_architecture() {
   package_dir="${BUILD_ROOT}/${package}"
   export_dir="${BUILD_ROOT}/export-${architecture}"
   source_revision="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
-  build_source="linux-docker-${VERSION}-${architecture}-${source_revision}"
 
   rm -rf "$export_dir" "$package_dir"
   mkdir -p "$export_dir" "$package_dir"
@@ -217,8 +218,6 @@ build_architecture() {
     --file "$DOCKERFILE"
     --progress=plain
     --build-arg "BUILD_TYPE=${CONFIGURATION}"
-    --build-arg "NUKED_SOURCE=${build_source}"
-    --build-arg "NUKED_VERSION=${VERSION}"
     --output "type=local,dest=${export_dir}"
   )
   if [[ "$NO_CACHE" -eq 1 ]]; then
@@ -229,16 +228,21 @@ build_architecture() {
   log "Building ${platform} (${CONFIGURATION})"
   docker "${docker_args[@]}"
 
-  verify_binary "$architecture" "${export_dir}/bin/nuked-sc55"
-  verify_binary "$architecture" "${export_dir}/bin/nuked-sc55-render"
+  verify_binary "$architecture" "${export_dir}/bin/SC-55"
+
+  local vst3_binary
+  vst3_binary="$(find "${export_dir}/lib/vst3/SC-55.vst3/Contents" \
+    -type f -name 'SC-55.so' -print -quit)"
+  [[ -n "$vst3_binary" ]] \
+    || die "required VST3 binary is missing: ${export_dir}/lib/vst3/SC-55.vst3"
+  verify_binary "$architecture" "$vst3_binary"
+  [[ -f "${export_dir}/lib/vst3/SC-55.vst3/Contents/Resources/moduleinfo.json" ]] \
+    || die "VST3 manifest is missing: ${export_dir}/lib/vst3/SC-55.vst3"
 
   cp -R "${export_dir}/bin" "${package_dir}/bin"
-  if [[ -d "${export_dir}/share" ]]; then
-    cp -R "${export_dir}/share" "${package_dir}/share"
-  fi
+  mkdir -p "${package_dir}/lib/vst3"
+  cp -R "${export_dir}/lib/vst3/SC-55.vst3" "${package_dir}/lib/vst3/SC-55.vst3"
 
-  # The frontends look for ROMs in <package>/share/nuked-sc55 by default.
-  mkdir -p "${package_dir}/share/nuked-sc55"
   cp "${REPO_ROOT}/README.md" "${package_dir}/README.md"
   cp "${REPO_ROOT}/LICENSE" "${package_dir}/LICENSE"
   cp "${REPO_ROOT}/THIRD_PARTY_NOTICES.md" "${package_dir}/THIRD_PARTY_NOTICES.md"
@@ -251,10 +255,9 @@ build_architecture() {
     printf 'Configuration: %s\n' "$CONFIGURATION"
     printf 'Source revision: %s\n' "$source_revision"
     printf 'Built at (UTC): %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '\nRun the standard frontend with: ./bin/nuked-sc55 --help\n'
-    printf 'Run the renderer with: ./bin/nuked-sc55-render --help\n'
-    printf '\nPlace ROM files in share/nuked-sc55 or pass --rom-directory.\n'
-    printf 'SDL2 and RtMidi runtime libraries are required on the target Linux system.\n'
+    printf '\nRun the standalone app with: ./bin/SC-55\n'
+    printf 'Install the VST3 plug-in from: lib/vst3/SC-55.vst3\n'
+    printf 'SDL2, GTK3, WebKitGTK, ALSA, and related runtime libraries are required on the target Linux system.\n'
   } >"${package_dir}/BUILD-INFO.txt"
 
   if [[ "$FORCE" -eq 1 && ( -e "$archive_path" || -L "$archive_path" ) ]]; then
@@ -264,10 +267,11 @@ build_architecture() {
   log "Creating ${archive_file}"
   COPYFILE_DISABLE=1 tar -czf "$archive_path" -C "$BUILD_ROOT" "$package"
 
-  tar -tzf "$archive_path" | grep -F "${package}/bin/nuked-sc55" >/dev/null \
-    || die "archive is missing nuked-sc55: ${archive_path}"
-  tar -tzf "$archive_path" | grep -F "${package}/bin/nuked-sc55-render" >/dev/null \
-    || die "archive is missing nuked-sc55-render: ${archive_path}"
+  tar -tzf "$archive_path" | grep -F "${package}/bin/SC-55" >/dev/null \
+    || die "archive is missing standalone app: ${archive_path}"
+  tar -tzf "$archive_path" \
+    | grep -F "${package}/lib/vst3/SC-55.vst3/Contents/Resources/moduleinfo.json" >/dev/null \
+    || die "archive is missing VST3 plug-in: ${archive_path}"
 
   printf '%s\n' "${archive_path}"
 }
@@ -280,6 +284,7 @@ main() {
 
   require_cmd docker
   require_cmd file
+  require_cmd find
   require_cmd git
   require_cmd grep
   require_cmd sed
@@ -288,6 +293,10 @@ main() {
 
   [[ -f "$DOCKERFILE" ]] || die "missing Dockerfile: ${DOCKERFILE}"
   [[ -f "$JUCER_FILE" ]] || die "missing project file: ${JUCER_FILE}"
+  [[ -f "${REPO_ROOT}/Plugins/Builds/LinuxMakefile/Makefile" ]] \
+    || die "missing generated LinuxMakefile; open Plugins/Nuked-SC55.jucer in Projucer and export LinuxMakefile first"
+  [[ -f "${REPO_ROOT}/Plugins/JuceLibraryCode/JuceHeader.h" ]] \
+    || die "missing generated JuceLibraryCode; open Plugins/Nuked-SC55.jucer in Projucer and save the project first"
   docker buildx version >/dev/null 2>&1 \
     || die "Docker Buildx is required; install/start Docker Desktop first"
   docker info >/dev/null 2>&1 \

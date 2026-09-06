@@ -46,11 +46,12 @@ supported architectures. From the repository root, run:
 
 This creates `dist/SC-55-Linux-x64-<version>.tar.gz` and
 `dist/SC-55-Linux-arm64-<version>.tar.gz`. To build only one architecture, pass
-`--architecture x64` or `--architecture arm64`. The archive contains the
-standard frontend, renderer, documentation, and the default ROM directory at
-`share/nuked-sc55`; SDL2 and RtMidi runtime libraries are not bundled. The
-script reads `<version>` from `Plugins/Nuked-SC55.jucer` and disables the Docker
-Buildx cache by default so every invocation rebuilds the binaries; pass
+`--architecture x64` or `--architecture arm64`. Each archive contains the JUCE
+standalone app at `bin/SC-55` and the VST3 plug-in at
+`lib/vst3/SC-55.vst3`; runtime libraries are not bundled. The Linux build uses
+the Projucer-generated `Plugins/Builds/LinuxMakefile` exporter inside Docker.
+The script reads `<version>` from `Plugins/Nuked-SC55.jucer` and disables the
+Docker Buildx cache by default so every invocation rebuilds the binaries; pass
 `--version` to override the release version or `--cache` to opt into cached
 development builds.
 
