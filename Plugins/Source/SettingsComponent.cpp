@@ -296,7 +296,7 @@ BEGIN_JUCER_METADATA
          edBkgCol="0" labelText="ROM" editableSingleClick="0" editableDoubleClick="0"
          focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
          kerning="0.0" bold="0" italic="0" justification="33"/>
-  <COMBOBOX name="" id="fc40b79ca6ae887" memberName="comboRoms" virtualName=""
+  <COMBOBOX name="" id="fc40b79ca6ae887" memberName="comboRoms" virtualName="ImportAwareComboBox"
             explicitFocusOrder="0" pos="120 48 208 24" editable="0" layout="33"
             items="" textWhenNonSelected="" textWhenNoItems="(no choices)"/>
   <LABEL name="new label" id="9df59162551224f7" memberName="juce__label"

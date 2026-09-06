@@ -144,6 +144,13 @@ public:
     /** Returns a message-thread-readable snapshot for the editor LCD. */
     UiStatus getUiStatus() const;
 
+    /** Peak of JUCE's smoothed callback load, retained while the editor is closed. */
+    double getMaximumProcessLoadPercent() const noexcept
+    {
+        return processLoadResetRequested.load() ? 0.0 : maximumProcessLoadPercent.load();
+    }
+    void resetMaximumProcessLoad() noexcept { processLoadResetRequested.store (true); }
+
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
     bool copyLcdDisplay (uint8_t* destination, size_t destinationStride);
 
@@ -199,6 +206,12 @@ private:
     std::unique_ptr<juce::FileChooser> romChooser;
     std::shared_ptr<int> lifetimeToken { std::make_shared<int> (0) };
     uint64_t processBlockCount = 0;
+
+    // Only prepareToPlay/processBlock access the measurer; the UI uses atomics.
+    juce::AudioProcessLoadMeasurer processLoadMeasurer;
+    std::atomic<double> maximumProcessLoadPercent { 0.0 };
+    std::atomic<bool> processLoadResetRequested { false };
+    static_assert (std::atomic<double>::is_always_lock_free);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NukedSC55AudioProcessor)
 };

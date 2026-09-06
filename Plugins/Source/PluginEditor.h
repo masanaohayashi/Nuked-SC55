@@ -178,6 +178,8 @@ private:
     std::unique_ptr<juce::Label> labelPlayer;
     std::unique_ptr<juce::ImageButton> buttonGM;
     std::unique_ptr<juce::ImageButton> buttonGS;
+    std::unique_ptr<juce::Label> labelProcess;
+    std::unique_ptr<juce::TextButton> buttonProcessReset;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 
@@ -187,3 +189,4 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
+

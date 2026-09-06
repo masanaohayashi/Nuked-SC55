@@ -665,6 +665,25 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                          juce::Image(), 1.000f, juce::Colour (0x00000000));
     buttonGS->setBounds (695, 164, 40, 28);
 
+    labelProcess.reset (new juce::Label (juce::String(),
+                                         TRANS ("Process: 100%")));
+    contentComponent.addAndMakeVisible (labelProcess.get());
+    labelProcess->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
+    labelProcess->setJustificationType (juce::Justification::centredLeft);
+    labelProcess->setEditable (false, false, false);
+    labelProcess->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
+    labelProcess->setColour (juce::TextEditor::textColourId, juce::Colours::black);
+    labelProcess->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+
+    labelProcess->setBounds (16, 96, 104, 16);
+
+    buttonProcessReset.reset (new juce::TextButton (juce::String()));
+    contentComponent.addAndMakeVisible (buttonProcessReset.get());
+    buttonProcessReset->setButtonText (TRANS ("RESET"));
+    buttonProcessReset->addListener (this);
+
+    buttonProcessReset->setBounds (120, 96, 48, 16);
+
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -674,6 +693,8 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
 
     //[Constructor] You can add your own custom stuff here..
+    labelProcess->setText ("Max: 0.0%", juce::dontSendNotification);
+    labelProcess->setTooltip ("Maximum JUCE audio callback load since RESET (smoothed, 0-100%).");
     // The faceplate is authored at 1024x200.  resized() fits that panel into
     // the editor while preserving its aspect ratio, like TWV_Wrapper's
     // targetBounds calculation.  Desktop windows keep the panel's aspect
@@ -775,6 +796,8 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     labelPlayer = nullptr;
     buttonGM = nullptr;
     buttonGS = nullptr;
+    labelProcess = nullptr;
+    buttonProcessReset = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -1081,6 +1104,13 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         //[UserButtonCode_buttonGS] -- add your button handler code here..
         audioProcessor.requestGsReset();
         //[/UserButtonCode_buttonGS]
+    }
+    else if (buttonThatWasClicked == buttonProcessReset.get())
+    {
+        //[UserButtonCode_buttonProcessReset] -- add your button handler code here..
+        audioProcessor.resetMaximumProcessLoad();
+        labelProcess->setText ("Max: 0.0%", juce::dontSendNotification);
+        //[/UserButtonCode_buttonProcessReset]
     }
 
     //[UserbuttonClicked_Post]
@@ -1502,6 +1532,8 @@ void NukedSC55AudioProcessorEditor::setSettingsVisible (bool shouldBeVisible)
 
 void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 {
+    labelProcess->setText ("Max: " + juce::String (audioProcessor.getMaximumProcessLoadPercent(), 1)
+                              + "%", juce::dontSendNotification);
     const auto uiStatus = audioProcessor.getUiStatus();
     const auto& state = uiStatus.emulator;
     updateRomLogo (state.romFamily);
@@ -1825,6 +1857,14 @@ BEGIN_JUCER_METADATA
                needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::GSButton_png"
                opacityNormal="1.0" colourNormal="0" resourceOver="" opacityOver="1.0"
                colourOver="0" resourceDown="" opacityDown="1.0" colourDown="0"/>
+  <LABEL name="" id="326d2f5dad563a3" memberName="labelProcess" virtualName=""
+         explicitFocusOrder="0" pos="16 96 104 16" textCol="80ffffff"
+         edTextCol="ff000000" edBkgCol="0" labelText="Process: 100%" editableSingleClick="0"
+         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
+         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
+  <TEXTBUTTON name="" id="b3c5f137602b46d7" memberName="buttonProcessReset"
+              virtualName="" explicitFocusOrder="0" pos="120 96 48 16" buttonText="RESET"
+              connectedEdges="0" needsCallback="1" radioGroupId="0"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
@@ -1834,3 +1874,4 @@ END_JUCER_METADATA
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
+

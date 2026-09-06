@@ -616,6 +616,8 @@ void NukedSC55AudioProcessor::changeProgramName (int index, const juce::String& 
 void NukedSC55AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     sc55debug::log ("prepareToPlay rate=%.2f block=%d", sampleRate, samplesPerBlock);
+    processLoadMeasurer.reset (sampleRate, std::max (1, samplesPerBlock));
+    maximumProcessLoadPercent.store (0.0);
     secondaryRenderBuffer.setSize (2, std::max (1, samplesPerBlock), false, true, true);
     currentSampleRate.store (sampleRate, std::memory_order_release);
     midiFilePlaying.store (false, std::memory_order_release);
@@ -772,6 +774,14 @@ bool NukedSC55AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                              juce::MidiBuffer& midiMessages)
 {
+    if (processLoadResetRequested.exchange (false))
+    {
+        // The measurer is private to this thread during processing, so its
+        // reset lock cannot contend with a UI reader or reset.
+        processLoadMeasurer.reset (getSampleRate(), std::max (1, buffer.getNumSamples()));
+        maximumProcessLoadPercent.store (0.0);
+    }
+    const auto processStartMilliseconds = juce::Time::getMillisecondCounterHiRes();
     juce::ScopedNoDenormals noDenormals;
     ++processBlockCount;
     const auto numSamples = buffer.getNumSamples();
@@ -964,6 +974,16 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         sc55debug::log ("processBlock #%llu rendered=%d outputPeak=%.7f",
                         static_cast<unsigned long long> (processBlockCount),
                         numSamples, outputPeak);
+    }
+
+    // JUCE divides by this block's duration. Zero-sample host callbacks must
+    // not enter the measurer (they would divide by zero).
+    if (numSamples > 0)
+    {
+        processLoadMeasurer.registerRenderTime (
+            juce::Time::getMillisecondCounterHiRes() - processStartMilliseconds, numSamples);
+        maximumProcessLoadPercent.store (std::max (maximumProcessLoadPercent.load(),
+                                                   processLoadMeasurer.getLoadAsPercentage()));
     }
 }
 
