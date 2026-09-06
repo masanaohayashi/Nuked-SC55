@@ -52,7 +52,9 @@ The archives are written to `dist/` as `tar.gz` files. Build one architecture
 only with `--architecture x64` or `--architecture arm64`; use `--force` to
 replace an existing archive. The package contains the standard frontend, the
 renderer, documentation, and an empty `share/nuked-sc55` directory for ROMs.
-SDL2 and RtMidi runtime libraries are required on the target Linux system.
+SDL2 and RtMidi runtime libraries are required on the target Linux system. The
+script performs a clean Docker build on every invocation; pass `--cache` only
+when a faster cached development build is desired.
 
 ## Contributing
 

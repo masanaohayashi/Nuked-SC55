@@ -48,7 +48,9 @@ This creates `dist/SC-55-Linux-x64-<version>.tar.gz` and
 `dist/SC-55-Linux-arm64-<version>.tar.gz`. To build only one architecture, pass
 `--architecture x64` or `--architecture arm64`. The archive contains the
 standard frontend, renderer, documentation, and the default ROM directory at
-`share/nuked-sc55`; SDL2 and RtMidi runtime libraries are not bundled.
+`share/nuked-sc55`; SDL2 and RtMidi runtime libraries are not bundled. The
+script disables the Docker Buildx cache by default so every invocation rebuilds
+the binaries; pass `--cache` to opt into cached development builds.
 
 ### Windows
 

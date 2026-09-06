@@ -18,7 +18,7 @@ CONFIGURATION="Release"
 VERSION_OVERRIDE=""
 FORCE=0
 CLEAN=0
-NO_CACHE=0
+NO_CACHE=1
 
 log() {
   printf '==> %s\n' "$*" >&2
@@ -46,7 +46,8 @@ Options:
   --version VERSION      Override the version read from CMakeLists.txt
   --force                Replace archives with the same name
   --clean                Remove intermediate Linux release output first
-  --no-cache             Build Docker images without using the cache
+  --cache                Reuse Docker Buildx layers (faster, not the default)
+  --no-cache             Build without using the Docker cache (default)
   -h, --help             Show this help
 
 Examples:
@@ -88,6 +89,10 @@ parse_args() {
         ;;
       --no-cache)
         NO_CACHE=1
+        shift
+        ;;
+      --cache)
+        NO_CACHE=0
         shift
         ;;
       -h|--help)
