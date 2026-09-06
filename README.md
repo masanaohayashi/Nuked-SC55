@@ -39,6 +39,21 @@ The script must be run from a clean checkout of the configured release branch
 whose HEAD matches the configured release remote. Use `--draft` to create a
 draft GitHub Release.
 
+## Linux Release
+
+The Linux release script uses Docker Buildx, so it can be run on macOS and can
+produce both x64 and arm64 Linux archives. Docker Desktop must be running:
+
+```bash
+./scripts/linux/package-release.sh
+```
+
+The archives are written to `dist/` as `tar.gz` files. Build one architecture
+only with `--architecture x64` or `--architecture arm64`; use `--force` to
+replace an existing archive. The package contains the standard frontend, the
+renderer, documentation, and an empty `share/nuked-sc55` directory for ROMs.
+SDL2 and RtMidi runtime libraries are required on the target Linux system.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

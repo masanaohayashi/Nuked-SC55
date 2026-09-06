@@ -1,0 +1,25 @@
+# The Linux release Dockerfile copies only the root CMake frontend sources.
+# Keep the Docker Desktop build context small by excluding plugin projects,
+# submodules, generated products, and local ROM/build data.
+
+.git
+.github
+.agents
+.codex
+
+assets
+dist
+build
+build-*
+cmake-build-*
+
+Plugins
+3rdparty/JUCE
+3rdparty/R2JUCE
+test
+tools
+
+*.bin
+*.BIN
+*.rom
+*.ROM
