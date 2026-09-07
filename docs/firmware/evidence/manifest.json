@@ -1,0 +1,1608 @@
+{
+  "schema": 1,
+  "date": "2026-09-07",
+  "scope": "Explicit /tmp references in FIRMWARE_STRUCTURE.md, DEVIATIONS.md, firmware-oracle README and voice-lifecycle; existing CSV companion logs; latest selected integration/build logs; CPU profiles/harness; thread-audit source. Not every file in /tmp.",
+  "archive": ".local/firmware-evidence/2026-09-07/research-records.tar.gz",
+  "fileCount": 246,
+  "uncompressedBytes": 4975434358,
+  "files": [
+    {
+      "source": "/tmp/sc55-allocator-init-1.log",
+      "member": "sc55-allocator-init-1.log",
+      "bytes": 9135,
+      "sha256": "6deaa009cb4f279ecb857a029c1db89e86ea797c28a54b5ddbe4e516d08eb611"
+    },
+    {
+      "source": "/tmp/sc55-auto-import-build.log",
+      "member": "sc55-auto-import-build.log",
+      "bytes": 196591,
+      "sha256": "738cde870b0d2eddf065b356e4a1c0de5d4e979bfb24e6c2edd7b11c7efa7f94"
+    },
+    {
+      "source": "/tmp/sc55-bank2-sweep-1.log",
+      "member": "sc55-bank2-sweep-1.log",
+      "bytes": 1131,
+      "sha256": "2bcd3a8ec10e63e4b33094c9356eef82d973cb1d7f8ac4745bfdb7b9c5bcf22c"
+    },
+    {
+      "source": "/tmp/sc55-candidate-1.log",
+      "member": "sc55-candidate-1.log",
+      "bytes": 9180,
+      "sha256": "50165b32bb1578367e59758ccb7a0acb33f802187d92afd311f8e512e5e5dd6d"
+    },
+    {
+      "source": "/tmp/sc55-capacity-1.log",
+      "member": "sc55-capacity-1.log",
+      "bytes": 9426,
+      "sha256": "5fdd491f5228a2eaae73e5d1f78a5edc328a12ba950047aeb249cdc5c9e5d844"
+    },
+    {
+      "source": "/tmp/sc55-cc-contributions-1.csv",
+      "member": "sc55-cc-contributions-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-cc-contributions-1.log",
+      "member": "sc55-cc-contributions-1.log",
+      "bytes": 15437,
+      "sha256": "1953b77322f1c7e86943d2290d58bc240ade3e0d8d48c777b0bc3f3843eb61ae"
+    },
+    {
+      "source": "/tmp/sc55-channel-pressure-1.csv",
+      "member": "sc55-channel-pressure-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-channel-pressure-1.log",
+      "member": "sc55-channel-pressure-1.log",
+      "bytes": 15345,
+      "sha256": "03aee278684810090c5f8fef941be7a3ac6583921e380690c3e69f533455454d"
+    },
+    {
+      "source": "/tmp/sc55-controller-preparation-1.csv",
+      "member": "sc55-controller-preparation-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-controller-preparation-1.log",
+      "member": "sc55-controller-preparation-1.log",
+      "bytes": 15030,
+      "sha256": "0031d9a48ce0d4185e428535b29cbe26b958d606f9e2278fca8acd30125ac896"
+    },
+    {
+      "source": "/tmp/sc55-controller-preparation-live-3.csv",
+      "member": "sc55-controller-preparation-live-3.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-controller-preparation-live-3.log",
+      "member": "sc55-controller-preparation-live-3.log",
+      "bytes": 15171,
+      "sha256": "74eda2dcdbe6e5fe0f6250fd260ca6533e7009f70192db427d7a4824e3859e1a"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-controls-1.csv",
+      "member": "sc55-first-modulation-controls-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-controls-1.log",
+      "member": "sc55-first-modulation-controls-1.log",
+      "bytes": 12509,
+      "sha256": "79cc2d994611d353172449158e1cc30c63545d7ccf5d4d540e9f782c851a23cb"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-initialize-1.csv",
+      "member": "sc55-first-modulation-initialize-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-initialize-1.log",
+      "member": "sc55-first-modulation-initialize-1.log",
+      "bytes": 12575,
+      "sha256": "084a1de98b99d668365fd880b20ff1e9cbc200019bc9a68d4c5dec84321c760a"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-periodic-1.csv",
+      "member": "sc55-first-modulation-periodic-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-periodic-1.log",
+      "member": "sc55-first-modulation-periodic-1.log",
+      "bytes": 12986,
+      "sha256": "ec3ba89928c9898826f762b3c60926256c532b81fbf452e7631f5c52fec536fd"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-prepare-1.csv",
+      "member": "sc55-first-modulation-prepare-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-prepare-1.log",
+      "member": "sc55-first-modulation-prepare-1.log",
+      "bytes": 12452,
+      "sha256": "6fe8a98938f387524e48e9c3a92937570013b2acdafd272db174f31311222911"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-selection-1.csv",
+      "member": "sc55-first-modulation-selection-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-selection-1.log",
+      "member": "sc55-first-modulation-selection-1.log",
+      "bytes": 12836,
+      "sha256": "f0eb4318f64e33ec1b59f87160d6ecf329249aa84c307c825d138fda2319ef97"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-shared-initialize-1.csv",
+      "member": "sc55-first-modulation-shared-initialize-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-first-modulation-shared-initialize-1.log",
+      "member": "sc55-first-modulation-shared-initialize-1.log",
+      "bytes": 12772,
+      "sha256": "98e03860df35fcbe06f1ad15f396dc93b89a5e584f0d00258effd6ab89a8a15e"
+    },
+    {
+      "source": "/tmp/sc55-glide-1.csv",
+      "member": "sc55-glide-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-glide-1.log",
+      "member": "sc55-glide-1.log",
+      "bytes": 9936,
+      "sha256": "47bfde17f3209ac2a1e8464d769c68160aba43c4536c2a81ace9930293573c59"
+    },
+    {
+      "source": "/tmp/sc55-glide-prepare-1.csv",
+      "member": "sc55-glide-prepare-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-glide-prepare-1.log",
+      "member": "sc55-glide-prepare-1.log",
+      "bytes": 9984,
+      "sha256": "4cdbba4c8003ec9511494076d8598e56e44e11778db4fb55abe7dc192d8667d9"
+    },
+    {
+      "source": "/tmp/sc55-group-create-1.csv",
+      "member": "sc55-group-create-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-group-create-1.log",
+      "member": "sc55-group-create-1.log",
+      "bytes": 9034,
+      "sha256": "3eaab3cf4e24d70c00e9d12289515574b9f5e9bdc024c32f050f478758d4938f"
+    },
+    {
+      "source": "/tmp/sc55-group-detach-1.csv",
+      "member": "sc55-group-detach-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-group-detach-1.log",
+      "member": "sc55-group-detach-1.log",
+      "bytes": 8726,
+      "sha256": "458b620fa4e18eb7fc47a754e0e9fcc5aa8aa742f00597c2aa1b8f892b1cd93d"
+    },
+    {
+      "source": "/tmp/sc55-group-stop-1.log",
+      "member": "sc55-group-stop-1.log",
+      "bytes": 9377,
+      "sha256": "00d9990e2d50625f4fb3c2bb86f36a4061e947db7dc0d34fd68ef67f5bb79620"
+    },
+    {
+      "source": "/tmp/sc55-live-mono-preparation-1.log",
+      "member": "sc55-live-mono-preparation-1.log",
+      "bytes": 6646,
+      "sha256": "d32c85f89564bfb6e2ec64533b9864ace805d518af6c8824380d81ce95930dd2"
+    },
+    {
+      "source": "/tmp/sc55-live-partial-dispatch-1.csv",
+      "member": "sc55-live-partial-dispatch-1.csv",
+      "bytes": 3231615,
+      "sha256": "3d3a15be53c3ed6a54b29db217c7262adb4d78a557746d45d7c1ea56f8f9d777"
+    },
+    {
+      "source": "/tmp/sc55-live-partial-dispatch-1.log",
+      "member": "sc55-live-partial-dispatch-1.log",
+      "bytes": 6790,
+      "sha256": "6dcea7fca80d08fba6b2060396f21cbe094b98bda9b14b036751d36d1e11f9bf"
+    },
+    {
+      "source": "/tmp/sc55-live-partial-dispatch-full-1.csv",
+      "member": "sc55-live-partial-dispatch-full-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-live-partial-dispatch-full-1.log",
+      "member": "sc55-live-partial-dispatch-full-1.log",
+      "bytes": 14553,
+      "sha256": "ef29b7ca24bc01d72f204613612ad06237b0e010ace40cc28dce158c531fde60"
+    },
+    {
+      "source": "/tmp/sc55-midi-hold-routing-1.csv",
+      "member": "sc55-midi-hold-routing-1.csv",
+      "bytes": 194007,
+      "sha256": "5dae7340263824023c30fc8653b6f2de4ff3dcb840ab7813ac35dfd819704598"
+    },
+    {
+      "source": "/tmp/sc55-midi-hold-routing-1.log",
+      "member": "sc55-midi-hold-routing-1.log",
+      "bytes": 6187,
+      "sha256": "48efb644fe3b082a1e940a4ba80131a8cde299f6e84f3b7bad15689e4e748f53"
+    },
+    {
+      "source": "/tmp/sc55-midi-hold-routing-2.csv",
+      "member": "sc55-midi-hold-routing-2.csv",
+      "bytes": 194007,
+      "sha256": "5dae7340263824023c30fc8653b6f2de4ff3dcb840ab7813ac35dfd819704598"
+    },
+    {
+      "source": "/tmp/sc55-midi-hold-routing-2.log",
+      "member": "sc55-midi-hold-routing-2.log",
+      "bytes": 6252,
+      "sha256": "30d223f83d365b5f7f654b0f5b9a26d522684152c6b0cb83d5cc2d4de1ecb2ad"
+    },
+    {
+      "source": "/tmp/sc55-midi-output-controls-green-1.csv",
+      "member": "sc55-midi-output-controls-green-1.csv",
+      "bytes": 1605996,
+      "sha256": "92baa7ae2bc3f4958e7a8203eead513695e02251fd3a637c762559c255ddb64a"
+    },
+    {
+      "source": "/tmp/sc55-midi-output-controls-green-1.log",
+      "member": "sc55-midi-output-controls-green-1.log",
+      "bytes": 545,
+      "sha256": "1a97e0384dd4196f653ea85820dc9d3196bfbde45de66855cb9fdbdd43b58f32"
+    },
+    {
+      "source": "/tmp/sc55-midi-output-controls-red-1.csv",
+      "member": "sc55-midi-output-controls-red-1.csv",
+      "bytes": 25429,
+      "sha256": "3b69259f89707c4daffdf20ef9072354ef2f6c76c90fc51a97c92d25ad306bd6"
+    },
+    {
+      "source": "/tmp/sc55-modulation-amplitude-4.csv",
+      "member": "sc55-modulation-amplitude-4.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-modulation-amplitude-4.log",
+      "member": "sc55-modulation-amplitude-4.log",
+      "bytes": 13037,
+      "sha256": "e09eaa5b2878b67378f5658215558c0b6cda46fff9e09e26c71f8502838cbd24"
+    },
+    {
+      "source": "/tmp/sc55-modulation-depth-prepare-1.csv",
+      "member": "sc55-modulation-depth-prepare-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-modulation-depth-prepare-1.log",
+      "member": "sc55-modulation-depth-prepare-1.log",
+      "bytes": 12635,
+      "sha256": "2878b2b8fe0e503e501e7028c92a346bc4721a3cfb18068e3966af5ed0ea96c8"
+    },
+    {
+      "source": "/tmp/sc55-native-allocated-output-1.csv",
+      "member": "sc55-native-allocated-output-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-allocated-output-1.log",
+      "member": "sc55-native-allocated-output-1.log",
+      "bytes": 13698,
+      "sha256": "a514ad81ce41433640c7a99448f0a5c898707a91a732966b19c23f4aafa2129f"
+    },
+    {
+      "source": "/tmp/sc55-native-initial-spatial-2.csv",
+      "member": "sc55-native-initial-spatial-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-initial-spatial-2.log",
+      "member": "sc55-native-initial-spatial-2.log",
+      "bytes": 13586,
+      "sha256": "37b228c378588864329b51391d024d9adcb2d20ee4f60a47ceb0a2c844fff228"
+    },
+    {
+      "source": "/tmp/sc55-native-initial-tva-1.csv",
+      "member": "sc55-native-initial-tva-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-initial-tva-1.log",
+      "member": "sc55-native-initial-tva-1.log",
+      "bytes": 13629,
+      "sha256": "6d2b552d6b872773eca3cc06613d9433a9be1830d721db29a76b148e39f7626e"
+    },
+    {
+      "source": "/tmp/sc55-native-lfo-waveforms-1.csv",
+      "member": "sc55-native-lfo-waveforms-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-lfo-waveforms-1.log",
+      "member": "sc55-native-lfo-waveforms-1.log",
+      "bytes": 12278,
+      "sha256": "267dbefb7878fd17e6fde0f9d1cb4d5ed2b906c7da377e0ad3228388676add35"
+    },
+    {
+      "source": "/tmp/sc55-native-midi-hold-1.csv",
+      "member": "sc55-native-midi-hold-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-midi-hold-1.log",
+      "member": "sc55-native-midi-hold-1.log",
+      "bytes": 13868,
+      "sha256": "5fb95b8045c9437862c5e31491b0c58c34b8448316fe3e1ba205b8198e82c5f1"
+    },
+    {
+      "source": "/tmp/sc55-native-midi-output-1.csv",
+      "member": "sc55-native-midi-output-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-midi-output-1.log",
+      "member": "sc55-native-midi-output-1.log",
+      "bytes": 13629,
+      "sha256": "6d2b552d6b872773eca3cc06613d9433a9be1830d721db29a76b148e39f7626e"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-block-1.csv",
+      "member": "sc55-native-modulation-block-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-block-1.log",
+      "member": "sc55-native-modulation-block-1.log",
+      "bytes": 12343,
+      "sha256": "359e0dd6d449845a10cff868afba3dc030b0a88881cfd32847552ffcb63adcad"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-consumers-1.csv",
+      "member": "sc55-native-modulation-consumers-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-consumers-1.log",
+      "member": "sc55-native-modulation-consumers-1.log",
+      "bytes": 12392,
+      "sha256": "3493ba4c09be1f7646c4da7f76de789e7f91f14478ae93d54962ad772ad995d7"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-sharing-1.csv",
+      "member": "sc55-native-modulation-sharing-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-sharing-1.log",
+      "member": "sc55-native-modulation-sharing-1.log",
+      "bytes": 12392,
+      "sha256": "3493ba4c09be1f7646c4da7f76de789e7f91f14478ae93d54962ad772ad995d7"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-task-1.csv",
+      "member": "sc55-native-modulation-task-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-modulation-task-1.log",
+      "member": "sc55-native-modulation-task-1.log",
+      "bytes": 12392,
+      "sha256": "3493ba4c09be1f7646c4da7f76de789e7f91f14478ae93d54962ad772ad995d7"
+    },
+    {
+      "source": "/tmp/sc55-native-mono-velocity-1.csv",
+      "member": "sc55-native-mono-velocity-1.csv",
+      "bytes": 3231615,
+      "sha256": "3d3a15be53c3ed6a54b29db217c7262adb4d78a557746d45d7c1ea56f8f9d777"
+    },
+    {
+      "source": "/tmp/sc55-native-mono-velocity-1.log",
+      "member": "sc55-native-mono-velocity-1.log",
+      "bytes": 6714,
+      "sha256": "f6c26b766bd7fd5b08968fae475f4c181ce3f4b41f70edac2473e4d8307b116d"
+    },
+    {
+      "source": "/tmp/sc55-native-normal-pitch-start-1.csv",
+      "member": "sc55-native-normal-pitch-start-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-normal-pitch-start-1.log",
+      "member": "sc55-native-normal-pitch-start-1.log",
+      "bytes": 13629,
+      "sha256": "6d2b552d6b872773eca3cc06613d9433a9be1830d721db29a76b148e39f7626e"
+    },
+    {
+      "source": "/tmp/sc55-native-note-dispatch-1.csv",
+      "member": "sc55-native-note-dispatch-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-note-dispatch-1.log",
+      "member": "sc55-native-note-dispatch-1.log",
+      "bytes": 13629,
+      "sha256": "6d2b552d6b872773eca3cc06613d9433a9be1830d721db29a76b148e39f7626e"
+    },
+    {
+      "source": "/tmp/sc55-native-note-off-1.csv",
+      "member": "sc55-native-note-off-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-note-off-1.log",
+      "member": "sc55-native-note-off-1.log",
+      "bytes": 13766,
+      "sha256": "d9be55d5880668ce4a9030bf08bb1ba9aaf06d19290e11d947246088b0cbf23c"
+    },
+    {
+      "source": "/tmp/sc55-native-note-off-live-1.csv",
+      "member": "sc55-native-note-off-live-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-note-off-live-1.log",
+      "member": "sc55-native-note-off-live-1.log",
+      "bytes": 13816,
+      "sha256": "f520400ccd4a654479114bf6fad06212ff19b396272776914d4845dc6ed07eeb"
+    },
+    {
+      "source": "/tmp/sc55-native-part-hold-1.csv",
+      "member": "sc55-native-part-hold-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-part-hold-1.log",
+      "member": "sc55-native-part-hold-1.log",
+      "bytes": 13868,
+      "sha256": "5fb95b8045c9437862c5e31491b0c58c34b8448316fe3e1ba205b8198e82c5f1"
+    },
+    {
+      "source": "/tmp/sc55-native-partial-dispatch-2.csv",
+      "member": "sc55-native-partial-dispatch-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-partial-dispatch-2.log",
+      "member": "sc55-native-partial-dispatch-2.log",
+      "bytes": 14473,
+      "sha256": "c10a3d7ebee13467c41789e0b8f213b4fead3cc9766571bbaa244c16c546fa9b"
+    },
+    {
+      "source": "/tmp/sc55-native-player-build.log",
+      "member": "sc55-native-player-build.log",
+      "bytes": 2716,
+      "sha256": "dcbc649a3d6823f89ca8023a0b0627cb664456e0745e03a723552f30cb20dc86"
+    },
+    {
+      "source": "/tmp/sc55-native-preview-build.log",
+      "member": "sc55-native-preview-build.log",
+      "bytes": 21808,
+      "sha256": "3e435e6d4d331d2f3a9b3b489ecfdf79f968091c5910b4d4157d89d9ed051447"
+    },
+    {
+      "source": "/tmp/sc55-native-preview-vst3-build.log",
+      "member": "sc55-native-preview-vst3-build.log",
+      "bytes": 100463,
+      "sha256": "b38ce62bb20eda0220ce66accb988d2985524e4dbc727fdfec9b513e4dc95d1f"
+    },
+    {
+      "source": "/tmp/sc55-native-send-mapping-1.csv",
+      "member": "sc55-native-send-mapping-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-send-mapping-1.log",
+      "member": "sc55-native-send-mapping-1.log",
+      "bytes": 13868,
+      "sha256": "5fb95b8045c9437862c5e31491b0c58c34b8448316fe3e1ba205b8198e82c5f1"
+    },
+    {
+      "source": "/tmp/sc55-native-spatial-1.csv",
+      "member": "sc55-native-spatial-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-spatial-1.log",
+      "member": "sc55-native-spatial-1.log",
+      "bytes": 13137,
+      "sha256": "4dccafb355a409bd4f1a59401913e5b9410ddfe955b7fac63bcbd9801c195e05"
+    },
+    {
+      "source": "/tmp/sc55-native-tva-1.csv",
+      "member": "sc55-native-tva-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-native-tva-1.log",
+      "member": "sc55-native-tva-1.log",
+      "bytes": 13079,
+      "sha256": "d13430ac14ab141d059c33597777341af3987275a688d1786a5e1252347f78f1"
+    },
+    {
+      "source": "/tmp/sc55-paired-controllers-1.csv",
+      "member": "sc55-paired-controllers-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-paired-controllers-1.log",
+      "member": "sc55-paired-controllers-1.log",
+      "bytes": 14955,
+      "sha256": "601342f98124fe181656414cad711fde5d6252a09964e26138fc81852a9900cd"
+    },
+    {
+      "source": "/tmp/sc55-paired-first-lfo-1.csv",
+      "member": "sc55-paired-first-lfo-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-paired-first-lfo-1.log",
+      "member": "sc55-paired-first-lfo-1.log",
+      "bytes": 15767,
+      "sha256": "94ea59b6c1e52daf7f9af5af0667b67f32f934b22f1bd9e0ad878883629d6d09"
+    },
+    {
+      "source": "/tmp/sc55-paired-sweep-1.log",
+      "member": "sc55-paired-sweep-1.log",
+      "bytes": 6078,
+      "sha256": "77c47f6ee92cec3e00a78327b6a4ccad70009be4273f0c8a4040175a2d05c324"
+    },
+    {
+      "source": "/tmp/sc55-pan-data-13.csv",
+      "member": "sc55-pan-data-13.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pan-data-13.log",
+      "member": "sc55-pan-data-13.log",
+      "bytes": 13137,
+      "sha256": "4dccafb355a409bd4f1a59401913e5b9410ddfe955b7fac63bcbd9801c195e05"
+    },
+    {
+      "source": "/tmp/sc55-part-pitch-base-1.csv",
+      "member": "sc55-part-pitch-base-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-part-pitch-base-1.log",
+      "member": "sc55-part-pitch-base-1.log",
+      "bytes": 10198,
+      "sha256": "92e995d9d0d56d4cc6ac883abcfdd6c761fa5a9a407b3fa899534c2cfcb67c67"
+    },
+    {
+      "source": "/tmp/sc55-part-pitch-fixed.csv",
+      "member": "sc55-part-pitch-fixed.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-part-pitch-fixed.log",
+      "member": "sc55-part-pitch-fixed.log",
+      "bytes": 10055,
+      "sha256": "b19d38739123ed4401ce298d2ec15093872890a03b48effab3a6f808a9979209"
+    },
+    {
+      "source": "/tmp/sc55-part-pitch-pcm-1.csv",
+      "member": "sc55-part-pitch-pcm-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-part-pitch-pcm-1.log",
+      "member": "sc55-part-pitch-pcm-1.log",
+      "bytes": 10127,
+      "sha256": "ad2f8b608772bc8514c8f5754da78c1e6c8092e3d5ca40584ad87a05d1f2b82a"
+    },
+    {
+      "source": "/tmp/sc55-partial-staging-1.csv",
+      "member": "sc55-partial-staging-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-partial-staging-1.log",
+      "member": "sc55-partial-staging-1.log",
+      "bytes": 14561,
+      "sha256": "144b46f5fd9543c9019f6aca9620401410cc2f40b19b361d62661986183a8f60"
+    },
+    {
+      "source": "/tmp/sc55-perf-uYIHTJ/CMakeLists.txt",
+      "member": "sc55-perf-uYIHTJ/CMakeLists.txt",
+      "bytes": 1464,
+      "sha256": "6b546849a4a37fd3a850398021a765912c1535476394e6fa4331ed797f236f79"
+    },
+    {
+      "source": "/tmp/sc55-perf-uYIHTJ/RESULTS.md",
+      "member": "sc55-perf-uYIHTJ/RESULTS.md",
+      "bytes": 3583,
+      "sha256": "6c14ca652221c4b0948de0603a243100353bdeb19fa955e1e5459b4d448d523d"
+    },
+    {
+      "source": "/tmp/sc55-perf-uYIHTJ/debug-chord.sample.txt",
+      "member": "sc55-perf-uYIHTJ/debug-chord.sample.txt",
+      "bytes": 309622,
+      "sha256": "50274609084212c9ee30a50c838e16316b1d7d78dea0ddce995b0e4bc37dd9ce"
+    },
+    {
+      "source": "/tmp/sc55-perf-uYIHTJ/main.cpp",
+      "member": "sc55-perf-uYIHTJ/main.cpp",
+      "bytes": 3497,
+      "sha256": "59fe4fa60b1a00bb86dd591f4703fc53f7999696c6f065436c7609e028fd2ad6"
+    },
+    {
+      "source": "/tmp/sc55-perf-uYIHTJ/release-chord.sample.txt",
+      "member": "sc55-perf-uYIHTJ/release-chord.sample.txt",
+      "bytes": 265995,
+      "sha256": "e77adb148566035b42a7b0eff060657b5b57e2ca7edaceab19e2f6590a7786d8"
+    },
+    {
+      "source": "/tmp/sc55-perf-uYIHTJ/release-idle.sample.txt",
+      "member": "sc55-perf-uYIHTJ/release-idle.sample.txt",
+      "bytes": 182546,
+      "sha256": "b35e628ce631f17c72fdb62e3754e243ce54b78fa06ddf331628209ec736af3e"
+    },
+    {
+      "source": "/tmp/sc55-periodic-pass-1.csv",
+      "member": "sc55-periodic-pass-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-periodic-pass-1.log",
+      "member": "sc55-periodic-pass-1.log",
+      "bytes": 15849,
+      "sha256": "a481bfbdc69724c1fcba7d807ef6c69bd9ae8bf950470af2d84edf0204b6e7b7"
+    },
+    {
+      "source": "/tmp/sc55-periodic-pcm-1.csv",
+      "member": "sc55-periodic-pcm-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-periodic-pcm-1.log",
+      "member": "sc55-periodic-pcm-1.log",
+      "bytes": 11081,
+      "sha256": "2b75404ecbc32aa3875b56bbfda187475d4b2baa76351d738a5b79f605b27700"
+    },
+    {
+      "source": "/tmp/sc55-periodic-selector-2.csv",
+      "member": "sc55-periodic-selector-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-periodic-selector-2.log",
+      "member": "sc55-periodic-selector-2.log",
+      "bytes": 15617,
+      "sha256": "05abb6d72c16fdd2c97990fce0c09274c49187ffe7a360a6e427c8ab10c0c1cb"
+    },
+    {
+      "source": "/tmp/sc55-pitch-advance-1.csv",
+      "member": "sc55-pitch-advance-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-advance-1.log",
+      "member": "sc55-pitch-advance-1.log",
+      "bytes": 9834,
+      "sha256": "dc4484f45c07552d16774acb71f5566680cb3efd96cf7642e7a9c31eb70752e2"
+    },
+    {
+      "source": "/tmp/sc55-pitch-bend-1.csv",
+      "member": "sc55-pitch-bend-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-bend-1.log",
+      "member": "sc55-pitch-bend-1.log",
+      "bytes": 15528,
+      "sha256": "06ca6f76fa9e2e65c0c2e1cf62937e4ec821efd7386d2e2b0d30bf00e8a9c283"
+    },
+    {
+      "source": "/tmp/sc55-pitch-cache-1.csv",
+      "member": "sc55-pitch-cache-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-cache-1.log",
+      "member": "sc55-pitch-cache-1.log",
+      "bytes": 9784,
+      "sha256": "151cf22ccd402e468b681a39cef2f2fdf585d30cde82e56fccb253c70b402a4f"
+    },
+    {
+      "source": "/tmp/sc55-pitch-commit-1.csv",
+      "member": "sc55-pitch-commit-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-commit-1.log",
+      "member": "sc55-pitch-commit-1.log",
+      "bytes": 11022,
+      "sha256": "26b3aaf74c9e555cd7de3f45770692f691d42bc65b0f226aa74a40dc3d52c41c"
+    },
+    {
+      "source": "/tmp/sc55-pitch-composed-1.csv",
+      "member": "sc55-pitch-composed-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-composed-1.log",
+      "member": "sc55-pitch-composed-1.log",
+      "bytes": 10321,
+      "sha256": "5caf1176adce63f4c4b9e4c69fd387e86386ec2ea4299da1bbc6360de3380547"
+    },
+    {
+      "source": "/tmp/sc55-pitch-data8-1.csv",
+      "member": "sc55-pitch-data8-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-data8-1.log",
+      "member": "sc55-pitch-data8-1.log",
+      "bytes": 10497,
+      "sha256": "ef144f949530c0d070350f61ff7bcf2cba1f9c868168e493cf8daef9ae5930aa"
+    },
+    {
+      "source": "/tmp/sc55-pitch-decay-1.csv",
+      "member": "sc55-pitch-decay-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-decay-1.log",
+      "member": "sc55-pitch-decay-1.log",
+      "bytes": 9894,
+      "sha256": "5e3acd5b72f49a4e9f05e1d0ea7fb472b483ecc522eda5681c7bc72ef992a917"
+    },
+    {
+      "source": "/tmp/sc55-pitch-depth-1.csv",
+      "member": "sc55-pitch-depth-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-depth-1.log",
+      "member": "sc55-pitch-depth-1.log",
+      "bytes": 10482,
+      "sha256": "20f56bda197d1e9d86a974815f37a81448d27fac68c54831c54e419128d86ce8"
+    },
+    {
+      "source": "/tmp/sc55-pitch-increment-1.csv",
+      "member": "sc55-pitch-increment-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-increment-1.log",
+      "member": "sc55-pitch-increment-1.log",
+      "bytes": 10638,
+      "sha256": "0dd6ab06117be537b04468a17877e000ef1ddcc08757ae51f12cd0eecc2d7a40"
+    },
+    {
+      "source": "/tmp/sc55-pitch-input-2.csv",
+      "member": "sc55-pitch-input-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-input-2.log",
+      "member": "sc55-pitch-input-2.log",
+      "bytes": 10360,
+      "sha256": "dd2ad8cf12281bcd7e21f31e3bcd3d64d24e213c3b675b254485387846bf564c"
+    },
+    {
+      "source": "/tmp/sc55-pitch-install-1.csv",
+      "member": "sc55-pitch-install-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-install-1.log",
+      "member": "sc55-pitch-install-1.log",
+      "bytes": 11022,
+      "sha256": "26b3aaf74c9e555cd7de3f45770692f691d42bc65b0f226aa74a40dc3d52c41c"
+    },
+    {
+      "source": "/tmp/sc55-pitch-keys-1.csv",
+      "member": "sc55-pitch-keys-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-keys-1.log",
+      "member": "sc55-pitch-keys-1.log",
+      "bytes": 10257,
+      "sha256": "e636c67a546fa33b921c85f0aedc03143ed7fa40d02de50aefdbda6285cd2a3a"
+    },
+    {
+      "source": "/tmp/sc55-pitch-keyscale-1.csv",
+      "member": "sc55-pitch-keyscale-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-keyscale-1.log",
+      "member": "sc55-pitch-keyscale-1.log",
+      "bytes": 10562,
+      "sha256": "433113e93a11a11efe816778502429497aae5c03cc4f54101de69272c49ec55b"
+    },
+    {
+      "source": "/tmp/sc55-pitch-modulation-1.csv",
+      "member": "sc55-pitch-modulation-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-modulation-1.log",
+      "member": "sc55-pitch-modulation-1.log",
+      "bytes": 10892,
+      "sha256": "84f2dbfe90e8268af9702fa656685643f788c7a6b6e10bdc27a6c2646be86f7c"
+    },
+    {
+      "source": "/tmp/sc55-pitch-offset-1.csv",
+      "member": "sc55-pitch-offset-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-offset-1.log",
+      "member": "sc55-pitch-offset-1.log",
+      "bytes": 9674,
+      "sha256": "9713c2844797b46c915b5279ae3c867871af8e1eee099ab9aec6b811e306dd15"
+    },
+    {
+      "source": "/tmp/sc55-pitch-prepare-1.csv",
+      "member": "sc55-pitch-prepare-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-prepare-1.log",
+      "member": "sc55-pitch-prepare-1.log",
+      "bytes": 9731,
+      "sha256": "3e0be6d24f050d8ef812d3af160df9feb8b24e7b924088d57f3082ba55d852ca"
+    },
+    {
+      "source": "/tmp/sc55-pitch-reentry-1.csv",
+      "member": "sc55-pitch-reentry-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-reentry-1.log",
+      "member": "sc55-pitch-reentry-1.log",
+      "bytes": 10838,
+      "sha256": "b6c401f50346b165b2be88bd1c9df27387dd207e4a2d4449b4fbd9391dd4cfa4"
+    },
+    {
+      "source": "/tmp/sc55-pitch-release-1.csv",
+      "member": "sc55-pitch-release-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-release-1.log",
+      "member": "sc55-pitch-release-1.log",
+      "bytes": 11081,
+      "sha256": "2b75404ecbc32aa3875b56bbfda187475d4b2baa76351d738a5b79f605b27700"
+    },
+    {
+      "source": "/tmp/sc55-pitch-retarget-1.csv",
+      "member": "sc55-pitch-retarget-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-retarget-1.log",
+      "member": "sc55-pitch-retarget-1.log",
+      "bytes": 10766,
+      "sha256": "10d015184b15c74908bcdc990f3ffd89c1fd24f13bc3a9f262dec160b32c560c"
+    },
+    {
+      "source": "/tmp/sc55-pitch-runner-2.csv",
+      "member": "sc55-pitch-runner-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-runner-2.log",
+      "member": "sc55-pitch-runner-2.log",
+      "bytes": 10838,
+      "sha256": "4d59f5d40f170dc048860f972b3633b59dd14bb5b030c257310fe6a611a45f2c"
+    },
+    {
+      "source": "/tmp/sc55-pitch-segment-1.csv",
+      "member": "sc55-pitch-segment-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-segment-1.log",
+      "member": "sc55-pitch-segment-1.log",
+      "bytes": 10702,
+      "sha256": "0bad20ea8132b03250f4c91c9cea6ac19f06ad6be357065ab8f2497f52407207"
+    },
+    {
+      "source": "/tmp/sc55-pitch-target-2.csv",
+      "member": "sc55-pitch-target-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-target-2.log",
+      "member": "sc55-pitch-target-2.log",
+      "bytes": 10412,
+      "sha256": "4a8c2bd7d8ba53f660067f537b1ed055183ed84ae95a31be839ba4e35e9b716d"
+    },
+    {
+      "source": "/tmp/sc55-pitch-targets-1.csv",
+      "member": "sc55-pitch-targets-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-targets-1.log",
+      "member": "sc55-pitch-targets-1.log",
+      "bytes": 10497,
+      "sha256": "ef144f949530c0d070350f61ff7bcf2cba1f9c868168e493cf8daef9ae5930aa"
+    },
+    {
+      "source": "/tmp/sc55-pitch-timing-1.csv",
+      "member": "sc55-pitch-timing-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-pitch-timing-1.log",
+      "member": "sc55-pitch-timing-1.log",
+      "bytes": 10636,
+      "sha256": "224451e693b5f8ea318a351ce6f7aa2ad8a5c6b3ec4c490cfde79f5b594db49b"
+    },
+    {
+      "source": "/tmp/sc55-poly-pressure-1.csv",
+      "member": "sc55-poly-pressure-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-poly-pressure-1.log",
+      "member": "sc55-poly-pressure-1.log",
+      "bytes": 15254,
+      "sha256": "f196387262c3312fadc9f4eaf728429c97ba473c6ca0186028ad0a03a47cd2d1"
+    },
+    {
+      "source": "/tmp/sc55-post-enable-1.csv",
+      "member": "sc55-post-enable-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-post-enable-1.log",
+      "member": "sc55-post-enable-1.log",
+      "bytes": 9629,
+      "sha256": "9e3195110e69b11774a26f3a8eb4f24c9015faac1911e09358fd8ba83b6912b5"
+    },
+    {
+      "source": "/tmp/sc55-preparation-context-1.csv",
+      "member": "sc55-preparation-context-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-preparation-context-1.log",
+      "member": "sc55-preparation-context-1.log",
+      "bytes": 14865,
+      "sha256": "7fb9c3cf0525b6fe6589a457f937b2dc3e75f9a799dad5268954e4645d3a1c71"
+    },
+    {
+      "source": "/tmp/sc55-prepared-activation-1.csv",
+      "member": "sc55-prepared-activation-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-prepared-activation-1.log",
+      "member": "sc55-prepared-activation-1.log",
+      "bytes": 9530,
+      "sha256": "c1c5a30fd3df2c29381475e0c6d8e58d9591adbdee1a4d96e9d7d25b2d93d212"
+    },
+    {
+      "source": "/tmp/sc55-prepared-commit-1.csv",
+      "member": "sc55-prepared-commit-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-prepared-commit-1.log",
+      "member": "sc55-prepared-commit-1.log",
+      "bytes": 9526,
+      "sha256": "d6e453e0def735bcfd12a66fc8acf345f8e8c4e41e93ab176c17e691aa28b485"
+    },
+    {
+      "source": "/tmp/sc55-prepared-key-mask-2.csv",
+      "member": "sc55-prepared-key-mask-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-prepared-key-mask-2.log",
+      "member": "sc55-prepared-key-mask-2.log",
+      "bytes": 9578,
+      "sha256": "853a47cce54f69270a087832071e412cf94f74d66d81777c9f30c150fc2a6c2c"
+    },
+    {
+      "source": "/tmp/sc55-restart-install-2.csv",
+      "member": "sc55-restart-install-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-restart-install-2.log",
+      "member": "sc55-restart-install-2.log",
+      "bytes": 14712,
+      "sha256": "b647308986389bdb639de58a7188e4b3b9efb0ba5fded73859ad6a75ea622d41"
+    },
+    {
+      "source": "/tmp/sc55-reuse-ready-1.log",
+      "member": "sc55-reuse-ready-1.log",
+      "bytes": 9476,
+      "sha256": "8c529890ba1ff38046cbc4626e8702ff4a93fe4fbe8a7c8a826459796d466c6b"
+    },
+    {
+      "source": "/tmp/sc55-sample-commit-1.csv",
+      "member": "sc55-sample-commit-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-sample-commit-1.log",
+      "member": "sc55-sample-commit-1.log",
+      "bytes": 9629,
+      "sha256": "9e3195110e69b11774a26f3a8eb4f24c9015faac1911e09358fd8ba83b6912b5"
+    },
+    {
+      "source": "/tmp/sc55-second-activation-handoff-1.csv",
+      "member": "sc55-second-activation-handoff-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-activation-handoff-1.log",
+      "member": "sc55-second-activation-handoff-1.log",
+      "bytes": 12229,
+      "sha256": "1affa071f0e72a75fd58c7d0e37e77e17816bafdcbe60245eea9d6b38c6d5b69"
+    },
+    {
+      "source": "/tmp/sc55-second-full-setup-1.csv",
+      "member": "sc55-second-full-setup-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-full-setup-1.log",
+      "member": "sc55-second-full-setup-1.log",
+      "bytes": 12229,
+      "sha256": "1affa071f0e72a75fd58c7d0e37e77e17816bafdcbe60245eea9d6b38c6d5b69"
+    },
+    {
+      "source": "/tmp/sc55-second-handoff-1.csv",
+      "member": "sc55-second-handoff-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-handoff-1.log",
+      "member": "sc55-second-handoff-1.log",
+      "bytes": 11628,
+      "sha256": "76c0a1577ea6009fd6829a6b7ad57a1993ec82e0914329cc2cd473ce3ebfca10"
+    },
+    {
+      "source": "/tmp/sc55-second-initial-control-1.csv",
+      "member": "sc55-second-initial-control-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-initial-control-1.log",
+      "member": "sc55-second-initial-control-1.log",
+      "bytes": 12055,
+      "sha256": "ab04344d77fd10c45cd26cb49e956d24c20ca9e6149b129f08ea2eb1fc22ce60"
+    },
+    {
+      "source": "/tmp/sc55-second-initialize-1.csv",
+      "member": "sc55-second-initialize-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-initialize-1.log",
+      "member": "sc55-second-initialize-1.log",
+      "bytes": 11687,
+      "sha256": "9e0f498efe442ba918c6a6d172e7a41a88be025e953147ee10935482ee1fff3b"
+    },
+    {
+      "source": "/tmp/sc55-second-inputs-1.csv",
+      "member": "sc55-second-inputs-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-inputs-1.log",
+      "member": "sc55-second-inputs-1.log",
+      "bytes": 11868,
+      "sha256": "6c91295e72360b2c8f8869e84268892f222778bdf8785d8b0ad4af4f7d690a75"
+    },
+    {
+      "source": "/tmp/sc55-second-install-1.csv",
+      "member": "sc55-second-install-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-install-1.log",
+      "member": "sc55-second-install-1.log",
+      "bytes": 11807,
+      "sha256": "55a4e008c33063ccd4ad2a16b7eba678eaa06b08d045ab7cfce64dc208d96ce3"
+    },
+    {
+      "source": "/tmp/sc55-second-integrated-1.csv",
+      "member": "sc55-second-integrated-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-integrated-1.log",
+      "member": "sc55-second-integrated-1.log",
+      "bytes": 11628,
+      "sha256": "76c0a1577ea6009fd6829a6b7ad57a1993ec82e0914329cc2cd473ce3ebfca10"
+    },
+    {
+      "source": "/tmp/sc55-second-key-targets-1.csv",
+      "member": "sc55-second-key-targets-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-key-targets-1.log",
+      "member": "sc55-second-key-targets-1.log",
+      "bytes": 11989,
+      "sha256": "3a9fda34f40d3e11b26970728481b8ecaf0fe389a5a85431bf2ae92052f5127f"
+    },
+    {
+      "source": "/tmp/sc55-second-mode-1.csv",
+      "member": "sc55-second-mode-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-mode-1.log",
+      "member": "sc55-second-mode-1.log",
+      "bytes": 12172,
+      "sha256": "fefa119db2ac488300f1638642b4940a6b4da3c600eda90f1a6bae3d22d7f59a"
+    },
+    {
+      "source": "/tmp/sc55-second-modulation-gated-1.csv",
+      "member": "sc55-second-modulation-gated-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-modulation-gated-1.log",
+      "member": "sc55-second-modulation-gated-1.log",
+      "bytes": 12925,
+      "sha256": "336cc0a4966d8ad548d51946f20d5324e25a421f4fe577def2e4514ecac1257b"
+    },
+    {
+      "source": "/tmp/sc55-second-modulation-initialize-2.csv",
+      "member": "sc55-second-modulation-initialize-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-modulation-initialize-2.log",
+      "member": "sc55-second-modulation-initialize-2.log",
+      "bytes": 12702,
+      "sha256": "5a453ed75fad2c8e18f043d0d554c8dba0b874f1a42198ccbacdb07c5d6932d7"
+    },
+    {
+      "source": "/tmp/sc55-second-modulation-selection-1.csv",
+      "member": "sc55-second-modulation-selection-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-modulation-selection-1.log",
+      "member": "sc55-second-modulation-selection-1.log",
+      "bytes": 12925,
+      "sha256": "336cc0a4966d8ad548d51946f20d5324e25a421f4fe577def2e4514ecac1257b"
+    },
+    {
+      "source": "/tmp/sc55-second-output-1.csv",
+      "member": "sc55-second-output-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-output-1.log",
+      "member": "sc55-second-output-1.log",
+      "bytes": 11511,
+      "sha256": "f4d6fe964b38fa1bf8ae9e9d7ccdee73f29f00fb30047064d0ba7b3ae5ec2935"
+    },
+    {
+      "source": "/tmp/sc55-second-pcm-chain-1.csv",
+      "member": "sc55-second-pcm-chain-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-pcm-chain-1.log",
+      "member": "sc55-second-pcm-chain-1.log",
+      "bytes": 11628,
+      "sha256": "76c0a1577ea6009fd6829a6b7ad57a1993ec82e0914329cc2cd473ce3ebfca10"
+    },
+    {
+      "source": "/tmp/sc55-second-runner-1.csv",
+      "member": "sc55-second-runner-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-runner-1.log",
+      "member": "sc55-second-runner-1.log",
+      "bytes": 11446,
+      "sha256": "b53efc77cbdfc5b28b0b043d335a7ea55423b8f7f57205435ad58a6044daee7e"
+    },
+    {
+      "source": "/tmp/sc55-second-target-1.csv",
+      "member": "sc55-second-target-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-target-1.log",
+      "member": "sc55-second-target-1.log",
+      "bytes": 11741,
+      "sha256": "3fb42e87f5f263221a910e92ff436ec39c8633ea751f67d100740648869e3b72"
+    },
+    {
+      "source": "/tmp/sc55-second-timing-prepare-1.csv",
+      "member": "sc55-second-timing-prepare-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-second-timing-prepare-1.log",
+      "member": "sc55-second-timing-prepare-1.log",
+      "bytes": 12122,
+      "sha256": "739078d57bee51b8e72233b303dec086229130764ab8cef9df72f98209c70788"
+    },
+    {
+      "source": "/tmp/sc55-selected-controllers-1.csv",
+      "member": "sc55-selected-controllers-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-selected-controllers-1.log",
+      "member": "sc55-selected-controllers-1.log",
+      "bytes": 15692,
+      "sha256": "338105bf2a354a557a8a1257631334447a35f4e6ca09319be93362218dd62811"
+    },
+    {
+      "source": "/tmp/sc55-startup-order-1.csv",
+      "member": "sc55-startup-order-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-startup-order-1.log",
+      "member": "sc55-startup-order-1.log",
+      "bytes": 16018,
+      "sha256": "670361bfb5cf840bab44a264f81e092f53a00b60e0e8302f93be2e64c761d022"
+    },
+    {
+      "source": "/tmp/sc55-task-dispatch-1.csv",
+      "member": "sc55-task-dispatch-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-task-dispatch-1.log",
+      "member": "sc55-task-dispatch-1.log",
+      "bytes": 14782,
+      "sha256": "7482784f5abe35ab1f2d0b302169d9e221cd67c8ecf48a7e8cb65afa8d9790b5"
+    },
+    {
+      "source": "/tmp/sc55-termination-512.csv",
+      "member": "sc55-termination-512.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-termination-512.log",
+      "member": "sc55-termination-512.log",
+      "bytes": 15882,
+      "sha256": "54389c13c945ec176a92305960a23e5ca9c6c52ce2659654484fbb78418d7172"
+    },
+    {
+      "source": "/tmp/sc55-termination-natural-1.csv",
+      "member": "sc55-termination-natural-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-termination-natural-1.log",
+      "member": "sc55-termination-natural-1.log",
+      "bytes": 16018,
+      "sha256": "670361bfb5cf840bab44a264f81e092f53a00b60e0e8302f93be2e64c761d022"
+    },
+    {
+      "source": "/tmp/sc55-thread-audit.cpp",
+      "member": "sc55-thread-audit.cpp",
+      "bytes": 5751,
+      "sha256": "6fa008dc02ed5ff9532d6fc644e9953e67b1c68fec75cf7bd3a5c1190d4aad44"
+    },
+    {
+      "source": "/tmp/sc55-voice-attach-1.csv",
+      "member": "sc55-voice-attach-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-attach-1.log",
+      "member": "sc55-voice-attach-1.log",
+      "bytes": 8949,
+      "sha256": "5c1c83de796264ea8ed5e397f53917ffcd632f8e938e09661775fafac7cce821"
+    },
+    {
+      "source": "/tmp/sc55-voice-installation-2.csv",
+      "member": "sc55-voice-installation-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-installation-2.log",
+      "member": "sc55-voice-installation-2.log",
+      "bytes": 14650,
+      "sha256": "e9d3ffd1b65247ccb9bf4893a72af801eec73542b5fb07674e09224b5322c4a6"
+    },
+    {
+      "source": "/tmp/sc55-voice-pitch-1.csv",
+      "member": "sc55-voice-pitch-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-pitch-1.log",
+      "member": "sc55-voice-pitch-1.log",
+      "bytes": 10956,
+      "sha256": "e2cfe157c418a76bdcd58177d1aaad52d78b1b30c4c9647db41d52a752bc7db4"
+    },
+    {
+      "source": "/tmp/sc55-voice-release-1.csv",
+      "member": "sc55-voice-release-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-release-1.log",
+      "member": "sc55-voice-release-1.log",
+      "bytes": 11189,
+      "sha256": "1dde83ca25b9d645d2b19367185e5046b5fab25e04b00fcfeb87f0c832ef8a21"
+    },
+    {
+      "source": "/tmp/sc55-voice-return-2.csv",
+      "member": "sc55-voice-return-2.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-return-2.log",
+      "member": "sc55-voice-return-2.log",
+      "bytes": 8807,
+      "sha256": "b990c6f7f95bd57683392e9391a785587e12cf89998f9be07d644ee027ede91d"
+    },
+    {
+      "source": "/tmp/sc55-voice-sync-1.csv",
+      "member": "sc55-voice-sync-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-sync-1.log",
+      "member": "sc55-voice-sync-1.log",
+      "bytes": 11248,
+      "sha256": "00ee5025b103f8d62bc48f5fd595af303b73e24a5a3b010c0bfba3b051dad34f"
+    },
+    {
+      "source": "/tmp/sc55-voice-update-entry-1.csv",
+      "member": "sc55-voice-update-entry-1.csv",
+      "bytes": 45967122,
+      "sha256": "c433908f32a4cb93059e9410096d313345011511799347f53645610ffdc2bf02"
+    },
+    {
+      "source": "/tmp/sc55-voice-update-entry-1.log",
+      "member": "sc55-voice-update-entry-1.log",
+      "bytes": 12229,
+      "sha256": "1affa071f0e72a75fd58c7d0e37e77e17816bafdcbe60245eea9d6b38c6d5b69"
+    }
+  ],
+  "notArchived": [
+    {
+      "source": "/tmp/new-melodic.sdata",
+      "type": "missing",
+      "bytes": null,
+      "reason": "Example placeholder; not a missing recorded result"
+    },
+    {
+      "source": "/tmp/reference.csv",
+      "type": "missing",
+      "bytes": null,
+      "reason": "Example placeholder; not a missing recorded result"
+    },
+    {
+      "source": "/tmp/sc55-firmware-oracle-build",
+      "type": "directory",
+      "bytes": null,
+      "reason": "Working build directory, not evidence"
+    },
+    {
+      "source": "/tmp/sc55-firmware-oracle-build/sc55-firmware-oracle",
+      "type": "file",
+      "bytes": 1549752,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-firmware-oracle-build/sc55-patch-layout-test",
+      "type": "file",
+      "bytes": 37800,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-firmware-oracle-build/sc55-sample-zone-test",
+      "type": "file",
+      "bytes": 72552,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-firmware-oracle-build/sc55-sound-data-test",
+      "type": "file",
+      "bytes": 286600,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-all-15.sdata",
+      "type": "file",
+      "bytes": 184480,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-all-samples.sbank",
+      "type": "file",
+      "bytes": 32996,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-bank2.patches",
+      "type": "file",
+      "bytes": 34992,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-10.sdata",
+      "type": "file",
+      "bytes": 130273,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-11.sdata",
+      "type": "file",
+      "bytes": 130785,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-12.sdata",
+      "type": "file",
+      "bytes": 131809,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-13.sdata",
+      "type": "file",
+      "bytes": 131938,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-14.sdata",
+      "type": "file",
+      "bytes": 140130,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-6.sdata",
+      "type": "file",
+      "bytes": 89951,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-7.sdata",
+      "type": "file",
+      "bytes": 110431,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-8.sdata",
+      "type": "file",
+      "bytes": 111967,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-9.sdata",
+      "type": "file",
+      "bytes": 112609,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    },
+    {
+      "source": "/tmp/sc55-v121-melodic-samples.sbank",
+      "type": "file",
+      "bytes": 23638,
+      "reason": "ROM-derived asset or executable/other excluded format; regenerate from local ROMs when needed"
+    }
+  ]
+}

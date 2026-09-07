@@ -1,5 +1,10 @@
 # Firmware replacement oracle
 
+> Start with the [current research index](../../FIRMWARE_RESEARCH_INDEX.md).
+> This file preserves incremental evidence. Earlier "not implemented" and
+> "tests pass" statements are historical, not a current product-wide status.
+> See the index for corrections and the local evidence archive.
+
 ## Native prepared-start ownership
 
 `VoiceControlRuntime::beginPreparedStart/pollPreparedStart` now owns the
@@ -386,7 +391,40 @@ and sample definitions, but bank-aware SoundData/runtime integration, drum
 configuration producers and end-to-end drum DSP remain unfinished. Waveform
 ROM bytes are still separately required; SB01 contains definitions, not audio.
 
-### Unified MD15 sound data
+### Native melodic player preview
+
+`NativeMelodicPlayer` now owns a continuous byte-MIDI -> allocation -> sample/DSP
+preparation -> asynchronous key-on -> periodic control -> PCM loop. It keeps
+ingress/pending notes in fixed storage, preserves a pending note across voice
+stealing, resumes device waits without spinning, and advances PCM at control
+deadlines. No H8 instruction is executed in this loop.
+
+For a **comparison-only** plug-in run, set `NUKED_SC55_NATIVE_PREVIEW=1` in the
+process environment (for example, the Standalone Xcode scheme's environment).
+Initialisation loads the automatically generated v1.21 MD15 cache; the existing
+backend still loads the ROM set/waveforms and provides the PCM device, but its
+`Step()` is not called. The existing host resampler and MIDI event splitting are
+retained. Without the variable the normal H8 path is unchanged.
+
+This is not yet GS-compatible playback: channel 10/drums, variations, SysEx
+(including GM/GS reset), mono/portamento, effects and front-panel/LCD execution
+remain unsupported. The preview uses explicit neutral melodic configuration
+and dry output; CC123 currently uses the same hard-stop preview policy as CC120.
+Unsupported messages are counted, never substituted with an arbitrary drum/tone.
+CPU targets and sound equivalence in Logic have **not** been established.
+
+Focused check (existing CMake ROM/asset paths must be configured):
+
+```sh
+cmake --build /tmp/sc55-firmware-oracle-build --target sc55-firmware-oracle -j 4
+ctest --test-dir /tmp/sc55-firmware-oracle-build -R '^native-player$' --output-on-failure
+```
+
+The real-PCM check covers fragmented MIDI, three melodic programs, sustain and
+release, a 30-note burst saturating all 24 physical voices, reclaim/panic and
+explicit drum rejection, with more than 574000 generated frames and zero H8 cycles.
+
+### MD15 import and layout
 
 The plug-in now automatically generates this asset when the verified v1.21
 ROM pair is first prepared. No manual export or placement is required.
@@ -405,7 +443,8 @@ and a not-yet-existing cache directory. It verifies first import, the exact
 184480-byte MD15 digest, reuse without rewriting, corrupted/stale cache repair,
 unsupported-ROM rejection and write failure reporting. This test and the macOS
 arm64 Debug shared-code build passed. This change prepares the asset only:
-product playback still runs through the existing H8 emulator.
+normal product playback still runs through the existing H8 emulator unless
+the experimental melodic preview described above is explicitly enabled.
 
 `SoundData` MD15 now includes the supplemental162 patch records immediately
 after MD14's pitch-timing curves and before the SB01 sample payload. MD01..14

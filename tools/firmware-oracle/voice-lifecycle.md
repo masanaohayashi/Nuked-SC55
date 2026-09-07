@@ -1,5 +1,9 @@
 # Voice lifecycle evidence (SC-55 v1.21)
 
+> Current scope and superseding notes: [research index](../../FIRMWARE_RESEARCH_INDEX.md).
+> This is an incremental evidence log; early integration limitations may have
+> been addressed later. Function-level comparisons do not prove a complete GS instrument.
+
 The production backend still executes H8. These native primitives are not yet
 a complete allocator or a ROM-free instrument.
 

@@ -134,6 +134,8 @@ CMakeSettings.json
 /scripts/macos/config.env
 
 # Local ROM dumps must never enter the repository
+# Raw research traces and machine-specific evidence are local-only.
+/.local/firmware-evidence/
 *.bin
 *.BIN
 *.rom

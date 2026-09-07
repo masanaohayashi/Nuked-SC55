@@ -67,6 +67,7 @@
 		703175F1A7F390DBF9A6BFAE /* include_juce_audio_plugin_client_AUv3.mm */ = {isa = PBXBuildFile; fileRef = B4CDD915411DDCF0728255A4; };
 		781734D68F236D689C419C89 /* Shared Code */ = {isa = PBXBuildFile; fileRef = 0DC47BE239780809892C2302; };
 		7D6A469AAAC06FA0685972B9 /* include_juce_core_zlib.c */ = {isa = PBXBuildFile; fileRef = 0C68240A0EA7C37B4E3916D7; };
+		7F7D786C1DFD6932CE67A196 /* sc55_patch.cpp */ = {isa = PBXBuildFile; fileRef = 38E3427DC26174365503A1A5; };
 		847BBD0BCE3E328FB333EE95 /* AudioToolbox.framework */ = {isa = PBXBuildFile; fileRef = BF1A4E09D91F425B2247C687; };
 		8AA405F440FE5295C3094385 /* WrdDisplayWindow.cpp */ = {isa = PBXBuildFile; fileRef = 14F1924EBAAD21459A79F07B; };
 		8C9B460169A28C5A66D5C014 /* Metal.framework */ = {isa = PBXBuildFile; fileRef = C4BFD0E4316B0FA060073D15; settings = { ATTRIBUTES = (Weak, ); }; };
@@ -171,6 +172,7 @@
 		3725226999789B8862685E87 /* mcu.h */ /* mcu.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = mcu.h; path = ../../../src/backend/mcu.h; sourceTree = SOURCE_ROOT; };
 		3820A6F52400E7BBF6539164 /* diagnostics.cpp */ /* diagnostics.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = diagnostics.cpp; path = ../../../src/backend/diagnostics.cpp; sourceTree = SOURCE_ROOT; };
 		383B1EBD44E80593F01D3CC3 /* LedButton_on.png */ /* LedButton_on.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = LedButton_on.png; path = ../../Images/LedButton_on.png; sourceTree = SOURCE_ROOT; };
+		38E3427DC26174365503A1A5 /* sc55_patch.cpp */ /* sc55_patch.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = sc55_patch.cpp; path = ../../../src/backend/sc55_patch.cpp; sourceTree = SOURCE_ROOT; };
 		39CED04034315A48D56BD658 /* mcu_timer.cpp */ /* mcu_timer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = mcu_timer.cpp; path = ../../../src/backend/mcu_timer.cpp; sourceTree = SOURCE_ROOT; };
 		3A249DA6EC9AD682B1B30696 /* lcd_font.h */ /* lcd_font.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = lcd_font.h; path = ../../../src/backend/lcd_font.h; sourceTree = SOURCE_ROOT; };
 		3A8771DBC2931AD35E0D1617 /* Foundation.framework */ /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -283,6 +285,7 @@
 		D6ABEF7A2BEBA42E9AEBCA68 /* include_juce_gui_basics_2.cpp */ /* include_juce_gui_basics_2.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_gui_basics_2.cpp; path = ../../JuceLibraryCode/include_juce_gui_basics_2.cpp; sourceTree = SOURCE_ROOT; };
 		D817E253447993F6044B45C9 /* CoreAudioKit.framework */ /* CoreAudioKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudioKit.framework; path = System/Library/Frameworks/CoreAudioKit.framework; sourceTree = SDKROOT; };
 		D91E7878AB8ADBA6DD310758 /* PowerButton_normal.png */ /* PowerButton_normal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = PowerButton_normal.png; path = ../../Images/PowerButton_normal.png; sourceTree = SOURCE_ROOT; };
+		D955A0FB77D4D7B0BFCCB42A /* sc55_native_player.h */ /* sc55_native_player.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = sc55_native_player.h; path = ../../../src/backend/sc55_native_player.h; sourceTree = SOURCE_ROOT; };
 		DB31BF1E6C6A06F76867AB2F /* All.entitlements */ /* All.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = All.entitlements; path = All.entitlements; sourceTree = SOURCE_ROOT; };
 		DB9AB32AFF8E591DAC824593 /* include_juce_audio_plugin_client_Standalone.cpp */ /* include_juce_audio_plugin_client_Standalone.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_audio_plugin_client_Standalone.cpp; path = ../../JuceLibraryCode/include_juce_audio_plugin_client_Standalone.cpp; sourceTree = SOURCE_ROOT; };
 		DCBAB130B446BFC866F83AAD /* IncButton_down.png */ /* IncButton_down.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = IncButton_down.png; path = ../../Images/IncButton_down.png; sourceTree = SOURCE_ROOT; };
@@ -464,6 +467,8 @@
 				3725226999789B8862685E87,
 				7BE4D7D4E6AFE87C285A4F81,
 				0BB3D62CA53830920566E6F7,
+				38E3427DC26174365503A1A5,
+				D955A0FB77D4D7B0BFCCB42A,
 				687B27CB561E434796E31173,
 				F6394F7ACAEA662C66526A25,
 				1DC4EF5037BEB689501601FB,
@@ -899,6 +904,7 @@
 				D08398EEA722C261BB2590D5,
 				AF17D80FC420B232B867B47A,
 				C08C68451FF5D0C93302898F,
+				7F7D786C1DFD6932CE67A196,
 				2228B3CCA77C4215E5ED7AB7,
 				38AEBB900B5C7BCD96347C15,
 				49B0795FB51FC71AB61BBA17,
@@ -1031,9 +1037,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1058,7 +1064,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1066,8 +1072,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				HEADER_SEARCH_PATHS = (
@@ -1154,9 +1160,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1181,7 +1187,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1189,8 +1195,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				HEADER_SEARCH_PATHS = (
@@ -1278,9 +1284,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1305,7 +1311,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1313,8 +1319,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				HEADER_SEARCH_PATHS = (
@@ -1400,9 +1406,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1427,7 +1433,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1435,8 +1441,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				HEADER_SEARCH_PATHS = (
@@ -1524,9 +1530,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1551,7 +1557,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1559,8 +1565,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 					"JUCE_SHARED_CODE=1",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
@@ -1648,9 +1654,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1675,7 +1681,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1683,8 +1689,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 					"JUCE_SHARED_CODE=1",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
@@ -1771,9 +1777,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -1798,7 +1804,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -1806,8 +1812,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				HEADER_SEARCH_PATHS = (
@@ -1994,9 +2000,9 @@
 					"JucePlugin_ProducesMidiOutput=0",
 					"JucePlugin_IsMidiEffect=0",
 					"JucePlugin_EditorRequiresKeyboardFocus=0",
-					"JucePlugin_Version=0.0.3",
-					"JucePlugin_VersionCode=0x3",
-					"JucePlugin_VersionString=\\\"0.0.3\\\"",
+					"JucePlugin_Version=0.0.4",
+					"JucePlugin_VersionCode=0x4",
+					"JucePlugin_VersionString=\\\"0.0.4\\\"",
 					"JucePlugin_VSTUniqueID=JucePlugin_PluginCode",
 					"JucePlugin_VSTCategory=kPlugCategSynth",
 					"JucePlugin_LV2PluginClass=InstrumentPlugin",
@@ -2021,7 +2027,7 @@
 					"JucePlugin_ARAContentTypes=0",
 					"JucePlugin_ARATransformationFlags=0",
 					"JucePlugin_ARAFactoryID=\\\"com.STUDIOR.SC55.factory\\\"",
-					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.3\\\"",
+					"JucePlugin_ARADocumentArchiveID=\\\"com.STUDIOR.SC55.aradocumentarchive.0.0.4\\\"",
 					"JucePlugin_ARACompatibleArchiveIDs=\\\"\\\"",
 					"JucePlugin_MaxNumInputChannels=0",
 					"JucePlugin_MaxNumOutputChannels=2",
@@ -2029,8 +2035,8 @@
 					"JUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone",
 					"NUKED_SC55_NO_MAIN=1",
 					"JUCER_XCODE_IPHONE_5BC26AE3=1",
-					"JUCE_APP_VERSION=0.0.3",
-					"JUCE_APP_VERSION_HEX=0x3",
+					"JUCE_APP_VERSION=0.0.4",
+					"JUCE_APP_VERSION_HEX=0x4",
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				HEADER_SEARCH_PATHS = (

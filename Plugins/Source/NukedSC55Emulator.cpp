@@ -3,6 +3,7 @@
 #include "SC55Lcd.h"
 #include "SC55Debug.h"
 #include "NativeSoundDataCache.h"
+#include "sc55_native_player.h"
 
 #include <algorithm>
 #include <array>
@@ -688,6 +689,38 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     }
 
     nextCore->Reset();
+    std::unique_ptr<sc55::SoundData> nextNativeData;
+    std::unique_ptr<sc55::NativeMelodicPlayer> nextNativePlayer;
+    const auto* nativeOption = std::getenv ("NUKED_SC55_NATIVE_PREVIEW");
+    if (nativeOption != nullptr && std::string_view (nativeOption) == "1")
+    {
+        const auto& data = nextRoms->romset_info.rom_data;
+        if (! sc55::CanImportSoundData (data[static_cast<size_t> (RomLocation::ROM1)],
+                                       data[static_cast<size_t> (RomLocation::ROM2)]))
+        {
+            setError ("Native preview requires SC-55 v1.21");
+            return false;
+        }
+        const auto asset = juce::File (juce::String::fromUTF8 (nativeCacheDirectory.c_str()))
+            .getChildFile ("mk1-v1.21-md15/sc55-native.sdata");
+        juce::MemoryBlock bytes;
+        nextNativeData = std::make_unique<sc55::SoundData>();
+        if (! asset.loadFileAsData (bytes)
+            || ! nextNativeData->loadEncoded ({ static_cast<const uint8_t*> (bytes.getData()), bytes.getSize() }))
+        {
+            setError ("Could not load the generated native sound data");
+            return false;
+        }
+        PCM_UseSimulation (nextCore->GetPCM(), false);
+        nextCore->GetPCM().use_float_effects = false;
+        nextNativePlayer = std::make_unique<sc55::NativeMelodicPlayer> (*nextNativeData, nextCore->GetPCM());
+        if (nextNativePlayer->failed())
+        {
+            setError ("Could not initialise the native melodic preview");
+            return false;
+        }
+        sc55debug::log ("NATIVE PREVIEW: melodic capital bank only; no H8 execution, drums, GS SysEx, effects or front-panel emulation");
+    }
     nextCore->GetMCU().button_pressed.store (0, std::memory_order_relaxed);
     nextCore->SetSampleCallback (&NukedSC55Emulator::sampleSink, this);
     if (! nextCore->StartLCD())
@@ -701,6 +734,8 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     {
         const std::lock_guard lock (coreMutex);
         core = std::move (nextCore);
+        nativeData = std::move (nextNativeData);
+        nativePlayer = std::move (nextNativePlayer);
         // RomsetInfo must outlive Emulator::LoadRoms(). Keep it beside the
         // core until release() destroys the core first.
         loadedRoms = std::move (nextRoms);
@@ -758,6 +793,8 @@ void NukedSC55Emulator::release()
         const std::lock_guard lock (coreMutex);
         if (core != nullptr)
             core->StopLCD();
+        nativePlayer.reset();
+        nativeData.reset();
         core.reset();
         loadedRoms.reset();
     }
@@ -930,6 +967,21 @@ void NukedSC55Emulator::drainMidi()
     if (core == nullptr)
         return;
 
+    if (nativePlayer != nullptr)
+    {
+        auto read = midiRead.load (std::memory_order_relaxed);
+        const auto write = midiWrite.load (std::memory_order_acquire);
+        while (read != write)
+        {
+            const uint8_t byte = midiFifo[read];
+            if (nativePlayer->push (std::span (&byte, 1)) != 1)
+                break; // Retain the suffix until the native queue has room.
+            read = (read + 1) % midiFifoBytes;
+        }
+        midiRead.store (read, std::memory_order_release);
+        return;
+    }
+
     auto& mcu = core->GetMCU();
     auto read = midiRead.load (std::memory_order_relaxed);
     const auto write = midiWrite.load (std::memory_order_acquire);
@@ -1025,6 +1077,21 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
 {
     if (core == nullptr)
         return;
+
+    if (nativePlayer != nullptr)
+    {
+        drainMidi();
+        while (availableSourceFrames() < minimumFrames && ! nativePlayer->failed())
+        {
+            nativePlayer->step();
+            drainMidi();
+        }
+        if (nativePlayer->failed())
+            ready.store (false, std::memory_order_release);
+        if (debugStateRequested.exchange (false, std::memory_order_acquire))
+            publishDebugState();
+        return;
+    }
 
     updateFrontPanelButtons();
 
@@ -1129,6 +1196,14 @@ void NukedSC55Emulator::render (float* left, float* right, int numSamples)
     // execute many H8 instructions, but it never advances beyond the source
     // frames required by this render segment (apart from interpolation lookahead).
     driveCoreUntilSourceFrames (minimumSourceFrames);
+
+    if (! ready.load (std::memory_order_acquire))
+    {
+        std::memset (left, 0, static_cast<size_t> (numSamples) * sizeof (float));
+        if (right != nullptr)
+            std::memset (right, 0, static_cast<size_t> (numSamples) * sizeof (float));
+        return;
+    }
 
     for (int i = 0; i < numSamples; ++i)
     {

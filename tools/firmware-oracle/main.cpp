@@ -26,6 +26,7 @@
 #include "envelope-key-import.h"
 #include "envelope-pcm-test.h"
 #include "voice-control-pcm-test.h"
+#include "native-player-test.h"
 #include "rhythm-velocity-oracle.h"
 #include "control-clock-probe.h"
 
@@ -529,6 +530,8 @@ void Oracle_PCM_Write(pcm_t& pcm, uint32_t address, uint8_t value)
 
 int main(int argc, char** argv)
 {
+    if (argc == 4 && std::string(argv[1]) == "--native-player-test")
+        return verifyNativePlayer(argv[2],argv[3]);
     if (argc == 4 && std::string(argv[1]) == "--native-wave-output-test")
         return verifyNativeVoiceControlPcm(argv[2],argv[3]);
     if (argc == 3 && std::string(argv[1]) == "--native-voice-control-pcm-test")

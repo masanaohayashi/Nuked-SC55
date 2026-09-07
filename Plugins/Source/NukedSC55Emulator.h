@@ -12,6 +12,7 @@ struct AudioFrame;
 
 struct Emulator;
 class LcdCaptureBackend;
+namespace sc55 { class SoundData; class NativeMelodicPlayer; }
 
 namespace common
 {
@@ -203,6 +204,8 @@ private:
     std::mutex coreMutex;
     std::unique_ptr<LcdCaptureBackend> lcdBackend;
     std::unique_ptr<Emulator> core;
+    std::unique_ptr<sc55::SoundData> nativeData;
+    std::unique_ptr<sc55::NativeMelodicPlayer> nativePlayer;
     std::unique_ptr<common::LoadRomsetResult> loadedRoms;
 
     std::string error;

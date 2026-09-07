@@ -52,4 +52,6 @@ if(SC55_WAVE_TEST_DIRECTORY)
     endif()
     add_test(NAME native-wave-output COMMAND sc55-firmware-oracle
         --native-wave-output-test "${SC55_SOUND_DATA_TEST_ASSET}" "${SC55_WAVE_TEST_DIRECTORY}")
+    add_test(NAME native-player COMMAND sc55-firmware-oracle
+        --native-player-test "${SC55_SOUND_DATA_TEST_ASSET}" "${SC55_WAVE_TEST_DIRECTORY}")
 endif()
