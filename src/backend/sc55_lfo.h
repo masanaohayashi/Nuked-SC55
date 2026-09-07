@@ -28,11 +28,13 @@
 namespace sc55
 {
 
+constexpr double kLfoPi = 3.1415926535897932384626433832795;
+
 // LFO の正弦表（rom1[0x7412]、130 バイト）。
 // 129 エントリすべてが round(255 * sin(pi * i / 128)) と完全に一致するので式で作る。
 inline uint8_t LfoSine (int index)
 {
-    return (uint8_t) std::lround (255.0 * std::sin (M_PI * index / 128.0));
+    return (uint8_t) std::lround (255.0 * std::sin (kLfoPi * index / 128.0));
 }
 
 // レートの増分（rom1[0x7012] を引いた値 + 修正）から位相の進みを作る。
