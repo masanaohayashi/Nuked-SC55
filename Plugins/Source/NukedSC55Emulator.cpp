@@ -2,6 +2,7 @@
 
 #include "SC55Lcd.h"
 #include "SC55Debug.h"
+#include "NativeSoundDataCache.h"
 
 #include <algorithm>
 #include <array>
@@ -626,7 +627,8 @@ void NukedSC55Emulator::logRomSetDiagnostics (const std::string& romDirectory)
 #endif
 }
 
-bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newHostSampleRate)
+bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newHostSampleRate,
+                                  const std::string& nativeCacheDirectory)
 {
     sc55debug::log ("initialise requested directory=\"%s\" hostRate=%.2f",
                     romDirectory.c_str(), newHostSampleRate);
@@ -649,6 +651,23 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     {
         setError (std::string ("ROM loading failed: ") + common::ToCString (loadError));
         sc55debug::log ("ROM initialisation failed: %s", error.c_str());
+        return false;
+    }
+
+    try
+    {
+        const auto& data = nextRoms->romset_info.rom_data;
+        const auto generated = sc55::EnsureNativeSoundDataCache (
+            data[static_cast<size_t> (RomLocation::ROM1)],
+            data[static_cast<size_t> (RomLocation::ROM2)],
+            nativeCacheDirectory.empty() ? juce::File()
+                : juce::File (juce::String::fromUTF8 (nativeCacheDirectory.c_str())));
+        if (generated)
+            sc55debug::log ("Generated sc55-native.sdata from the loaded ROM pair");
+    }
+    catch (const std::exception& exception)
+    {
+        setError (std::string ("Native sound-data preparation failed: ") + exception.what());
         return false;
     }
 

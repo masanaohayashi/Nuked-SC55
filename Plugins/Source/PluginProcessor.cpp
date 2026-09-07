@@ -1334,7 +1334,12 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
 
     const juce::ScopedLock callbackLock (getCallbackLock());
     audioReady.store (false, std::memory_order_release);
-    if (! emulators[0].initialise (directory.getFullPathName().toStdString(), sampleRate))
+    const auto settingsDirectory = getUserSettingsDirectory();
+    const auto nativeCacheDirectory = settingsDirectory.isDirectory()
+        ? settingsDirectory.getChildFile ("NativeSoundData").getFullPathName().toStdString()
+        : std::string();
+    if (! emulators[0].initialise (directory.getFullPathName().toStdString(), sampleRate,
+                                  nativeCacheDirectory))
     {
         uiError = juce::String (emulators[0].getError());
         sc55debug::log ("ROM directory initialisation failed: %s", emulators[0].getError().c_str());
@@ -1344,7 +1349,8 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
     // Construct both complete backend instances before publishing audioReady.
     // Once the audio callback starts, 2X changes only affect MIDI routing and
     // output mixing; no message-thread core lifetime change can race rendering.
-    if (! emulators[1].initialise (directory.getFullPathName().toStdString(), sampleRate))
+    if (! emulators[1].initialise (directory.getFullPathName().toStdString(), sampleRate,
+                                  nativeCacheDirectory))
     {
         sc55debug::log ("2X secondary initialisation failed: %s; continuing with one emulator",
                         emulators[1].getError().c_str());

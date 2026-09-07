@@ -275,6 +275,11 @@ void MCU_DeviceWrite(mcu_t& mcu, uint32_t address, uint8_t data)
         {
             mcu.dev_register[address] &= ~0x10;
         }
+        // RX/TX completion can arrive between the firmware's SSR read and
+        // write. Only the read-then-clear checks above acknowledge it. A stale
+        // write must not erase the flag while leaving its interrupt pending
+        // (otherwise RX repeatedly consumes the same RDR byte).
+        data = (data & ~0xc0) | (mcu.dev_register[address] & 0xc0);
         break;
     }
     default:

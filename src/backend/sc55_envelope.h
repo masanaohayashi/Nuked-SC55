@@ -10,9 +10,26 @@
 
 #include "sc55_tables.h"
 #include <cstdint>
+#include <optional>
 
 namespace sc55
 {
+
+struct EnvelopeProgress { uint16_t position, deferredTicks; };
+
+// v1.21 00:3599..35c9, duration > 8 path. Ticks left after reaching
+// the endpoint carry into the next segment. Duration 0 and 1..8 take
+// distinct immediate-target paths and must be dispatched by the caller.
+inline std::optional<EnvelopeProgress> AdvanceEnvelopeProgress(
+    uint16_t duration, uint16_t ticks, EnvelopeProgress previous) noexcept
+{
+    if (duration <= 8) return std::nullopt;
+    const uint32_t increment = 0x80000u / duration;
+    const auto elapsed = uint16_t(ticks + previous.deferredTicks);
+    const uint32_t position = uint32_t(elapsed)*increment + previous.position;
+    if (position <= 65535) return EnvelopeProgress{uint16_t(position),0};
+    return EnvelopeProgress{65535,uint16_t((position-65535)/increment)};
+}
 
 // 変化量を指数 + 仮数の 1 バイトに詰める。エンベロープもカットオフも同じ符号化で、
 // 違うのはシフト上限だけ（エンベロープは 7 固定、カットオフは表引き）。
@@ -53,7 +70,7 @@ inline uint16_t EncodeCutoff (uint16_t level, uint16_t delta, int shift_limit, b
 }
 
 // prev / next はエンベロープの前回値と今回値（voice+0x1c）。返り値は voice+0x1e。
-inline uint16_t EncodeEnvelope (uint16_t prev, uint16_t next)
+inline uint16_t EncodeEnvelope (uint16_t prev, uint16_t next, int shift_limit = 7)
 {
     const int32_t delta = (int32_t) next - (int32_t) prev;
     if (delta == 0)
@@ -77,7 +94,7 @@ inline uint16_t EncodeEnvelope (uint16_t prev, uint16_t next)
         }
     }
 
-    const uint8_t code = EncodeRate (magnitude, 7);
+    const uint8_t code = EncodeRate (magnitude, shift_limit);
     return code == 0 ? 0xff00 : (uint16_t) ((level & 0xff00) | code);
 }
 
@@ -120,6 +137,33 @@ inline uint16_t EnvelopeSegment (uint8_t start_level, uint8_t end_level,
         return (uint16_t) ((((uint32_t) (uint16_t) (end - start) * (uint16_t) ~curve) >> 16) + start);
 
     return (uint16_t) ((((uint32_t) curve * (uint16_t) (start - end)) >> 16) + end);
+}
+
+struct EnvelopeStep
+{
+    EnvelopeProgress progress;
+    uint16_t level, pcmWord;
+};
+
+// Complete duration dispatch, from elapsed ticks to the next PCM word.
+// Caller owns stage transitions and supplies the previous segment state.
+inline std::optional<EnvelopeStep> StepEnvelopeSegment(uint16_t duration,uint16_t ticks,
+    EnvelopeProgress previous,uint8_t start,uint8_t end,bool exponential,uint16_t previousLevel) noexcept
+{
+    if (duration <= 8)
+    {
+        // 00:36c6 forces a target with rate af; zero is NOT a hold.
+        // 00:36ae uses the short-duration exponent table at 6b06.
+        static constexpr uint8_t limits[9] {10,10,9,9,8,8,8,7,7};
+        const auto level = uint16_t(end << 8);
+        const auto word = duration == 0 ? uint16_t(level | 0xaf)
+            : EncodeEnvelope(previousLevel,level,limits[duration]);
+        return EnvelopeStep{{65535,previous.deferredTicks},level,word};
+    }
+    const auto progress = AdvanceEnvelopeProgress(duration,ticks,previous);
+    if (!progress) return std::nullopt;
+    const auto level = EnvelopeSegment(start,end,progress->position,exponential);
+    return EnvelopeStep{*progress,level,EncodeEnvelope(previousLevel,level)};
 }
 
 // カットオフの通し（00:473c-00:47eb）。voice+0x26 を作る。

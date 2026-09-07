@@ -17,18 +17,17 @@ struct SC55Partial
 {
     static constexpr int SIZE = 0x5c;   // 92 バイト
 
-    // 実測で用途の分かっているもの。
-    // 5 セグメントのエンベロープが 3 組。各バイトは下位 7 ビットが値、bit7 がフラグ。
-    // 展開しているのは 00:2eeb 前後、消費するのは PCM の 3 本の発生器。
+    // 旧ダンプ用の推測フィールド。3組とも同形式という解釈は未検証。
+    // v1.21で確認済みの +0x4e..0x52 の展開は
+    // sc55_envelope_setup.h を使う（この旧区分とは一致しない）。
     uint8_t envelope[3][5] {};     // +0x12-0x16, +0x4a-0x4e, +0x4f-0x53
     uint8_t envelope_flags[3] {};
 
     // まだ意味の分かっていないバイトを含む、ブロック内のそのままの並び。
     uint8_t raw[SIZE] {};
 
-    // このパーシャルが使われているか。未使用なら先頭が 00/ff で埋まる。
-    // 225 音色のうち丸ごと 0xff なのは番号 0 (Piano 1) だけで、これは ROM の
-    // 実際の中身。読み取りの失敗ではない。
+    // Multisample group (+2, big endian) is not the 0xffff absent sentinel.
+    // Presence only: this does not include note/velocity-dependent gates.
     bool used = false;
 };
 
@@ -36,10 +35,11 @@ struct SC55Partial
 struct SC55Patch
 {
     static constexpr int SIZE = 0xd8;        // 216 バイト
-    static constexpr int NAME_OFFSET = 0xb8;
+    static constexpr int NAME_OFFSET = 0;
     static constexpr int NAME_LENGTH = 12;
-    static constexpr int COMMON_OFFSET = 0xc4;
+    static constexpr int COMMON_OFFSET = 0x0c;
     static constexpr int COMMON_LENGTH = 0x14;
+    static constexpr int PARTIAL_OFFSET = 0x20;
 
     std::string name;
     SC55Partial partial[2];
@@ -49,12 +49,15 @@ struct SC55Patch
 
 // ROM2 全体を渡すと、音色テーブルを見つけて読む。
 //
-// テーブルの位置は決め打ちしない。音色名が 216 バイト間隔で並ぶ場所を探すので、
-// ROM のバージョンが変わっても追従する。見つからなければ空を返す。
+// v1.21 はハッシュで特定して境界を適用。それ以外は音色名の間隔による推測で、
+// データ境界の保証はない。判明している形式や抽出済みデータには loadRecords を使う。
 class SC55PatchTable
 {
 public:
-    bool load(std::span<const uint8_t> waverom2);
+    bool load(std::span<const uint8_t> controlRom2);
+    // Explicit data-only import: exactly these records, never scan adjacent
+    // sample tables. Also accepts an extracted patch asset with start == 0.
+    bool loadRecords(std::span<const uint8_t> data, uint32_t start, int recordCount);
 
     int size() const noexcept { return count; }
     const SC55Patch& operator[](int index) const { return patches[index]; }
@@ -72,7 +75,8 @@ private:
 //
 // パーシャルの 1 バイトが 2 つに割れてボイス構造体へ入る。bit7 はフラグとして
 // voice-8+k へ 0 か 4 という形で、下位 7 ビットは値として voice+0x4f+k へ。
-// 5 要素ずつの組が 3 つある（+0x4f-0x53、+0x60-0x64、+0x65-0x69）。
+// v1.21で確認済みなのは partial+0x4e..0x52 → voice+0x4f..0x53。
+// voice+0x60..0x69 を同じ形式とみなすことはできない。
 //
 // bit7 が立っていればフラグは 0、寝ていれば 4。逆に見えるが実機がそう書く。
 //

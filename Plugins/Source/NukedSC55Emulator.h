@@ -83,7 +83,8 @@ public:
     NukedSC55Emulator();
     ~NukedSC55Emulator();
 
-    bool initialise (const std::string& romDirectory, double hostSampleRate);
+    bool initialise (const std::string& romDirectory, double hostSampleRate,
+                     const std::string& nativeCacheDirectory);
     void release();
     void clearPendingMidi() noexcept;
 
