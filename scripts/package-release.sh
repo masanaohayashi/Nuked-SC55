@@ -30,6 +30,7 @@ VERSION_OVERRIDE=""
 MACOS_IDENTITY_OVERRIDE=""
 TEAM_ID_OVERRIDE=""
 NOTARY_PROFILE_OVERRIDE=""
+FORCE=0
 
 JUCER_FILE="${REPO_ROOT}/Plugins/Nuked-SC55.jucer"
 DIST_DIR="${REPO_ROOT}/dist"
@@ -67,6 +68,7 @@ Options:
   --identity NAME          macOS Developer ID Application identity
   --team-id ID             Apple Developer Team ID
   --notary-profile NAME    macOS notarytool Keychain profile
+  --force                  Remove stale outputs for this version and rebuild them
   --vm NAME                Parallels VM name or UUID (default: Windows 11)
   --windows-repo PATH      Windows-side repository path
   -h, --help               Show this help
@@ -114,6 +116,10 @@ parse_args() {
         NOTARY_PROFILE_OVERRIDE="$2"
         shift 2
         ;;
+      --force)
+        FORCE=1
+        shift
+        ;;
       --vm)
         [[ $# -ge 2 ]] || die "--vm requires an argument"
         PARALLELS_VM_NAME="$2"
@@ -146,11 +152,18 @@ read_jucer_version() {
 }
 
 resolve_release_remote() {
-  local candidate
+  local candidate tracked_remote
 
   if [[ -n "$RELEASE_REMOTE" ]]; then
     git -C "$REPO_ROOT" remote get-url "$RELEASE_REMOTE" >/dev/null 2>&1 \
       || die "configured release remote does not exist: $RELEASE_REMOTE"
+    return
+  fi
+
+  tracked_remote="$(git -C "$REPO_ROOT" config --get "branch.${RELEASE_BRANCH}.remote" || true)"
+  if [[ -n "$tracked_remote" ]] \
+    && git -C "$REPO_ROOT" remote get-url "$tracked_remote" >/dev/null 2>&1; then
+    RELEASE_REMOTE="$tracked_remote"
     return
   fi
 
@@ -283,27 +296,38 @@ run_macos_package() {
   [[ -n "$MACOS_IDENTITY_OVERRIDE" ]] && args+=(--identity "$MACOS_IDENTITY_OVERRIDE")
   [[ -n "$TEAM_ID_OVERRIDE" ]] && args+=(--team-id "$TEAM_ID_OVERRIDE")
   [[ -n "$NOTARY_PROFILE_OVERRIDE" ]] && args+=(--notary-profile "$NOTARY_PROFILE_OVERRIDE")
+  [[ "$FORCE" -eq 1 ]] && args+=(--force)
 
   [[ -x "$MACOS_SCRIPT" ]] || die "missing executable macOS package script: $MACOS_SCRIPT"
   "$MACOS_SCRIPT" "${args[@]}"
 }
 
 run_windows_package() {
+  local -a args
+
   [[ -x "$WINDOWS_SCRIPT" ]] || die "missing executable Windows package script: $WINDOWS_SCRIPT"
-  "$WINDOWS_SCRIPT" \
+  args=(
     --vm "$PARALLELS_VM_NAME" \
     --windows-repo "$PARALLELS_WINDOWS_REPO_ROOT" \
     --architecture all \
     --configuration Release \
     --version "$VERSION"
+  )
+  [[ "$FORCE" -eq 1 ]] && args+=(--clean)
+  "$WINDOWS_SCRIPT" "${args[@]}"
 }
 
 run_linux_package() {
+  local -a args
+
   [[ -x "$LINUX_SCRIPT" ]] || die "missing executable Linux package script: $LINUX_SCRIPT"
-  "$LINUX_SCRIPT" \
+  args=(
     --architecture all \
     --configuration Release \
     --version "$VERSION"
+  )
+  [[ "$FORCE" -eq 1 ]] && args+=(--force)
+  "$LINUX_SCRIPT" "${args[@]}"
 }
 
 check_artifacts() {

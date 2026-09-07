@@ -101,6 +101,14 @@ clean, pushed `master` checkout:
 ./scripts/package-release.sh
 ```
 
+If a previous package attempt stopped after creating temporary output, retry
+with `--force` to rebuild only this release version's macOS, Windows, and Linux
+outputs:
+
+```bash
+./scripts/package-release.sh --force
+```
+
 This builds a universal macOS DMG, Windows x64 and ARM64 installers, and Linux
 x64 and arm64 archives. The script checks that `HEAD` exactly matches the
 configured remote branch before building and again before creating the tag.

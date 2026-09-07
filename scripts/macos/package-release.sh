@@ -32,6 +32,7 @@ TAG_OVERRIDE=""
 VERSION_OVERRIDE=""
 DRAFT_RELEASE=0
 PACKAGE_ONLY=0
+FORCE=0
 
 JUCER_FILE="${REPO_ROOT}/Plugins/Nuked-SC55.jucer"
 XCODE_PROJECT="${REPO_ROOT}/Plugins/Builds/MacOSX/SC-55.xcodeproj"
@@ -71,6 +72,7 @@ Options:
   --architectures LIST   Space-separated macOS architectures (default: arm64 x86_64)
   --package-only         Build and notarize the DMG without tagging or publishing
   --draft                Leave the GitHub Release as a draft
+  --force                Remove stale outputs for this version and rebuild them
   -h, --help             Show this help
 
 The following environment variables can also be set in scripts/macos/config.env:
@@ -130,6 +132,10 @@ parse_args() {
         DRAFT_RELEASE=1
         shift
         ;;
+      --force)
+        FORCE=1
+        shift
+        ;;
       -h|--help)
         usage
         exit 0
@@ -151,11 +157,18 @@ read_jucer_version() {
 }
 
 resolve_release_remote() {
-  local candidate
+  local candidate tracked_remote
 
   if [[ -n "$RELEASE_REMOTE" ]]; then
     git -C "$REPO_ROOT" remote get-url "$RELEASE_REMOTE" >/dev/null 2>&1 \
       || die "configured release remote does not exist: $RELEASE_REMOTE"
+    return
+  fi
+
+  tracked_remote="$(git -C "$REPO_ROOT" config --get "branch.${RELEASE_BRANCH}.remote" || true)"
+  if [[ -n "$tracked_remote" ]] \
+    && git -C "$REPO_ROOT" remote get-url "$tracked_remote" >/dev/null 2>&1; then
+    RELEASE_REMOTE="$tracked_remote"
     return
   fi
 
@@ -513,8 +526,14 @@ main() {
   check_signing_identity
 
   mkdir -p "$DIST_DIR"
-  [[ ! -e "$WORK_DIR" ]] || die "work directory already exists: $WORK_DIR"
-  [[ ! -e "$DMG_PATH" ]] || die "DMG already exists: $DMG_PATH"
+  if [[ "$FORCE" -eq 1 ]]; then
+    log "Removing stale macOS outputs for ${RELEASE_TAG}"
+    rm -rf "$WORK_DIR"
+    rm -f "$DMG_PATH"
+  else
+    [[ ! -e "$WORK_DIR" ]] || die "work directory already exists: $WORK_DIR (use --force to rebuild)"
+    [[ ! -e "$DMG_PATH" ]] || die "DMG already exists: $DMG_PATH (use --force to rebuild)"
+  fi
   mkdir -p "$WORK_DIR"
 
   archive_app
