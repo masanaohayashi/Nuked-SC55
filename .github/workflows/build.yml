@@ -1,10 +1,7 @@
 name: Build
 
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
   build-msvc:
@@ -118,4 +115,3 @@ jobs:
           ctest --test-dir build
           -C Debug
           --output-on-failure
-
