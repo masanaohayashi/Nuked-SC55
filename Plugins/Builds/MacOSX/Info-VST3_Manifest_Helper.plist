@@ -3,6 +3,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist>
   <dict>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app requires access to Bluetooth to function correctly.</string>
     <key>CFBundleExecutable</key>
@@ -16,9 +18,9 @@
     <key>CFBundleDisplayName</key>
     <string>SC-55</string>
     <key>CFBundlePackageType</key>
-    <string/>
+    <string></string>
     <key>CFBundleSignature</key>
-    <string/>
+    <string></string>
     <key>CFBundleShortVersionString</key>
     <string>0.0.4</string>
     <key>CFBundleVersion</key>
@@ -29,7 +31,5 @@
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.music</string>
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
   </dict>
 </plist>

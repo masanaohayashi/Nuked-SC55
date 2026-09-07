@@ -198,7 +198,8 @@
     <XCODE_MAC targetFolder="Builds/MacOSX" applicationCategory="public.app-category.music"
                appSandbox="1" hardenedRuntime="1" iosBluetoothPermissionNeeded="1"
                smallIcon="mYcW6q" bigIcon="mYcW6q" appSandboxOptions="com.apple.security.files.user-selected.read-write"
-               iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55" iosDevelopmentTeamID="P5G28RMWUN">
+               iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55" iosDevelopmentTeamID="P5G28RMWUN"
+               customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;ITSAppUsesNonExemptEncryption&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="SC-55" enablePluginBinaryCopyStep="0"
                        macOSDeploymentTarget="10.15"/>
@@ -224,7 +225,8 @@
     </XCODE_MAC>
     <XCODE_IPHONE targetFolder="Builds/iOS" smallIcon="mYcW6q" bigIcon="mYcW6q"
                   iosDevelopmentTeamID="P5G28RMWUN" UISupportsDocumentBrowser="1"
-                  iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55">
+                  iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55"
+                  customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;ITSAppUsesNonExemptEncryption&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" iosDeploymentTarget="13.0" iosCompatibility="13.0"/>
         <CONFIGURATION isDebug="0" name="Release" fastMath="1" iosDeploymentTarget="13.0"

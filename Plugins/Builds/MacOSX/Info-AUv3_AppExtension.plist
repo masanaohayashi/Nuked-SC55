@@ -3,6 +3,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist>
   <dict>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app requires access to Bluetooth to function correctly.</string>
     <key>CFBundleExecutable</key>
@@ -38,7 +40,7 @@
       <key>NSExtensionAttributes</key>
       <dict>
         <key>AudioComponentBundle</key>
-        <string/>
+        <string></string>
         <key>AudioComponents</key>
         <array>
           <dict>
@@ -66,7 +68,5 @@
         </array>
       </dict>
     </dict>
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
   </dict>
 </plist>

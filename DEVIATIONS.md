@@ -215,19 +215,19 @@ AUv3 は App Sandbox 必須で、`~/Documents` も本物の `~/Library` も見�
 
 ## 2.10 ビルド（クローン直後から）
 
-JUCE は `3rdparty/JUCE` にサブモジュールとして固定してある（**9.0.0**）。
-JUCE 9 のモジュールは同じバージョンの Projucer でしか保存できないため、
-Projucer 自体もサブモジュールからビルドする。
+JUCE は `3rdparty/JUCE` にサブモジュールとして固定してある（**9.0.2**）。
+生成設定を更新するときは、サブモジュールから同じバージョンの Projucer を
+ビルドして `Plugins/Nuked-SC55.jucer` を再保存する。
 
 ```
 git clone --recurse-submodules <repo>
 cd Nuked-SC55/Plugins
-./build.sh              # Projucer をビルド → プロジェクト生成 → Standalone をビルド
+./build.sh              # 保存済みプロジェクトから Standalone をビルド
 ./build.sh Debug        # Debug が欲しいとき
 ```
 
 `Plugins/Builds/` と `Plugins/JuceLibraryCode/` は Projucer の生成物なので
-コミットしていない。`build.sh` が毎回生成する。
+コミットしている。`build.sh` は再生成せず、保存済みの設定を使用する。
 
 `.jucer` の各モジュールは `useGlobalPath="0"` にしてある。`1` だと Projucer の
 グローバル設定（各自のマシンの JUCE の場所）が優先され、他人の環境で壊れる。
