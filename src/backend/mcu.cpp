@@ -961,6 +961,41 @@ void MCU_Step(mcu_t& mcu)
         case 0x5368:
             native = mcu_native::TryModulatePitch(mcu);
             break;
+        case 0x5367: case 0x53e4:
+            native = mcu_native::TryStepPitchConnections(mcu);
+            break;
+        case 0x5175:
+            native = mcu_native::TryAdvancePitchGlide(mcu);
+            break;
+        case 0x50cf:
+            native = mcu_native::TryAdjustEnvelopePitch(mcu);
+            break;
+        case 0x5124:
+            native = mcu_native::TryApplyPitchTuning(mcu);
+            break;
+        case 0x4f51:
+            native = mcu_native::TryInitialisePitchEnvelope(mcu)
+                || mcu_native::TryStepPitchInitialisation(mcu);
+            break;
+        case 0x4f54: case 0x4f58: case 0x4f5a: case 0x4f60: case 0x4f62:
+        case 0x4f65: case 0x4f69: case 0x4f6d: case 0x4f71: case 0x4f74:
+        case 0x4f77: case 0x4f7b: case 0x4f7f:
+            native = mcu_native::TryStepPitchInitialisation(mcu);
+            break;
+        case 0x5060:
+            native = mcu_native::TryAdvancePitchEnvelope(mcu)
+                || mcu_native::TryStepPitchEnvelope(mcu);
+            break;
+        case 0x4fdb:
+        case 0x4f9e:
+            native = mcu_native::TryDispatchPitchEnvelope(mcu);
+            if (!native) native = mcu_native::TryStepPitchStage(mcu);
+            if (native && mcu.pc == 0x5060) {
+                const auto stageDebt = mcu.native_debt;
+                if (mcu_native::TryAdvancePitchEnvelope(mcu))
+                    mcu.native_debt += stageDebt+1;
+            }
+            break;
         case 0x51e7:
             native = mcu_native::TryConvertPitch(mcu);
             if (native) {
@@ -970,6 +1005,13 @@ void MCU_Step(mcu_t& mcu)
             }
             break;
         default:
+            if (mcu.pc >= 0x4f9e && mcu.pc <= 0x505e)
+                native = mcu_native::TryStepPitchStage(mcu);
+            else if (mcu.pc >= 0x5064 && mcu.pc <= 0x50cc)
+                native = mcu_native::TryStepPitchEnvelope(mcu);
+            else if ((mcu.pc >= 0x4f5c && mcu.pc <= 0x4f9b)
+                     || (mcu.pc >= 0x510a && mcu.pc <= 0x5121))
+                native = mcu_native::TryStepPitchConnections(mcu);
             break;
         }
         if (!native)

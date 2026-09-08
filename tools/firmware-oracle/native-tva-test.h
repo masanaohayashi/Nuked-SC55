@@ -7,6 +7,12 @@
 #include "native-lfo-test.h"
 #include "native-pitch-modulation-test.h"
 #include "native-pitch-cache-test.h"
+#include "native-pitch-glide-test.h"
+#include "native-pitch-envelope-test.h"
+#include "native-pitch-stage-test.h"
+#include "native-pitch-init-test.h"
+#include "native-pitch-adjust-test.h"
+#include "native-pitch-connections-test.h"
 #include "native-level-test.h"
 #include <algorithm>
 #include <array>
@@ -113,6 +119,18 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativePitchModulation(cpu);
     verifyNativePitchModulation(cpu,true);
     verifyNativePitchCache(cpu);
+    verifyNativePitchGlide(cpu);
+    verifyNativePitchEnvelope(cpu);
+    verifyNativePitchEnvelope(cpu,true);
+    verifyNativePitchStages(cpu);
+    verifyNativePitchStages(cpu,true);
+    verifyNativePitchStages(cpu,false,true);
+    verifyNativePitchStages(cpu,true,true);
+    verifyNativePitchInit(cpu);
+    verifyNativePitchInit(cpu,true);
+    verifyNativePitchAdjust(cpu);
+    verifyNativePitchAdjust(cpu,true);
+    verifyNativePitchConnections(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
@@ -125,6 +143,12 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     uint64_t pitchModHits = 0, pitchModInstructions = 0;
     uint64_t pitchConvertHits = 0, pitchConvertInstructions = 0;
     uint64_t pitchCacheHits = 0;
+    uint64_t glideHits = 0, glideInstructions = 0, movingGlideHits = 0;
+    uint64_t pitchEnvelopeHits = 0;
+    uint64_t pitchEnvelopeStepEntries = 0;
+    uint64_t pitchStageHits = 0, pitchStageInstructions = 0;
+    uint64_t pitchInitHits = 0, pitchReentryHits = 0, pitchReentryVisits = 0;
+    uint64_t pitchAdjustHits = 0, pitchTuningHits = 0;
     const bool profile = std::getenv("SC55_TVA_PROFILE") != nullptr;
     std::vector<uint64_t> counts(0x80000);
     for (unsigned mode = 0; mode < 2; ++mode) {
@@ -153,7 +177,50 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                     && (mcu.pc == 0x3b26 || mcu.pc == 0x3b2c);
                 const bool pitchModEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5368;
                 const bool pitchConvertEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x51e7;
+                const bool glideEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5175;
+                const bool pitchInitEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x4f51;
+                const bool pitchEnvelopeStepEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5060
+                    && mcu.native_v121_enabled && mcu.dp == 0 && !(mcu.sr&STATUS_T)
+                    && mcu.r[0] >= 0xacde && mcu.r[0] <= 0xc7a4 && (mcu.r[0]-0xacde)%0x12a == 0;
+                const bool pitchAdjustEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x50cf;
+                const bool pitchTuningEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5124;
+                const bool pitchReentryEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x4f9e;
+                if (mode && pitchReentryEntry) ++pitchReentryVisits;
+                const bool pitchStageEntry = mcu.native_debt == 0 && mcu.cp == 0
+                    && (mcu.pc == 0x4fdb || mcu.pc == 0x4f9e);
+                bool pitchEnvelopeEntry = false;
+                if (pitchStageEntry) {
+                    unsigned stage = mcu_native::ReadWord(mcu,mcu.r[0]+4);
+                    if (stage <= 22 && !(stage&1)) {
+                        if (!pitchReentryEntry && mcu_native::ReadWord(mcu,mcu.r[0]+12) == 0xffff)
+                            stage = mcu_native::ReadWord(mcu,0x6ac8+stage);
+                        pitchEnvelopeEntry = mcu_native::ReadWord(mcu,0x7b62+stage) == 0x5060;
+                    }
+                }
+                const bool movingGlide = glideEntry && (MCU_Read(mcu,mcu.r[0]+43)
+                    || mcu_native::ReadWord(mcu,mcu.r[0]+66));
                 player.Step();
+                if (mode && pitchEnvelopeStepEntry && mcu.pc == 0x5064 && !mcu.native_debt)
+                    ++pitchEnvelopeStepEntries;
+                if (mode && pitchAdjustEntry && mcu.pc == 0x510a && mcu.native_debt) ++pitchAdjustHits;
+                if (mode && pitchTuningEntry && mcu.pc == 0x5175 && mcu.native_debt) ++pitchTuningHits;
+                if (mode && pitchInitEntry
+                    && (mcu.pc == 0x4f54 || ((mcu.pc == 0x4f5c || mcu.pc == 0x4f85) && mcu.native_debt))) ++pitchInitHits;
+                if (mode && pitchReentryEntry && (mcu.native_debt
+                    || (mcu.pc == 0x4fa1 && mcu.native_v121_enabled && mcu.dp == 0
+                        && !(mcu.sr&STATUS_T) && mcu.r[0] >= 0xacde && mcu.r[0] <= 0xc7a4
+                        && (mcu.r[0]-0xacde)%0x12a == 0))) ++pitchReentryHits;
+                if (mode && pitchStageEntry && mcu.native_debt
+                    && (mcu.pc == 0x5060 || mcu.pc == 0x50cf || mcu.pc == 0x5367)) {
+                    ++pitchStageHits; pitchStageInstructions += mcu.native_debt+1;
+                }
+                if (mode && pitchEnvelopeEntry && mcu.pc == 0x50cf && mcu.native_debt) {
+                    ++pitchEnvelopeHits;
+                }
+                if (mode && glideEntry && mcu.pc == 0x51e7 && mcu.native_debt) {
+                    ++glideHits; glideInstructions += mcu.native_debt+1;
+                    if (movingGlide) ++movingGlideHits;
+                }
                 if (mode && pitchConvertEntry && mcu.pc == 0x5367 && mcu.native_debt) {
                     ++pitchCacheHits;
                 }
@@ -200,6 +267,11 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
         player.PostMIDI(controllers);
         for (uint8_t value : {uint8_t(0xb0), uint8_t(7), uint8_t(32)}) player.PostMIDI(value);
         run(20000000);
+        const uint8_t portamento[]{0xb0,65,127, 0xb0,5,80, 0x90,72,100};
+        player.PostMIDI(portamento);
+        run(20000000);
+        const uint8_t glideOff[]{0x80,72,0, 0xb0,65,0};
+        player.PostMIDI(glideOff);
         for (uint8_t key = 36; key < 60; ++key) {
             player.PostMIDI(uint8_t(0x80)); player.PostMIDI(key); player.PostMIDI(uint8_t(0));
         }
@@ -214,6 +286,28 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     if (!pitchModHits) throw std::runtime_error("Real playback never dispatched native pitch modulation");
     if (!pitchConvertHits) throw std::runtime_error("Real playback never dispatched native pitch conversion");
     if (!pitchCacheHits) throw std::runtime_error("Real playback never dispatched native pitch cache");
+    if (!glideHits) throw std::runtime_error("Real playback never dispatched native pitch glide");
+    if (!pitchEnvelopeHits) throw std::runtime_error("Real playback never dispatched native pitch envelope");
+    if (!pitchEnvelopeStepEntries) throw std::runtime_error("Real playback never dispatched unmasked pitch envelope");
+    std::printf("Real playback unmasked pitch envelope: %llu entries\n",
+                (unsigned long long)pitchEnvelopeStepEntries);
+    if (!pitchStageHits) throw std::runtime_error("Real playback never dispatched native pitch stages");
+    std::printf("Real playback pitch init/reentry: %llu/%llu calls\n",
+                (unsigned long long)pitchInitHits,(unsigned long long)pitchReentryHits);
+    if (!pitchInitHits) throw std::runtime_error("Real playback never dispatched pitch init");
+    std::printf("Real playback reentry visits: %llu\n",(unsigned long long)pitchReentryVisits);
+    if (!pitchAdjustHits || !pitchTuningHits)
+        throw std::runtime_error("Real playback never dispatched pitch adjustment/tuning");
+    std::printf("Real playback pitch adjustment/tuning: %llu/%llu calls\n",
+                (unsigned long long)pitchAdjustHits,(unsigned long long)pitchTuningHits);
+    std::printf("Real playback pitch stages: %llu calls, %llu instructions\n",
+                (unsigned long long)pitchStageHits,(unsigned long long)pitchStageInstructions);
+    std::printf("Real playback pitch envelope: %llu composed calls\n",
+                (unsigned long long)pitchEnvelopeHits);
+    std::printf("Real playback pitch glide: %llu calls, %llu instructions\n",
+                (unsigned long long)glideHits,(unsigned long long)glideInstructions);
+    if (!movingGlideHits) throw std::runtime_error("Real playback never dispatched a nonzero glide");
+    std::printf("Nonzero playback glide: %llu calls\n",(unsigned long long)movingGlideHits);
     std::printf("Real playback pitch cache: %llu composed calls\n",(unsigned long long)pitchCacheHits);
     std::printf("Real playback pitch conversion/cache: %llu calls, %llu instructions\n",
                 (unsigned long long)pitchConvertHits,(unsigned long long)pitchConvertInstructions);
