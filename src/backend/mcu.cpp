@@ -963,6 +963,11 @@ void MCU_Step(mcu_t& mcu)
             break;
         case 0x51e7:
             native = mcu_native::TryConvertPitch(mcu);
+            if (native) {
+                const auto conversionDebt = mcu.native_debt;
+                if (mcu_native::TryCorrectPitch(mcu))
+                    mcu.native_debt += conversionDebt+1;
+            }
             break;
         default:
             break;

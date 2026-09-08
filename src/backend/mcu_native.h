@@ -818,4 +818,97 @@ inline bool TryConvertPitch(mcu_t& mcu)
     return true;
 }
 
+// 527c..5367: refresh the source-byte-keyed pitch correction, then saturate
+// the final PCM rate. RTS stays interpreted. All accesses are ROM or SRAM.
+// Keep this comparatively infrequent block out of the per-instruction loop.
+#if defined(_MSC_VER)
+__declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+inline bool TryCorrectPitch(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x527c
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a != 0)
+        return false;
+    uint16_t r1 = ReadWord(mcu,voice+46);
+    // Reject peripheral/invalid source pointers before reading or changing state.
+    if (r1 < 0x8000 || r1 > 0xdff8) return false;
+    uint16_t r2 = MCU_Read(mcu,r1+7), r3 = mcu.r[3], r5 = mcu.r[5];
+    unsigned instructions = 5;
+    if (r2 != MCU_Read(mcu,voice+0xa4))
+    {
+        const uint8_t source = uint8_t(r2);
+        MCU_Write(mcu,voice+0xa4,source);
+        const uint32_t reference = (uint32_t(MCU_Read(mcu,voice+41))<<16)|ReadWord(mcu,voice+62);
+        const uint32_t delta = (reference-81000u)&0xffffff;
+        const bool negative = (delta & 0x800000) != 0;
+        const uint32_t magnitude = negative ? 0x1000000u-delta : delta;
+        unsigned octave = magnitude/12000;
+        unsigned remainder = magnitude%12000;
+        uint16_t divisor;
+        instructions += 6 + (negative ? 8 : 4);
+        if (!negative && octave != 0) {
+            divisor = 0xffff; instructions += 2;
+        } else {
+            if (negative && remainder != 0) {
+                ++octave; remainder = 12000-remainder; instructions += 3;
+            }
+            const uint16_t fine = ReadWord(mcu,0x7b7a+(remainder&255)*2);
+            r1 = ReadWord(mcu,0x7d7a+(remainder>>8)*2);
+            const uint32_t product = uint32_t(fine)*r1;
+            r5 = uint16_t(product);
+            const uint16_t high = uint16_t(product>>16);
+            const uint16_t rotated = uint16_t((high<<2)|(high>>14));
+            const uint16_t masked = uint16_t((rotated&0xff00)|(rotated&3));
+            divisor = uint16_t(uint16_t((masked<<8)|(masked>>8))+r1);
+            instructions += 15;
+            if (negative) {
+                instructions += 2;
+                if (octave != 0) {
+                    divisor = octave < 16 ? uint16_t(divisor>>octave) : 0;
+                    instructions += 3+2*octave; // SUB, shift/SCB, TST/BNE
+                    if (divisor == 0) { divisor = 1; instructions += 2; }
+                }
+            }
+        }
+        // DIVXU overflow leaves the dividend registers intact. BGE tests N==V,
+        // so both overflow and a quotient with bit 15 set saturate to 0x7fff.
+        const int offset = int(source)-128;
+        r2 = uint16_t(offset < 0 ? -offset : offset);
+        const uint32_t dividend = uint32_t(r2)<<16;
+        const uint32_t quotient = dividend/divisor;
+        if (quotient <= 0xffff) r2 = uint16_t(dividend%divisor);
+        r3 = uint16_t(quotient >= 0x8000 ? 0x7fff : quotient);
+        instructions += 5;
+        if (offset < 0) {
+            r3 = uint16_t(0u-r3);
+            instructions += 4 + (quotient >= 0x8000 ? 1 : 0);
+        } else {
+            instructions += 2 + (quotient >= 0x8000 ? 2 : 0);
+        }
+        MCU_Write16(mcu,voice+0xa6,r3);
+        ++instructions;
+    }
+    const uint16_t correction = ReadWord(mcu,voice+0xa6);
+    const unsigned sum = unsigned(correction)+ReadWord(mcu,0xc8b0);
+    const bool carry = sum > 0xffff;
+    uint16_t rate = uint16_t(sum);
+    instructions += 5; // load, BMI, ADD, carry branch, final store
+    if ((correction & 0x8000) == 0 && carry) {
+        rate = 0xffff; instructions += 2;
+    } else if ((correction & 0x8000) != 0 && !carry) {
+        rate = 0; ++instructions;
+    }
+    MCU_Write16(mcu,voice+72,rate);
+    mcu.r[1] = r1; mcu.r[2] = r2; mcu.r[3] = r3; mcu.r[4] = rate; mcu.r[5] = r5;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (carry ? STATUS_C : 0)
+        | (rate & 0x8000 ? STATUS_N : 0) | (rate == 0 ? STATUS_Z : 0));
+    mcu.pc = 0x5367; mcu.native_debt = instructions-1;
+    return true;
+}
+
 } // namespace mcu_native

@@ -6,6 +6,7 @@
 #include "native-cutoff-test.h"
 #include "native-lfo-test.h"
 #include "native-pitch-modulation-test.h"
+#include "native-pitch-cache-test.h"
 #include "native-level-test.h"
 #include <algorithm>
 #include <array>
@@ -111,6 +112,7 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeLfo(cpu);
     verifyNativePitchModulation(cpu);
     verifyNativePitchModulation(cpu,true);
+    verifyNativePitchCache(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
@@ -122,6 +124,7 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     uint64_t lfoHits = 0, lfoInstructions = 0;
     uint64_t pitchModHits = 0, pitchModInstructions = 0;
     uint64_t pitchConvertHits = 0, pitchConvertInstructions = 0;
+    uint64_t pitchCacheHits = 0;
     const bool profile = std::getenv("SC55_TVA_PROFILE") != nullptr;
     std::vector<uint64_t> counts(0x80000);
     for (unsigned mode = 0; mode < 2; ++mode) {
@@ -151,7 +154,10 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                 const bool pitchModEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5368;
                 const bool pitchConvertEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x51e7;
                 player.Step();
-                if (mode && pitchConvertEntry && mcu.pc == 0x527c && mcu.native_debt) {
+                if (mode && pitchConvertEntry && mcu.pc == 0x5367 && mcu.native_debt) {
+                    ++pitchCacheHits;
+                }
+                if (mode && pitchConvertEntry && (mcu.pc == 0x527c || mcu.pc == 0x5367) && mcu.native_debt) {
                     ++pitchConvertHits;
                     pitchConvertInstructions += mcu.native_debt+1;
                 }
@@ -207,7 +213,9 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     if (!lfoHits) throw std::runtime_error("Real playback never dispatched native LFO");
     if (!pitchModHits) throw std::runtime_error("Real playback never dispatched native pitch modulation");
     if (!pitchConvertHits) throw std::runtime_error("Real playback never dispatched native pitch conversion");
-    std::printf("Real playback pitch conversion: %llu calls, %llu instructions\n",
+    if (!pitchCacheHits) throw std::runtime_error("Real playback never dispatched native pitch cache");
+    std::printf("Real playback pitch cache: %llu composed calls\n",(unsigned long long)pitchCacheHits);
+    std::printf("Real playback pitch conversion/cache: %llu calls, %llu instructions\n",
                 (unsigned long long)pitchConvertHits,(unsigned long long)pitchConvertInstructions);
     std::printf("Real playback pitch modulation: %llu calls, %llu instructions\n",
                 (unsigned long long)pitchModHits,(unsigned long long)pitchModInstructions);
