@@ -26,6 +26,19 @@
 #include "native-voice-stop-test.h"
 #include "native-voice-service-test.h"
 #include "native-voice-release-test.h"
+#include "native-filter-stage-test.h"
+#include "native-filter-duration-test.h"
+#include "native-filter-phase-test.h"
+#include "native-filter-base-test.h"
+#include "native-filter-modulation-test.h"
+#include "native-filter-resonance-test.h"
+#include "native-filter-connections-test.h"
+#include "native-filter-immediate-test.h"
+#include "native-filter-modulation-step-test.h"
+#include "native-filter-conversion-step-test.h"
+#include "native-level-modulation-test.h"
+#include "native-level-modulation-step-test.h"
+#include "native-level-connections-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -36,11 +49,14 @@
 namespace {
 bool collectH8Fallback = false;
 std::array<uint64_t,0x80000> h8FallbackCounts{};
+std::array<uint64_t,8> filterLfoFallbackMasks{};
 }
 void Oracle_H8Fallback(const mcu_t& cpu)
 {
-    if (collectH8Fallback && cpu.cycles >= 60000000 && cpu.cp < 8)
+    if (collectH8Fallback && cpu.cycles >= 60000000 && cpu.cp < 8) {
         ++h8FallbackCounts[(unsigned(cpu.cp)<<16)|cpu.pc];
+        if (!cpu.cp && cpu.pc == 0x47fb) ++filterLfoFallbackMasks[(cpu.sr>>8)&7];
+    }
 }
 
 namespace
@@ -172,6 +188,19 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeVoiceStop(cpu);
     verifyNativeVoiceService(cpu);
     verifyNativeVoiceRelease(cpu);
+    verifyNativeFilterStage(cpu);
+    verifyNativeFilterDuration(cpu);
+    verifyNativeFilterPhase(cpu);
+    verifyNativeFilterBase(cpu);
+    verifyNativeFilterModulation(cpu);
+    verifyNativeFilterResonance(cpu);
+    verifyNativeFilterConnections(cpu);
+    verifyNativeFilterImmediate(cpu);
+    verifyNativeFilterModulationSteps(cpu);
+    verifyNativeFilterConversionSteps(cpu);
+    verifyNativeLevelModulation(cpu);
+    verifyNativeLevelModulationSteps(cpu);
+    verifyNativeLevelConnections(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
@@ -388,6 +417,21 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
         std::sort(fallbackBuckets.rbegin(),fallbackBuckets.rend());
         std::printf("Native playback H8 fallback: %llu instructions, pitch region %llu\n",
                     (unsigned long long)remaining,(unsigned long long)pitchRemaining);
+        uint64_t filterRemaining = 0;
+        std::vector<std::pair<uint64_t, unsigned>> filterFallback;
+        for (unsigned pc = 0x4443; pc <= 0x4856; ++pc) {
+            filterRemaining += h8FallbackCounts[pc];
+            if (h8FallbackCounts[pc]) filterFallback.emplace_back(h8FallbackCounts[pc],pc);
+        }
+        std::sort(filterFallback.rbegin(),filterFallback.rend());
+        std::printf("Filter region fallback: %llu instructions\n",(unsigned long long)filterRemaining);
+        for (unsigned mask = 0; mask < 8; ++mask)
+            if (filterLfoFallbackMasks[mask])
+                std::printf("Filter LFO fallback mask %u: %llu\n",mask,
+                            (unsigned long long)filterLfoFallbackMasks[mask]);
+        for (size_t i = 0; i < std::min(size_t(20),filterFallback.size()); ++i)
+            std::printf("Filter fallback %04x %llu\n",filterFallback[i].second,
+                        (unsigned long long)filterFallback[i].first);
         for (unsigned i = 0; i < 20; ++i)
             std::printf("Fallback %06x %llu %.2f%%\n",fallbackBuckets[i].second,
                         (unsigned long long)fallbackBuckets[i].first,

@@ -6,6 +6,38 @@
 ## 最初に読むこと
 
 - 通常起動は現在もH8経路。製品のC++化は未完了。
+- 2026-09-09: 音量LFOの呼び出し接続・最終変換・復帰を追加。
+  [スタック・演算・音声一致](docs/firmware/NATIVE_LEVEL_CONNECTIONS_2026-09-09.md)。
+- 2026-09-09: 音量LFOの直接入口と非マスク経路43命令をC++化。
+  [状態一致・再生負荷への効果未確認](docs/firmware/NATIVE_LEVEL_MODULATION_2026-09-09.md)。
+- 2026-09-09: フィルター段階遷移の非マスク経路を追加し、領域内428命令のテスト対象を照合。
+  [アドレス網羅と条件の限界](docs/firmware/NATIVE_FILTER_UNMASKED_CONVERSION_2026-09-09.md)。
+- 2026-09-09: ディケイ／リリース時間の非マスク経路も追加。
+  [参照先・命令境界一致](docs/firmware/NATIVE_FILTER_UNMASKED_CONVERSION_2026-09-09.md)。
+- 2026-09-09: アタック時間・初期値の非マスク経路を追加。
+  [限定再生でフィルター領域fallback=0・未対応条件](docs/firmware/NATIVE_FILTER_UNMASKED_CONVERSION_2026-09-09.md)。
+- 2026-09-09: フィルター補間の非マスク経路を追加し、累積変更のRelease CPU時間を比較。
+  [平均約1.74%短縮・条件と限界](docs/firmware/NATIVE_FILTER_PERFORMANCE_2026-09-09.md)。
+- 2026-09-09: 位相更新・基準値・レゾナンス・カットオフ変換の非マスク経路を単命令C++化。
+  [補間・上限制御・命令境界一致](docs/firmware/NATIVE_FILTER_UNMASKED_CONVERSION_2026-09-09.md)。
+- 2026-09-09: mask0で残っていたフィルターLFOを単命令C++化。
+  [適用外原因・命令境界一致](docs/firmware/NATIVE_FILTER_UNMASKED_MODULATION_2026-09-09.md)。
+- 2026-09-09: フィルター初期値・保持を追加し、領域内fallbackを個別集計。
+  [音声一致・残存6,783命令](docs/firmware/NATIVE_FILTER_IMMEDIATE_2026-09-09.md)。
+- 2026-09-09: フィルターのLFO引数・呼び出し・復帰を単命令C++化。
+  [命令境界・音声一致](docs/firmware/NATIVE_FILTER_CONNECTIONS_2026-09-09.md)。
+- 2026-09-09: レゾナンス目標・追従・カットオフ依存の制限を追加。
+  [境界演算・音声一致](docs/firmware/NATIVE_FILTER_RESONANCE_2026-09-09.md)。
+- 2026-09-09: フィルターLFOの深さ合成・丸め・飽和を追加。
+  [ROM固有分岐・音声一致](docs/firmware/NATIVE_FILTER_MODULATION_2026-09-09.md)。
+- 2026-09-09: フィルター基準値のcontroller・符号付き補正を追加。
+  [飽和演算・音声一致](docs/firmware/NATIVE_FILTER_BASE_2026-09-09.md)。
+- 2026-09-09: フィルターEGの位相更新・符号付き補間を追加。
+  [境界演算・音声一致](docs/firmware/NATIVE_FILTER_PHASE_2026-09-09.md)。
+- 2026-09-09: フィルターEGの3系統時間計算を追加。
+  [controller・飽和演算・音声一致](docs/firmware/NATIVE_FILTER_DURATION_2026-09-09.md)。
+- 2026-09-09: フィルターEGの段階遷移・目標設定を追加。
+  [状態・命令数・音声一致](docs/firmware/NATIVE_FILTER_STAGE_2026-09-09.md)。
 - 2026-09-09: 3つのEGのリリース準備とLFO前の割り込み区間を追加。
   [状態・命令数・音声一致](docs/firmware/NATIVE_VOICE_RELEASE_2026-09-09.md)。
 - 2026-09-09: EG間の割り込み窓・呼び出し・復帰を単命令C++化。
