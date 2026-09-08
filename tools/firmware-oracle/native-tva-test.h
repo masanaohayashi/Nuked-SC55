@@ -39,6 +39,17 @@
 #include "native-level-modulation-test.h"
 #include "native-level-modulation-step-test.h"
 #include "native-level-connections-test.h"
+#include "native-voice-output-test.h"
+#include "native-voice-scan-test.h"
+#include "native-voice-link-test.h"
+#include "native-lfo-phase-test.h"
+#include "native-lfo-sine-test.h"
+#include "native-lfo-sample-hold-test.h"
+#include "native-second-voice-link-test.h"
+#include "native-voice-parameter-bias-test.h"
+#include "native-shared-modulation-copy-test.h"
+#include "native-first-modulation-copy-test.h"
+#include "native-shared-third-depth-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -201,6 +212,17 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeLevelModulation(cpu);
     verifyNativeLevelModulationSteps(cpu);
     verifyNativeLevelConnections(cpu);
+    verifyNativeVoiceOutput(cpu);
+    verifyNativeVoiceScan(cpu);
+    verifyNativeVoiceLink(cpu);
+    verifyNativeLfoPhase(cpu);
+    verifyNativeLfoSine(cpu);
+    verifyNativeLfoSampleHold(cpu);
+    verifyNativeSecondVoiceLink(cpu);
+    verifyNativeVoiceParameterBias(cpu);
+    verifyNativeSharedModulationCopy(cpu);
+    verifyNativeFirstModulationCopy(cpu);
+    verifyNativeSharedThirdDepth(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;

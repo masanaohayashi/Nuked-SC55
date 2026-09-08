@@ -3531,8 +3531,75 @@ inline bool TryStepLevelConnections(mcu_t& mcu)
         mcu.sr = uint16_t((mcu.sr&~(STATUS_N|STATUS_Z|STATUS_V))
             |(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
     };
+    auto arithmetic = [&](uint16_t a, uint16_t b, bool subtract = false, unsigned carry = 0) {
+        const unsigned wide = subtract ? unsigned(a)-b-carry : unsigned(a)+b+carry;
+        const uint16_t value = uint16_t(wide);
+        const int signedValue = subtract ? int(int16_t(a))-int(int16_t(b))-int(carry)
+                                         : int(int16_t(a))+int(int16_t(b))+int(carry);
+        mcu.sr = uint16_t((mcu.sr&~15)|(value&0x8000 ? STATUS_N : 0)
+            |(!value ? STATUS_Z : 0)|(wide&0x10000 ? STATUS_C : 0)
+            |(signedValue < -32768 || signedValue > 32767 ? STATUS_V : 0));
+        return value;
+    };
     unsigned reg, address, length;
     switch (mcu.pc) {
+        case 0x309b: case 0x30ab:
+            mcu.r[mcu.pc == 0x309b ? 2 : 6] = 0;
+            mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x309d: case 0x30a1: case 0x30ad: case 0x30c6: {
+            const unsigned at = mcu.pc == 0x309d ? uint16_t(0xc8e4+mcu.r[1])
+                : mcu.pc == 0x30a1 ? uint16_t(0xab36+mcu.r[2])
+                : mcu.pc == 0x30ad ? 0x8002 : uint16_t(mcu.r[3]+0x100);
+            if (at < 0x8000 || at > 0xdfff) return false;
+            const unsigned dest = mcu.pc == 0x309d || mcu.pc == 0x30a1 ? 2 : 6;
+            mcu.r[dest] = uint16_t((mcu.r[dest]&0xff00)|MCU_Read(mcu,at));
+            nz(mcu.r[dest],true); mcu.pc += 4; return true;
+        }
+        case 0x30a5: reg = 3; address = voice+46; length = 3; break;
+        case 0x30c1: reg = 3; address = voice+48; length = 3; break;
+        case 0x30a8: {
+            const unsigned at = uint16_t(mcu.r[3]+8);
+            if (at < 0x8000 || at > 0xdfff) return false;
+            mcu.r[2] = uint16_t((mcu.r[2]&255)*MCU_Read(mcu,at));
+            mcu.sr &= ~STATUS_C; nz(mcu.r[2]); mcu.pc += 3; return true;
+        }
+        case 0x30bb: case 0x30d0:
+            mcu.r[3] = uint16_t((mcu.r[3]&0xff00)|(mcu.r[2]&255));
+            nz(mcu.r[3],true); mcu.pc += 2; return true;
+        case 0x30bd: case 0x30d2:
+            mcu.r[3] = uint16_t((mcu.r[3]<<8)|(mcu.r[3]>>8));
+            nz(mcu.r[3]); mcu.pc += 2; return true;
+        case 0x30bf: case 0x30d4:
+            mcu.r[2] = mcu.r[3]; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x30c4: mcu.pc = (mcu.sr&STATUS_Z) ? 0x30dc : 0x30c6; return true;
+        case 0x30b1: case 0x30ca: case 0x30d6: case 0x30dc: {
+            const bool immediate = mcu.pc == 0x30d6 || mcu.pc == 0x30dc;
+            const uint32_t product = uint32_t(mcu.r[2])*(immediate ? (mcu.pc == 0x30d6 ? 0x830e : 0x8208) : mcu.r[6]);
+            mcu.r[2] = uint16_t(product>>16); mcu.r[3] = uint16_t(product);
+            mcu.sr = uint16_t((mcu.sr&~15)|(product&0x80000000 ? STATUS_N : 0)|(!product ? STATUS_Z : 0));
+            mcu.pc += immediate ? 4 : 2; return true;
+        }
+        case 0x30da: mcu.pc = 0x30e0; return true;
+        case 0x30b3: case 0x30b7: case 0x30cc: case 0x30e0:
+            mcu.r[3] = arithmetic(mcu.r[3],mcu.r[3]); mcu.pc += 2; return true;
+        case 0x30b5: case 0x30b9: case 0x30ce: case 0x30e2: {
+            const bool previousZero = (mcu.sr&STATUS_Z) != 0;
+            mcu.r[2] = arithmetic(mcu.r[2],mcu.r[2],false,(mcu.sr&STATUS_C) != 0);
+            if (!previousZero) mcu.sr &= ~STATUS_Z;
+            mcu.pc += 2; return true;
+        }
+        case 0x30e4: mcu.r[4] = mcu.r[2]; nz(mcu.r[4]); mcu.pc += 2; return true;
+        case 0x30e6: mcu.pc = (mcu.sr&STATUS_Z) ? 0x30e8 : 0x30eb; return true;
+        case 0x30e8: mcu.r[5] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x30eb: reg = 2; address = voice+138; length = 4; break;
+        case 0x30ef: mcu.pc = (mcu.sr&STATUS_Z) ? 0x30ff : 0x30f1; return true;
+        case 0x30f1: mcu.pc = (mcu.sr&STATUS_N) ? 0x30f3 : 0x30fd; return true;
+        case 0x30f3: mcu.r[2] = arithmetic(0,mcu.r[2],true); mcu.pc += 2; return true;
+        case 0x30f5: mcu.r[4] = arithmetic(mcu.r[4],mcu.r[2],true); mcu.pc += 2; return true;
+        case 0x30f7: mcu.pc = (mcu.sr&STATUS_C) ? 0x30f9 : 0x30ff; return true;
+        case 0x30f9: mcu.r[4] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x30fb: mcu.pc = 0x30ff; return true;
+        case 0x30fd: mcu.r[4] = arithmetic(mcu.r[4],mcu.r[2]); mcu.pc += 2; return true;
         case 0x30ff: reg = 2; address = voice-122; length = 3; break;
         case 0x3102: reg = 3; address = voice+142; length = 4; break;
         case 0x3106: reg = 6; address = voice-96; length = 3; break;
@@ -3565,6 +3632,927 @@ inline bool TryStepLevelConnections(mcu_t& mcu)
     }
     mcu.pc = uint16_t(mcu.pc+length); mcu.r[reg] = ReadWord(mcu,address); nz(mcu.r[reg]);
     return true;
+}
+
+// Voice output staging and PCM accesses, each at its original instruction boundary.
+inline bool TryStepVoiceOutput(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    auto nz = [&](uint16_t value, bool byte = false) {
+        if (byte) value &= 255;
+        mcu.sr = uint16_t((mcu.sr&~(STATUS_N|STATUS_Z|STATUS_V))
+            |(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto compare = [&](uint16_t value, uint16_t rhs, bool byte = false) {
+        if (byte) value &= 255;
+        const unsigned mask = byte ? 255 : 65535, sign = byte ? 128 : 32768;
+        const unsigned result = (unsigned(value)-rhs)&mask;
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&sign ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+            |(value < rhs ? STATUS_C : 0)|((value^rhs)&(value^result)&sign ? STATUS_V : 0));
+    };
+    unsigned offset = 0;
+    switch (mcu.pc) {
+        case 0x5855: case 0x318c:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.sr|0x0700);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x3190:
+            mcu.pc += 5; MCU_Write(mcu,voice-26,255); nz(255,true); return true;
+        case 0x3195: compare(ReadWord(mcu,voice),14); mcu.pc += 5; return true;
+        case 0x319a: mcu.pc = (mcu.sr&STATUS_C) ? 0x319d : 0x3363; return true;
+        case 0x31a7:
+            if (mcu.br != 0xe0) return false;
+            mcu.pc += 2; MCU_Write(mcu,0xe03e,uint8_t(mcu.r[1])); nz(mcu.r[1],true); return true;
+        case 0x31b0: case 0x31ce: case 0x31fb:
+            if (mcu.br != 0xe0) return false;
+            offset = mcu.pc == 0x31b0 ? 0x16 : mcu.pc == 0x31ce ? 0x18 : 0x1a;
+            mcu.pc += 5; MCU_Write16(mcu,0xe000+offset,0xff00); nz(0xff00); return true;
+        case 0x31b5: case 0x31d3: case 0x3200:
+            if (mcu.br != 0xe0) return false;
+            offset = mcu.pc == 0x31b5 ? 0x32 : mcu.pc == 0x31d3 ? 0x34 : 0x36;
+            mcu.pc += 2; mcu.r[5] = uint16_t((mcu.r[5]&0xff00)|MCU_Read(mcu,0xe000+offset));
+            nz(mcu.r[5],true); return true;
+        case 0x31b7: case 0x31d5: case 0x3202:
+            if (mcu.br != 0xe0) return false;
+            mcu.pc += 2; mcu.r[5] = MCU_Read16(mcu,0xe03a); nz(mcu.r[5]); return true;
+        case 0x31c5: case 0x31e3: case 0x3210:
+            if (mcu.br != 0xe0) return false;
+            offset = mcu.pc == 0x31c5 ? 0x32 : mcu.pc == 0x31e3 ? 0x34 : 0x36;
+            mcu.pc += 2; MCU_Write16(mcu,0xe000+offset,mcu.r[5]); nz(mcu.r[5]); return true;
+        case 0x5894:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.sr&0xf8ff);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x5898:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        case 0x5859: case 0x319d: compare(ReadWord(mcu,voice),0); mcu.pc += 5; return true;
+        case 0x585e: mcu.pc = (mcu.sr&STATUS_Z) ? 0x5894 : 0x5860; return true;
+        case 0x5860: compare(ReadWord(mcu,voice),14); mcu.pc += 5; return true;
+        case 0x5865: mcu.pc = (mcu.sr&STATUS_C) ? 0x5867 : 0x5894; return true;
+        case 0x5867: mcu.r[3] = ReadWord(mcu,voice-2); nz(mcu.r[3]); mcu.pc += 3; return true;
+        case 0x586a:
+            if (mcu.br != 0xe0) return false;
+            mcu.pc += 2; MCU_Write(mcu,0xe03e,uint8_t(mcu.r[3])); nz(mcu.r[3],true); return true;
+        case 0x586c: case 0x5871: case 0x5876: case 0x587b: case 0x5880: case 0x588f:
+            offset = mcu.pc == 0x586c ? 30 : mcu.pc == 0x5871 ? 26 : mcu.pc == 0x5876 ? 52
+                : mcu.pc == 0x587b ? 58 : mcu.pc == 0x5880 ? 38 : 72;
+            mcu.r[6] = ReadWord(mcu,voice+offset); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x5885: case 0x588a:
+            offset = mcu.pc == 0x5885 ? 104 : 102;
+            mcu.r[6] = uint16_t((mcu.r[6]&0xff00)|MCU_Read(mcu,voice+offset));
+            nz(mcu.r[6],true); mcu.pc += 3; return true;
+        case 0x5888:
+            mcu.r[6] = uint16_t((mcu.r[6]<<8)|(mcu.r[6]>>8)); nz(mcu.r[6]); mcu.pc += 2; return true;
+        case 0x586f: case 0x5874: case 0x5879: case 0x587e: case 0x5883: case 0x588d: case 0x5892:
+            if (mcu.br != 0xe0) return false;
+            offset = mcu.pc == 0x586f ? 0x18 : mcu.pc == 0x5874 ? 0x16 : mcu.pc == 0x5879 ? 0x12
+                : mcu.pc == 0x587e ? 0x14 : mcu.pc == 0x5883 ? 0x1a : mcu.pc == 0x588d ? 0x1c : 0x10;
+            mcu.pc += 2; MCU_Write16(mcu,0xe000+offset,mcu.r[6]); nz(mcu.r[6]); return true;
+        case 0x31a2: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3212 : 0x31a4; return true;
+        case 0x31a4: mcu.r[1] = ReadWord(mcu,voice-2); nz(mcu.r[1]); mcu.pc += 3; return true;
+        case 0x31a9: case 0x31c7: case 0x31f4:
+            offset = mcu.pc == 0x31a9 ? 26 : mcu.pc == 0x31c7 ? 30 : 38;
+            compare(ReadWord(mcu,voice+offset),0xff00); mcu.pc += 5; return true;
+        case 0x31ae: mcu.pc = (mcu.sr&STATUS_Z) ? 0x31c0 : 0x31b0; return true;
+        case 0x31cc: mcu.pc = (mcu.sr&STATUS_Z) ? 0x31de : 0x31ce; return true;
+        case 0x31f9: mcu.pc = (mcu.sr&STATUS_Z) ? 0x320b : 0x31fb; return true;
+        case 0x31b9: case 0x31d7: case 0x3204: {
+            const unsigned previous = mcu.r[5], result = previous*2;
+            mcu.r[5] = uint16_t(result); nz(mcu.r[5]);
+            mcu.sr = uint16_t((mcu.sr&~(STATUS_C|STATUS_V))|(result&65536 ? STATUS_C : 0)
+                |((previous^result)&32768 ? STATUS_V : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x31bb: case 0x31d9: case 0x3206:
+            offset = mcu.pc == 0x31bb ? 24 : mcu.pc == 0x31d9 ? 28 : 36;
+            MCU_Write(mcu,voice+offset,uint8_t(mcu.r[5]>>8));
+            MCU_Write(mcu,voice+offset+1,uint8_t(mcu.r[5]));
+            nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x31be: mcu.pc = 0x31c7; return true;
+        case 0x31dc: mcu.pc = 0x31e5; return true;
+        case 0x3209: mcu.pc = 0x3212; return true;
+        case 0x31c0: case 0x31de: case 0x31e5: case 0x320b:
+            offset = mcu.pc == 0x31c0 ? 24 : mcu.pc == 0x320b ? 36 : 28;
+            mcu.r[5] = ReadWord(mcu,voice+offset); nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x31c3: case 0x31e1: case 0x320e: {
+            const bool carry = (mcu.r[5]&1) != 0;
+            mcu.r[5] >>= 1; nz(mcu.r[5]);
+            mcu.sr = uint16_t((mcu.sr&~STATUS_C)|(carry ? STATUS_C : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x31e8: mcu.r[5] = uint16_t((mcu.r[5]<<8)|(mcu.r[5]>>8)); nz(mcu.r[5]); mcu.pc += 2; return true;
+        case 0x31ea: compare(mcu.r[5],255,true); mcu.pc += 2; return true;
+        case 0x31ec: mcu.pc = (mcu.sr&STATUS_Z) ? 0x31ee : 0x31f0; return true;
+        case 0x31ee: mcu.r[5] = uint16_t((mcu.r[5]&0xff00)|254); nz(mcu.r[5],true); mcu.pc += 2; return true;
+        case 0x31f0:
+            if (mcu.r[1] >= 24) return false;
+            MCU_Write(mcu,0xac42+mcu.r[1],uint8_t(mcu.r[5]));
+            nz(mcu.r[5],true); mcu.pc += 4; return true;
+        default: return false;
+    }
+}
+
+// Select the next voice needing controller work, then clear the per-pass marks.
+// The scan is interruptible; preserve every instruction boundary, including SCB.
+inline bool TryStepVoiceScan(mcu_t& mcu)
+{
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)) return false;
+    auto nz = [&](uint16_t value, bool byte = false) {
+        if (byte) value &= 255;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto twice = [&](unsigned reg) {
+        const unsigned before = mcu.r[reg], result = before*2;
+        mcu.r[reg] = uint16_t(result); nz(mcu.r[reg]);
+        mcu.sr = uint16_t((mcu.sr&~3)|(result&65536 ? STATUS_C : 0)|((before^result)&32768 ? STATUS_V : 0));
+        mcu.pc += 2;
+    };
+    auto voiceValid = [&] { return mcu.r[0] >= 0xacde && mcu.r[0] <= 0xc7a4 && (mcu.r[0]-0xacde)%0x12a == 0; };
+    switch (mcu.pc) {
+        case 0x5b0b: mcu.ep = 0; mcu.ex_ignore = 1; mcu.pc += 3; return true;
+        case 0x5b0e: case 0x5b5f: mcu.r[1] = 23; nz(23); mcu.pc += 3; return true;
+        case 0x5b11: case 0x5b62: mcu.r[2] = mcu.r[1]; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x5b13: case 0x5b42: case 0x5b64: twice(2); return true;
+        case 0x5b54: twice(0); return true;
+        case 0x5b15: case 0x5b44: case 0x5b56: case 0x5b66: {
+            const unsigned index = mcu.r[mcu.pc == 0x5b56 ? 0 : 2];
+            if (index > 46 || (index&1)) return false;
+            const unsigned dest = mcu.pc == 0x5b44 ? 2 : 0;
+            mcu.r[dest] = ReadWord(mcu,0x676a+index); nz(mcu.r[dest]); mcu.pc += 4; return true;
+        }
+        case 0x5b19: {
+            if (!voiceValid()) return false;
+            const unsigned value = ReadWord(mcu,mcu.r[0]), result = uint16_t(value-18);
+            mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+                |(value < 18 ? STATUS_C : 0)|((value^18)&(value^result)&32768 ? STATUS_V : 0));
+            mcu.pc += 4; return true;
+        }
+        case 0x5b1d: mcu.pc = (mcu.sr&STATUS_C) ? 0x5b1f : 0x5b5c; return true;
+        case 0x5b1f:
+            if (!voiceValid()) return false;
+            mcu.sr &= ~STATUS_C; nz(MCU_Read(mcu,mcu.r[0]-26),true); mcu.pc += 3; return true;
+        case 0x5b22: mcu.pc = (mcu.sr&STATUS_Z) ? 0x5b24 : 0x5b5c; return true;
+        case 0x5b24:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.sr|0x700);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x5b28: MCU_Write16(mcu,0xcb48,mcu.r[1]); nz(mcu.r[1]); mcu.pc += 4; return true;
+        case 0x5b2c: mcu.r[3] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x5b2e: case 0x5b35: {
+            if (mcu.r[1] >= 24) return false;
+            const unsigned value = MCU_Read(mcu,(mcu.pc == 0x5b2e ? 0xcac4 : 0xcadc)+mcu.r[1]);
+            const unsigned result = (value-255)&255;
+            mcu.sr = uint16_t((mcu.sr&~15)|(result&128 ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+                |(value < 255 ? STATUS_C : 0)|((value^255)&(value^result)&128 ? STATUS_V : 0));
+            mcu.pc += 5; return true;
+        }
+        case 0x5b33: mcu.pc = (mcu.sr&STATUS_Z) ? 0x5b35 : 0x5b4a; return true;
+        case 0x5b3a: mcu.pc = (mcu.sr&STATUS_Z) ? 0x5b73 : 0x5b3c; return true;
+        case 0x5b3c: case 0x5b4a:
+            if (mcu.r[1] >= 24) return false;
+            mcu.r[3] = uint16_t((mcu.r[3]&0xff00)|MCU_Read(mcu,(mcu.pc == 0x5b3c ? 0xcadc : 0xcac4)+mcu.r[1]));
+            nz(mcu.r[3],true); mcu.pc += 4; return true;
+        case 0x5b40: mcu.r[2] = mcu.r[3]; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x5b48: case 0x5b5a: mcu.pc = 0x5bb4; return true;
+        case 0x5b4e: { const auto value = mcu.r[1]; mcu.r[1] = mcu.r[3]; mcu.r[3] = value; mcu.pc += 2; return true; }
+        case 0x5b50: mcu.r[2] = mcu.r[0]; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x5b52: mcu.r[0] = mcu.r[1]; nz(mcu.r[0]); mcu.pc += 2; return true;
+        case 0x5b5c: case 0x5b6d:
+            --mcu.r[1]; mcu.pc = mcu.r[1] == 0xffff ? uint16_t(mcu.pc+3) : mcu.pc == 0x5b5c ? 0x5b11 : 0x5b62; return true;
+        case 0x5b6a:
+            if (!voiceValid()) return false;
+            MCU_Write(mcu,mcu.r[0]-26,0); mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 3; return true;
+        case 0x5b70: mcu.pc = 0x5942; return true;
+        case 0x5b73: case 0x5b89: case 0x5b9c: case 0x5bb4: case 0x5bdb: case 0x5bf9:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.sr&0xf8ff);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x5b7e: case 0x5b91: case 0x5bc6: case 0x5be3:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.sr|0x700);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x5b8d: case 0x5b8e: case 0x5b8f: case 0x5b90:
+        case 0x5bdf: case 0x5be0: case 0x5be1: case 0x5be2:
+            ++mcu.pc; return true;
+        case 0x5b77: case 0x5bb8:
+            MCU_Write16(mcu,0xcb4a,mcu.r[0]); nz(mcu.r[0]); mcu.pc += 4; return true;
+        case 0x5bbf:
+            MCU_Write16(mcu,0xcb4c,mcu.r[2]); nz(mcu.r[2]); mcu.pc += 4; return true;
+        case 0x5b7b: case 0x5bbc:
+            if (!voiceValid()) return false;
+            MCU_Write16(mcu,mcu.r[0]-2,mcu.r[1]); nz(mcu.r[1]); mcu.pc += 3; return true;
+        case 0x5bc3:
+            if (mcu.r[2] < 0xacde || mcu.r[2] > 0xc7a4 || (mcu.r[2]-0xacde)%0x12a) return false;
+            MCU_Write16(mcu,mcu.r[2]-2,mcu.r[3]); nz(mcu.r[3]); mcu.pc += 3; return true;
+        case 0x5b82: case 0x5b95: case 0x5ba0: case 0x5ba7: case 0x5bca:
+        case 0x5be7: case 0x5bfd: case 0x5c0b:
+            mcu.r[0] = ReadWord(mcu,0xcb4a); nz(mcu.r[0]); mcu.pc += 4; return true;
+        case 0x5bd0: case 0x5bee: case 0x5c04: case 0x5c12:
+            mcu.r[0] = ReadWord(mcu,0xcb4c); nz(mcu.r[0]); mcu.pc += 4; return true;
+        case 0x5bd4: case 0x5bf2:
+            mcu.r[2] = ReadWord(mcu,0xcb4a); nz(mcu.r[2]); mcu.pc += 4; return true;
+        case 0x5bae: case 0x5c19:
+            mcu.r[1] = ReadWord(mcu,0xcb48); nz(mcu.r[1]); mcu.pc += 4; return true;
+        case 0x5bb2: case 0x5c1d: mcu.pc = 0x5b5c; return true;
+        case 0x5b86: case 0x5b99: case 0x5ba4: case 0x5bab: case 0x5bce:
+        case 0x5bd8: case 0x5beb: case 0x5bf6: case 0x5c01: case 0x5c08:
+        case 0x5c0f: case 0x5c16: {
+            // Only SRAM stacks are handled here. Other stacks retain the decoder path.
+            if (mcu.tp || (mcu.r[7]&1) || mcu.r[7] < 0x8002 || mcu.r[7] > 0xe000) return false;
+            const uint16_t target = mcu.pc == 0x5b86 || mcu.pc == 0x5bce ? 0x5c20
+                : mcu.pc == 0x5b99 || mcu.pc == 0x5beb ? 0x3985
+                : mcu.pc == 0x5ba4 || mcu.pc == 0x5c01 || mcu.pc == 0x5c08 ? 0x3188
+                : mcu.pc == 0x5bd8 ? 0x5ff5 : mcu.pc == 0x5bf6 ? 0x3d44 : 0x5855;
+            mcu.pc += mcu.pc == 0x5bce ? 2 : 3;
+            MCU_PushStack(mcu,mcu.pc); mcu.pc = target; return true;
+        }
+        default: return false;
+    }
+}
+
+// Validate/relink a shared voice before entering its modulation calculation.
+inline bool TryStepVoiceLink(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    auto nz = [&](uint16_t value, bool byte = false) {
+        if (byte) value &= 255;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto compare = [&](unsigned value, unsigned rhs, bool byte = false) {
+        const unsigned mask = byte ? 255 : 65535, sign = byte ? 128 : 32768;
+        value &= mask; rhs &= mask; const unsigned result = (value-rhs)&mask;
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&sign ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+            |(value < rhs ? STATUS_C : 0)|((value^rhs)&(value^result)&sign ? STATUS_V : 0));
+    };
+    auto tableIndex = [](unsigned value) { return value <= 46 && !(value&1); };
+    auto linkedVoice = [&] { return mcu.r[2] >= 0xacde && mcu.r[2] <= 0xc7a4 && (mcu.r[2]-0xacde)%0x12a == 0; };
+    switch (mcu.pc) {
+        case 0x3985: mcu.sr &= ~STATUS_C; nz(MCU_Read(mcu,voice-115),true); mcu.pc += 3; return true;
+        case 0x3988: mcu.pc = (mcu.sr&STATUS_Z) ? 0x39f6 : 0x398a; return true;
+        case 0x398a: case 0x39bb: mcu.r[1] = ReadWord(mcu,voice-2); nz(mcu.r[1]); mcu.pc += 3; return true;
+        case 0x398d: case 0x39c0: case 0x39d2: {
+            const unsigned reg = mcu.pc == 0x39d2 ? 3 : 1, before = mcu.r[reg], result = before*2;
+            mcu.r[reg] = uint16_t(result); nz(mcu.r[reg]);
+            mcu.sr = uint16_t((mcu.sr&~3)|(result&65536 ? STATUS_C : 0)|((before^result)&32768 ? STATUS_V : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x398f:
+            if (!tableIndex(mcu.r[1])) return false;
+            mcu.r[2] = ReadWord(mcu,0xc84e + mcu.r[1]); nz(mcu.r[2]); mcu.pc += 4; return true;
+        case 0x3993: case 0x3997: {
+            const unsigned reg = mcu.pc == 0x3993 ? 3 : 4, offset = mcu.pc == 0x3993 ? 155 : 152;
+            mcu.r[reg] = uint16_t((mcu.r[reg]&0xff00)|MCU_Read(mcu,voice+offset));
+            nz(mcu.r[reg],true); mcu.pc += 4; return true;
+        }
+        case 0x399b: mcu.r[5] = ReadWord(mcu,voice+156); nz(mcu.r[5]); mcu.pc += 4; return true;
+        case 0x399f:
+            if (!linkedVoice()) return false;
+            compare(ReadWord(mcu,mcu.r[2]),12); mcu.pc += 5; return true;
+        case 0x39a4: mcu.pc = (mcu.sr&(STATUS_C|STATUS_Z)) ? 0x39a6 : 0x39bb; return true;
+        case 0x39a6: case 0x39ac: case 0x39b2:
+            if (!linkedVoice()) return false;
+            if (mcu.pc == 0x39b2) compare(mcu.r[5],ReadWord(mcu,mcu.r[2]+156));
+            else compare(mcu.r[mcu.pc == 0x39a6 ? 3 : 4],MCU_Read(mcu,mcu.r[2]+(mcu.pc == 0x39a6 ? 155 : 152)),true);
+            mcu.pc += 4; return true;
+        case 0x39aa: case 0x39b0: case 0x39b6:
+            mcu.pc = (mcu.sr&STATUS_Z) ? uint16_t(mcu.pc+2) : 0x39bb; return true;
+        case 0x39b8: mcu.pc = 0x3d44; return true;
+        case 0x39be: mcu.r[6] = mcu.r[1]; nz(mcu.r[6]); mcu.pc += 2; return true;
+        case 0x39c2:
+            if (!tableIndex(mcu.r[1])) return false;
+            MCU_Write16(mcu,0xc84e + mcu.r[1],0); mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 4; return true;
+        case 0x39c6: MCU_Write(mcu,voice-115,0); mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 3; return true;
+        case 0x39c9: mcu.r[1] = 23; nz(23); mcu.pc += 3; return true;
+        case 0x39cc: compare(mcu.r[6],mcu.r[1]); mcu.pc += 2; return true;
+        case 0x39ce: mcu.pc = (mcu.sr&STATUS_Z) ? 0x39de : 0x39d0; return true;
+        case 0x39d0: mcu.r[3] = mcu.r[1]; nz(mcu.r[3]); mcu.pc += 2; return true;
+        case 0x39d4:
+            if (!tableIndex(mcu.r[3])) return false;
+            compare(mcu.r[2],ReadWord(mcu,0xc84e + mcu.r[3])); mcu.pc += 4; return true;
+        case 0x39d8: mcu.pc = (mcu.sr&STATUS_Z) ? 0x39da : 0x39de; return true;
+        case 0x39da:
+            if (!tableIndex(mcu.r[3])) return false;
+            MCU_Write16(mcu,0xc84e + mcu.r[3],mcu.r[0]); nz(mcu.r[0]); mcu.pc += 4; return true;
+        case 0x39de: --mcu.r[1]; mcu.pc = mcu.r[1] == 0xffff ? 0x39e1 : 0x39cc; return true;
+        case 0x39e1: mcu.r[6] = ReadWord(mcu,voice); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x39e4: case 0x39ec:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.pc == 0x39e4 ? mcu.sr&0xf8ff : mcu.sr|0x700);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x39e8: case 0x39e9: case 0x39ea: case 0x39eb: ++mcu.pc; return true;
+        case 0x39f0: compare(mcu.r[6],ReadWord(mcu,voice)); mcu.pc += 3; return true;
+        case 0x39f3: mcu.pc = (mcu.sr&STATUS_Z) ? 0x39f6 : 0x39f5; return true;
+        case 0x39f5:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        default: return false;
+    }
+}
+
+inline bool TryStepVoiceParameterBias(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    auto nz = [&](unsigned value, bool byte = true) {
+        value &= byte ? 255 : 65535;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto byteMove = [&](unsigned reg, unsigned value) {
+        mcu.r[reg] = uint16_t((mcu.r[reg]&0xff00)|(value&255)); nz(value);
+    };
+    auto arithmetic = [&](unsigned reg, unsigned a, unsigned b, bool sub, bool byte = true) {
+        const unsigned mask = byte ? 255 : 65535, sign = byte ? 128 : 32768;
+        a &= mask; b &= mask;
+        const unsigned wide = sub ? a-b : a+b, value = wide&mask;
+        mcu.r[reg] = uint16_t((byte ? mcu.r[reg]&0xff00 : 0)|value);
+        mcu.sr = uint16_t((mcu.sr&~15)|(value&sign ? STATUS_N : 0)|(!value ? STATUS_Z : 0)
+            |(wide&(mask+1) ? STATUS_C : 0)
+            |((sub ? (a^b)&(a^value) : ~(a^b)&(a^value))&sign ? STATUS_V : 0));
+    };
+    switch (mcu.pc) {
+        case 0x39f6: case 0x3a17: {
+            const unsigned reg = mcu.pc == 0x39f6 ? 3 : 2;
+            mcu.r[reg] = ReadWord(mcu,voice+46); nz(mcu.r[reg],false); mcu.pc += 3; return true;
+        }
+        case 0x39f9: case 0x3a1a: {
+            const unsigned address = uint16_t(mcu.r[mcu.pc == 0x39f9 ? 3 : 2]+(mcu.pc == 0x39f9 ? 16 : 17));
+            if (address < 0x8000 || address > 0xdfff) return false;
+            byteMove(mcu.pc == 0x39f9 ? 4 : 3,MCU_Read(mcu,address)); mcu.pc += 3; return true;
+        }
+        case 0x39fc: byteMove(3,MCU_Read(mcu,voice-25)); mcu.pc += 3; return true;
+        case 0x39ff: arithmetic(4,mcu.r[4],64,true); mcu.pc += 3; return true;
+        case 0x3a02: mcu.pc = (mcu.sr&STATUS_N) ? 0x3a04 : 0x3a0c; return true;
+        case 0x3a04: case 0x3a0c: arithmetic(3,mcu.r[3],mcu.r[4],false); mcu.pc += 2; return true;
+        case 0x3a06: case 0x3a0e: mcu.pc = (mcu.sr&STATUS_N) ? uint16_t(mcu.pc+2) : 0x3a12; return true;
+        case 0x3a08: case 0x3a15: mcu.r[3] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3a0a: mcu.pc = 0x3a12; return true;
+        case 0x3a10: byteMove(3,127); mcu.pc += 2; return true;
+        case 0x3a12: MCU_Write(mcu,voice-116,uint8_t(mcu.r[3])); nz(mcu.r[3]); mcu.pc += 3; return true;
+        case 0x3a1d: mcu.r[2] = ReadWord(mcu,voice+168); nz(mcu.r[2],false); mcu.pc += 4; return true;
+        case 0x3a21: mcu.sr &= ~STATUS_C; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x3a23: mcu.pc = (mcu.sr&STATUS_N) ? 0x3a25 : 0x3a2f; return true;
+        case 0x3a25: byteMove(2,mcu.r[2]&127); mcu.pc += 3; return true;
+        case 0x3a28: case 0x3a2f: arithmetic(3,mcu.r[3],64,true); mcu.pc += 3; return true;
+        case 0x3a2b: mcu.pc = (mcu.sr&STATUS_C) ? 0x3a2d : 0x3a56; return true;
+        case 0x3a2d: mcu.pc = 0x3a4a; return true;
+        case 0x3a32: mcu.pc = (mcu.sr&STATUS_C) ? 0x3a34 : 0x3a40; return true;
+        case 0x3a34: case 0x3a4a: arithmetic(3,0,mcu.r[3],true); mcu.pc += 2; return true;
+        case 0x3a36: case 0x3a40: case 0x3a4c: case 0x3a56: arithmetic(3,mcu.r[3],mcu.r[3],false); mcu.pc += 2; return true;
+        case 0x3a38: case 0x3a58: arithmetic(2,mcu.r[2],mcu.r[3],true); mcu.pc += 2; return true;
+        case 0x3a42: case 0x3a4e: arithmetic(2,mcu.r[2],mcu.r[3],false); mcu.pc += 2; return true;
+        case 0x3a3a: case 0x3a44: mcu.pc = (mcu.sr&STATUS_N) ? uint16_t(mcu.pc+2) : 0x3a68; return true;
+        case 0x3a50: case 0x3a5a: mcu.pc = (mcu.sr&STATUS_N) ? uint16_t(mcu.pc+2) : 0x3a5e; return true;
+        case 0x3a3c: case 0x3a5c: mcu.r[2] &= 0xff00; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3a46: case 0x3a52: byteMove(2,127); mcu.pc += 2; return true;
+        case 0x3a3e: case 0x3a48: mcu.pc = 0x3a68; return true;
+        case 0x3a54: mcu.pc = 0x3a5e; return true;
+        case 0x3a5e: case 0x3a68: arithmetic(2,mcu.r[2],mcu.r[2],false,false); mcu.pc += 2; return true;
+        case 0x3a60: case 0x3a6a:
+            if (mcu.r[2] > 254 || (mcu.r[2]&1)) return false;
+            mcu.r[2] = ReadWord(mcu,0x7312+mcu.r[2]); nz(mcu.r[2],false); mcu.pc += 4; return true;
+        case 0x3a64: arithmetic(2,0,mcu.r[2],true,false); mcu.pc += 2; return true;
+        case 0x3a66: mcu.pc = 0x3a6e; return true;
+        case 0x3a6e: MCU_Write16(mcu,voice-124,mcu.r[2]); nz(mcu.r[2],false); mcu.pc += 3; return true;
+        case 0x3a71: mcu.r[1] = mcu.r[0]; nz(mcu.r[1],false); mcu.pc += 2; return true;
+        case 0x3a73: arithmetic(1,mcu.r[1],0xff80,false,false); mcu.pc += 4; return true;
+        case 0x3a77: mcu.pc = 0x3b2c; return true;
+        default: return false;
+    }
+}
+
+// Copy an already calculated second modulation state from a matching voice.
+inline bool TryStepSharedModulationCopy(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0], source = mcu.r[2];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    if (mcu.pc == 0x3aea) {
+        if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+        ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+    }
+    if (mcu.pc < 0x3aae || mcu.pc > 0x3ae7) return false;
+    const unsigned relative = mcu.pc-0x3aae;
+    if (relative%3) return false;
+    constexpr unsigned distances[]{88,86,84,80,72,70,68,66,64,62};
+    const unsigned index = relative/6;
+    if (relative%6 == 0) {
+        if (source < 0xacde || source > 0xc7a4 || (source-0xacde)%0x12a) return false;
+        mcu.r[6] = ReadWord(mcu,source-distances[index]);
+    } else MCU_Write16(mcu,voice-distances[index],mcu.r[6]);
+    mcu.sr = uint16_t((mcu.sr&~14)|(mcu.r[6]&32768 ? STATUS_N : 0)|(!mcu.r[6] ? STATUS_Z : 0));
+    mcu.pc += 3; return true;
+}
+
+inline bool TryStepSecondVoiceLink(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    auto nz = [&](uint16_t value, bool byte = false) {
+        if (byte) value &= 255;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto compare = [&](unsigned value, unsigned rhs, bool byte = false) {
+        const unsigned mask = byte ? 255 : 65535, sign = byte ? 128 : 32768;
+        value &= mask; rhs &= mask; const unsigned result = (value-rhs)&mask;
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&sign ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+            |(value < rhs ? STATUS_C : 0)|((value^rhs)&(value^result)&sign ? STATUS_V : 0));
+    };
+    auto tableIndex = [](unsigned value) { return value <= 46 && !(value&1); };
+    auto linkedVoice = [&] { return mcu.r[2] >= 0xacde && mcu.r[2] <= 0xc7a4 && (mcu.r[2]-0xacde)%0x12a == 0; };
+    switch (mcu.pc) {
+        case 0x3a7a: mcu.sr &= ~STATUS_C; nz(MCU_Read(mcu,voice-81),true); mcu.pc += 3; return true;
+        case 0x3a7d: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b26 : 0x3a80; return true;
+        case 0x3a80: case 0x3aeb: mcu.r[1] = ReadWord(mcu,voice-2); nz(mcu.r[1]); mcu.pc += 3; return true;
+        case 0x3a83: case 0x3af0: case 0x3b02: {
+            const unsigned reg = mcu.pc == 0x3b02 ? 3 : 1, before = mcu.r[reg], result = before*2;
+            mcu.r[reg] = uint16_t(result); nz(mcu.r[reg]);
+            mcu.sr = uint16_t((mcu.sr&~3)|(result&65536 ? STATUS_C : 0)|((before^result)&32768 ? STATUS_V : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3a85:
+            if (!tableIndex(mcu.r[1])) return false;
+            mcu.r[2] = ReadWord(mcu,0xc87e + mcu.r[1]); nz(mcu.r[2]); mcu.pc += 4; return true;
+        case 0x3a89: case 0x3a8d: {
+            const unsigned reg = mcu.pc == 0x3a89 ? 3 : 4, offset = mcu.pc == 0x3a89 ? 155 : 153;
+            mcu.r[reg] = uint16_t((mcu.r[reg]&0xff00)|MCU_Read(mcu,voice+offset));
+            nz(mcu.r[reg],true); mcu.pc += 4; return true;
+        }
+        case 0x3a91: mcu.r[5] = ReadWord(mcu,voice+158); nz(mcu.r[5]); mcu.pc += 4; return true;
+        case 0x3a95:
+            if (!linkedVoice()) return false;
+            compare(ReadWord(mcu,mcu.r[2]),12); mcu.pc += 5; return true;
+        case 0x3a9a: mcu.pc = (mcu.sr&(STATUS_C|STATUS_Z)) ? 0x3a9c : 0x3aeb; return true;
+        case 0x3a9c: case 0x3aa2: case 0x3aa8:
+            if (!linkedVoice()) return false;
+            if (mcu.pc == 0x3aa8) compare(mcu.r[5],ReadWord(mcu,mcu.r[2]+158));
+            else compare(mcu.r[mcu.pc == 0x3a9c ? 3 : 4],MCU_Read(mcu,mcu.r[2]+(mcu.pc == 0x3a9c ? 155 : 153)),true);
+            mcu.pc += 4; return true;
+        case 0x3aa0: case 0x3aa6: case 0x3aac:
+            mcu.pc = (mcu.sr&STATUS_Z) ? uint16_t(mcu.pc+2) : 0x3aeb; return true;
+        case 0x3aee: mcu.r[6] = mcu.r[1]; nz(mcu.r[6]); mcu.pc += 2; return true;
+        case 0x3af2:
+            if (!tableIndex(mcu.r[1])) return false;
+            MCU_Write16(mcu,0xc87e + mcu.r[1],0); mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 4; return true;
+        case 0x3af6: MCU_Write(mcu,voice-81,0); mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 3; return true;
+        case 0x3af9: mcu.r[1] = 23; nz(23); mcu.pc += 3; return true;
+        case 0x3afc: compare(mcu.r[6],mcu.r[1]); mcu.pc += 2; return true;
+        case 0x3afe: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b0e : 0x3b00; return true;
+        case 0x3b00: mcu.r[3] = mcu.r[1]; nz(mcu.r[3]); mcu.pc += 2; return true;
+        case 0x3b04:
+            if (!tableIndex(mcu.r[3])) return false;
+            compare(mcu.r[2],ReadWord(mcu,0xc87e + mcu.r[3])); mcu.pc += 4; return true;
+        case 0x3b08: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b0a : 0x3b0e; return true;
+        case 0x3b0a:
+            if (!tableIndex(mcu.r[3])) return false;
+            MCU_Write16(mcu,0xc87e + mcu.r[3],mcu.r[0]); nz(mcu.r[0]); mcu.pc += 4; return true;
+        case 0x3b0e: --mcu.r[1]; mcu.pc = mcu.r[1] == 0xffff ? 0x3b11 : 0x3afc; return true;
+        case 0x3b11: mcu.r[6] = ReadWord(mcu,voice); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3b14: case 0x3b1c:
+            MCU_ControlRegisterWrite(mcu,0,MCU_Operand_Size::WORD,mcu.pc == 0x3b14 ? mcu.sr&0xf8ff : mcu.sr|0x700);
+            mcu.ex_ignore = 1; mcu.pc += 4; return true;
+        case 0x3b18: case 0x3b19: case 0x3b1a: case 0x3b1b: ++mcu.pc; return true;
+        case 0x3b20: compare(mcu.r[6],ReadWord(mcu,voice)); mcu.pc += 3; return true;
+        case 0x3b23: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b26 : 0x3b25; return true;
+        case 0x3b25:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        default: return false;
+    }
+}
+
+// Interruptible delay/attack phase of the two modulation blocks.
+inline bool TryStepLfoPhase(mcu_t& mcu)
+{
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)) return false;
+    const unsigned block = mcu.r[1];
+    if (mcu.pc != 0x3b26 && mcu.pc != 0x3b28 && (block < 0x8000 || block > 0xdfe4 || (block&1))) return false;
+    auto nz = [&](uint16_t value) {
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&32768 ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto add = [&](uint16_t a, uint16_t b, unsigned carry = 0) {
+        const unsigned result = unsigned(a)+b+carry;
+        const int signedResult = int(int16_t(a))+int(int16_t(b))+int(carry);
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!(result&65535) ? STATUS_Z : 0)
+            |(result&65536 ? STATUS_C : 0)|(signedResult < -32768 || signedResult > 32767 ? STATUS_V : 0));
+        return uint16_t(result);
+    };
+    auto compareMax = [&](uint16_t value) {
+        const unsigned result = uint16_t(value-65535);
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+            |(value != 65535 ? STATUS_C : 0)|(value == 32767 ? STATUS_V : 0));
+    };
+    switch (mcu.pc) {
+        case 0x3b26: mcu.r[1] = mcu.r[0]; nz(mcu.r[1]); mcu.pc += 2; return true;
+        case 0x3b28: mcu.r[1] = add(mcu.r[1],0xffa2); mcu.pc += 4; return true;
+        case 0x3b2c: case 0x3b52:
+            mcu.r[6] = ReadWord(mcu,block+(mcu.pc == 0x3b2c ? 24 : 26)); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3b2f: case 0x3b55: compareMax(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3b48: compareMax(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x3b32: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b52 : 0x3b34; return true;
+        case 0x3b58: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3baa : 0x3b5a; return true;
+        case 0x3b34: case 0x3b5a:
+            mcu.r[4] = ReadWord(mcu,block+(mcu.pc == 0x3b34 ? 16 : 18)); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3b37: case 0x3b5d: case 0x3be1: {
+            const uint32_t product = uint32_t(mcu.r[4])*ReadWord(mcu,0xac5a);
+            mcu.r[4] = uint16_t(product>>16); mcu.r[5] = uint16_t(product);
+            mcu.sr = uint16_t((mcu.sr&~15)|(product&0x80000000 ? STATUS_N : 0)|(!product ? STATUS_Z : 0));
+            mcu.pc += 4; return true;
+        }
+        case 0x3b3b: case 0x3b61: mcu.r[5] = add(mcu.r[5],mcu.r[6]); mcu.pc += 2; return true;
+        case 0x3b3d: case 0x3b63: {
+            const bool previousZero = (mcu.sr&STATUS_Z) != 0;
+            mcu.r[4] = add(mcu.r[4],0,(mcu.sr&STATUS_C) != 0);
+            if (!previousZero) mcu.sr &= ~STATUS_Z;
+            mcu.pc += 4; return true;
+        }
+        case 0x3b41: case 0x3b67: mcu.sr &= ~STATUS_C; nz(mcu.r[4]); mcu.pc += 2; return true;
+        case 0x3b43: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b45 : 0x3b4d; return true;
+        case 0x3b69: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b6e : 0x3b6b; return true;
+        case 0x3b45: case 0x3b6e:
+            MCU_Write16(mcu,block+(mcu.pc == 0x3b45 ? 24 : 26),mcu.r[5]); nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x3b4b: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3b4d : 0x3bbc; return true;
+        case 0x3b4d: MCU_Write16(mcu,block+24,65535); nz(65535); mcu.pc += 5; return true;
+        case 0x3b6b: mcu.r[5] = 65535; nz(65535); mcu.pc += 3; return true;
+        case 0x3b71: case 0x3baa: mcu.r[2] = ReadWord(mcu,block); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3b74: mcu.pc = (mcu.sr&STATUS_N) ? 0x3b76 : 0x3b7e; return true;
+        case 0x3b86: mcu.pc = (mcu.sr&STATUS_N) ? 0x3b88 : 0x3b90; return true;
+        case 0x3b99: mcu.pc = (mcu.sr&STATUS_N) ? 0x3b9b : 0x3ba3; return true;
+        case 0x3b76: case 0x3b7a: case 0x3b88: case 0x3b8c: case 0x3b9b: case 0x3b9f: {
+            const unsigned previous = mcu.r[2]; mcu.r[2] = uint16_t(0u-previous);
+            mcu.sr = uint16_t((mcu.sr&~15)|(mcu.r[2]&32768 ? STATUS_N : 0)|(!mcu.r[2] ? STATUS_Z : 0)
+                |(previous ? STATUS_C : 0)|(previous == 32768 ? STATUS_V : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3b78: case 0x3b7e: case 0x3b8a: case 0x3b90: case 0x3b9d: case 0x3ba3: {
+            const uint32_t product = uint32_t(mcu.r[2])*mcu.r[5];
+            mcu.r[2] = uint16_t(product>>16); mcu.r[3] = uint16_t(product);
+            mcu.sr = uint16_t((mcu.sr&~15)|(product&0x80000000 ? STATUS_N : 0)|(!product ? STATUS_Z : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3b7c: mcu.pc = 0x3b80; return true;
+        case 0x3b8e: mcu.pc = 0x3b92; return true;
+        case 0x3ba1: mcu.pc = 0x3ba5; return true;
+        case 0x3b80: case 0x3bad:
+            MCU_Write16(mcu,block+6,mcu.r[2]); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3b92: case 0x3bb3:
+            MCU_Write16(mcu,block+8,mcu.r[2]); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3ba5: case 0x3bb9:
+            MCU_Write16(mcu,block+10,mcu.r[2]); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3b83: case 0x3bb0:
+            mcu.r[2] = ReadWord(mcu,block+2); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3b95: case 0x3bb6:
+            mcu.r[2] = ReadWord(mcu,block+4); nz(mcu.r[2]); mcu.pc += mcu.pc == 0x3b95 ? 4 : 3; return true;
+        case 0x3ba8: mcu.pc = 0x3bbc; return true;
+        case 0x3bbc: mcu.r[3] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3bbe:
+            mcu.r[3] = uint16_t((mcu.r[3]&0xff00)|MCU_Read(mcu,block+12));
+            mcu.sr = uint16_t((mcu.sr&~14)|(mcu.r[3]&128 ? STATUS_N : 0)|(!(mcu.r[3]&255) ? STATUS_Z : 0));
+            mcu.pc += 3; return true;
+        case 0x3bc1: mcu.r[3] = add(mcu.r[3],mcu.r[3]); mcu.pc += 2; return true;
+        case 0x3bc3:
+            if (mcu.r[3] > 510 || (mcu.r[3]&1)) return false;
+            mcu.r[3] = ReadWord(mcu,0x7012+mcu.r[3]); nz(mcu.r[3]); mcu.pc += 4; return true;
+        case 0x3bc7: mcu.r[4] = ReadWord(mcu,block+14); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3bca: mcu.pc = (mcu.sr&STATUS_N) ? 0x3bcc : 0x3bd7; return true;
+        case 0x3bcc: case 0x3bd7: mcu.r[4] = add(mcu.r[4],mcu.r[3]); mcu.pc += 2; return true;
+        case 0x3bce: case 0x3bd9: {
+            const unsigned previous = mcu.r[4], result = uint16_t(previous-0x28f6);
+            mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+                |(previous < 0x28f6 ? STATUS_C : 0)|((previous^0x28f6)&(previous^result)&32768 ? STATUS_V : 0));
+            mcu.pc += 3; return true;
+        }
+        case 0x3bd1: case 0x3bdc: mcu.pc = (mcu.sr&(STATUS_C|STATUS_Z)) ? 0x3be1 : uint16_t(mcu.pc+2); return true;
+        case 0x3bd3: mcu.r[4] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3bd5: mcu.pc = 0x3be1; return true;
+        case 0x3bde: mcu.r[4] = 0x28f6; nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3be5: mcu.r[2] = ReadWord(mcu,block+20); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3be8:
+            if (mcu.r[2] > 10 || (mcu.r[2]&1)) return false;
+            mcu.r[2] = ReadWord(mcu,0x74c4+mcu.r[2]); nz(mcu.r[2]); mcu.pc += 4; return true;
+        case 0x3bec: mcu.pc = mcu.r[2]; return true;
+        default: return false;
+    }
+}
+
+inline bool TryStepLfoSine(mcu_t& mcu)
+{
+    const unsigned block = mcu.r[1];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || block < 0x8000 || block > 0xdfde || (block&1)) return false;
+    auto nz = [&](unsigned value, bool byte = false) {
+        value &= byte ? 255 : 65535;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto arithmetic = [&](unsigned a, unsigned b, bool sub, bool byte = false) {
+        const unsigned mask = byte ? 255 : 65535, sign = byte ? 128 : 32768;
+        a &= mask; b &= mask; const unsigned wide = sub ? a-b : a+b, result = wide&mask;
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&sign ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+            |(wide&(mask+1) ? STATUS_C : 0)|((sub ? (a^b)&(a^result) : ~(a^b)&(a^result))&sign ? STATUS_V : 0));
+        return uint16_t(result);
+    };
+    switch (mcu.pc) {
+        case 0x3bee: case 0x3c31: case 0x3c48: case 0x3c5c: mcu.r[5] = arithmetic(mcu.r[5],ReadWord(mcu,block+22),false); mcu.pc += 3; return true;
+        case 0x3bf1: case 0x3c34: case 0x3c4b: case 0x3c5f: MCU_Write16(mcu,block+22,mcu.r[5]); nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x3bf4: mcu.r[6] = mcu.r[5]; nz(mcu.r[6]); mcu.pc += 2; return true;
+        case 0x3bf6: case 0x3c4e: case 0x3c64: mcu.r[5] = arithmetic(mcu.r[5],0x8000,true); mcu.pc += 4; return true;
+        case 0x3bfa: mcu.pc = (mcu.sr&STATUS_C) ? 0x3bfc : 0x3bfe; return true;
+        case 0x3bfc: case 0x3c6c: case 0x3c76: case 0x3c92: mcu.r[5] = arithmetic(0,mcu.r[5],true); mcu.pc += 2; return true;
+        case 0x3bfe: mcu.r[2] = mcu.r[5]; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x3c00: mcu.r[2] &= 0xff00; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3c02: mcu.r[2] = uint16_t((mcu.r[2]<<8)|(mcu.r[2]>>8)); nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x3c04: case 0x3c62: mcu.r[4] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3c06: case 0x3c0c: {
+            if (mcu.r[2] > 255) return false;
+            const unsigned reg = mcu.pc == 0x3c06 ? 4 : 2, value = MCU_Read(mcu,0x7412+mcu.r[2]);
+            mcu.r[reg] = uint16_t((mcu.r[reg]&0xff00)|value); nz(value,true); mcu.pc += 4; return true;
+        }
+        case 0x3c0a: mcu.r[2] = arithmetic(mcu.r[2],1,false); mcu.pc += 2; return true;
+        case 0x3c10: case 0x3c14: {
+            const auto value = arithmetic(mcu.pc == 0x3c10 ? mcu.r[2] : 0,mcu.pc == 0x3c10 ? mcu.r[4] : mcu.r[2],true,true);
+            mcu.r[2] = uint16_t((mcu.r[2]&0xff00)|value); mcu.pc += 2; return true;
+        }
+        case 0x3c12: mcu.pc = (mcu.sr&STATUS_C) ? 0x3c14 : 0x3c1e; return true;
+        case 0x3c16: case 0x3c1e:
+            mcu.r[2] = uint16_t((mcu.r[2]&255)*(mcu.r[5]&255)); mcu.sr &= ~STATUS_C; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x3c18: case 0x3c20: mcu.r[4] = uint16_t((mcu.r[4]<<8)|(mcu.r[4]>>8)); nz(mcu.r[4]); mcu.pc += 2; return true;
+        case 0x3c1a: mcu.r[4] = arithmetic(mcu.r[4],mcu.r[2],true); mcu.pc += 2; return true;
+        case 0x3c1c: mcu.pc = 0x3c24; return true;
+        case 0x3c22: mcu.r[4] = arithmetic(mcu.r[4],mcu.r[2],false); mcu.pc += 2; return true;
+        case 0x3c24: {
+            const bool carry = (mcu.r[4]&1) != 0; mcu.r[4] >>= 1; nz(mcu.r[4]);
+            mcu.sr = uint16_t((mcu.sr&~STATUS_C)|(carry ? STATUS_C : 0)); mcu.pc += 2; return true;
+        }
+        case 0x3c26: arithmetic(mcu.r[6],0x8000,true); mcu.pc += 3; return true;
+        case 0x3c29: mcu.pc = (mcu.sr&(STATUS_C|STATUS_Z)) ? 0x3c2d : 0x3c2b; return true;
+        case 0x3c2b: mcu.r[4] = arithmetic(0,mcu.r[4],true); mcu.pc += 2; return true;
+        case 0x3c2d: case 0x3ca4: MCU_Write16(mcu,block+32,mcu.r[4]); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3c37: arithmetic(mcu.r[5],0x8000,true); mcu.pc += 3; return true;
+        case 0x3c3a: mcu.pc = (mcu.sr&STATUS_C) ? 0x3c41 : 0x3c3c; return true;
+        case 0x3c3c: mcu.r[2] = 0x8001; nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3c41: mcu.r[2] = 0x7fff; nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3c3f: mcu.pc = 0x3c44; return true;
+        case 0x3c44: MCU_Write16(mcu,block+32,mcu.r[2]); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3c52: mcu.pc = (mcu.sr&STATUS_C) ? 0x3c54 : 0x3c58; return true;
+        case 0x3c54: case 0x3c58: case 0x3ca8: MCU_Write16(mcu,block+32,mcu.r[5]); nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x3c68: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3ca8 : 0x3c6a; return true;
+        case 0x3c6a: mcu.pc = (mcu.sr&STATUS_C) ? 0x3c6c : 0x3c8a; return true;
+        case 0x3c6e: case 0x3c8a: mcu.r[5] = arithmetic(mcu.r[5],0x4000,true); mcu.pc += 4; return true;
+        case 0x3c72: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3c83 : 0x3c74; return true;
+        case 0x3c8e: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3c9f : 0x3c90; return true;
+        case 0x3c74: mcu.pc = (mcu.sr&STATUS_C) ? 0x3c76 : 0x3c78; return true;
+        case 0x3c90: mcu.pc = (mcu.sr&STATUS_C) ? 0x3c92 : 0x3c94; return true;
+        case 0x3c78: case 0x3c94: mcu.r[5] = arithmetic(mcu.r[5],mcu.r[5],false); mcu.pc += 2; return true;
+        case 0x3c7a: case 0x3c96: mcu.r[4] = mcu.r[5]; nz(mcu.r[4]); mcu.pc += 2; return true;
+        case 0x3c7c: case 0x3c98: mcu.r[3] = 0x8000; nz(mcu.r[3]); mcu.pc += 3; return true;
+        case 0x3c7f: case 0x3c9b: mcu.r[3] = arithmetic(mcu.r[3],mcu.r[4],true); mcu.pc += 2; return true;
+        case 0x3c81: mcu.pc = 0x3c86; return true;
+        case 0x3c9d: mcu.pc = 0x3ca2; return true;
+        case 0x3c83: case 0x3c9f: mcu.r[3] = 0x7fff; nz(mcu.r[3]); mcu.pc += 3; return true;
+        case 0x3c86: MCU_Write16(mcu,block+32,mcu.r[3]); nz(mcu.r[3]); mcu.pc += 3; return true;
+        case 0x3ca2: mcu.r[3] = arithmetic(0,mcu.r[3],true); mcu.pc += 2; return true;
+        case 0x3c30: case 0x3c47: case 0x3c57: case 0x3c5b: case 0x3c89: case 0x3ca7: case 0x3cab:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        default: return false;
+    }
+}
+
+// Sample-and-hold LFO: update the held PCM-derived value only on phase overflow.
+inline bool TryStepLfoSampleHold(mcu_t& mcu)
+{
+    const unsigned block = mcu.r[1];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || block < 0x8000 || block > 0xdfde || (block&1)) return false;
+    auto nz = [&](unsigned value, bool byte = false) {
+        value &= byte ? 255 : 65535;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto add = [&](uint16_t a, uint16_t b, unsigned carry = 0) {
+        const unsigned result = unsigned(a)+b+carry;
+        const int signedResult = int(int16_t(a))+int(int16_t(b))+int(carry);
+        mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!(result&65535) ? STATUS_Z : 0)
+            |(result&65536 ? STATUS_C : 0)|(signedResult < -32768 || signedResult > 32767 ? STATUS_V : 0));
+        return uint16_t(result);
+    };
+    switch (mcu.pc) {
+        case 0x3cd0: case 0x3cd3: mcu.r[6] = mcu.pc == 0x3cd0 ? 0x900 : 0x50; nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3cac: case 0x3cd6: mcu.r[5] = add(mcu.r[5],mcu.r[5]); mcu.pc += 2; return true;
+        case 0x3cae: case 0x3cb3: case 0x3cd8: case 0x3cdd: {
+            const bool previousZero = (mcu.sr&STATUS_Z) != 0;
+            const bool doubling = mcu.pc == 0x3cae || mcu.pc == 0x3cd8;
+            mcu.r[4] = add(mcu.r[4],doubling ? mcu.r[4] : 0,(mcu.sr&STATUS_C) != 0);
+            if (!previousZero) mcu.sr &= ~STATUS_Z;
+            mcu.pc += doubling ? 2 : 4; return true;
+        }
+        case 0x3cb0: case 0x3cda: mcu.r[5] = add(mcu.r[5],ReadWord(mcu,block+22)); mcu.pc += 3; return true;
+        case 0x3cb7: case 0x3ce1: mcu.sr &= ~STATUS_C; nz(mcu.r[4]); mcu.pc += 2; return true;
+        case 0x3cb9: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3cc6 : 0x3cbb; return true;
+        case 0x3ce3: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3cf0 : 0x3ce5; return true;
+        case 0x3cbb: case 0x3ce5:
+            if (mcu.br != 0xe0) return false;
+            mcu.pc += 4; MCU_Write(mcu,0xe03e,30); nz(30,true); return true;
+        case 0x3cbf: case 0x3ce9:
+            if (mcu.br != 0xe0) return false;
+            mcu.pc += 2; mcu.r[4] = uint16_t((mcu.r[4]&0xff00)|MCU_Read(mcu,0xe034)); nz(mcu.r[4],true); return true;
+        case 0x3cc1: case 0x3ceb:
+            if (mcu.br != 0xe0) return false;
+            mcu.pc += 2; mcu.r[4] = MCU_Read16(mcu,0xe03a); nz(mcu.r[4]); return true;
+        case 0x3cc3: case 0x3ced: MCU_Write16(mcu,block+28,mcu.r[4]); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3cc6: case 0x3cf0: MCU_Write16(mcu,block+22,mcu.r[5]); nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x3cc9: mcu.r[4] = ReadWord(mcu,block+28); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3cf3: mcu.r[4] = ReadWord(mcu,block+30); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3cf6: mcu.r[5] = ReadWord(mcu,block+28); nz(mcu.r[5]); mcu.pc += 3; return true;
+        case 0x3cf9: case 0x3d03: case 0x3d0d: case 0x3cff: {
+            const bool store = mcu.pc == 0x3cff;
+            const unsigned a = mcu.r[store ? 4 : 5], b = mcu.r[store ? 6 : 4], result = uint16_t(a-b);
+            mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+                |(a < b ? STATUS_C : 0)|((a^b)&(a^result)&32768 ? STATUS_V : 0));
+            if (store) mcu.r[4] = uint16_t(result);
+            mcu.pc += 2; return true;
+        }
+        case 0x3cfb: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3d13 : 0x3cfd; return true;
+        case 0x3cfd: case 0x3d0f: {
+            const bool ge = bool(mcu.sr&STATUS_N) == bool(mcu.sr&STATUS_V);
+            mcu.pc = ge ? (mcu.pc == 0x3cfd ? 0x3d09 : 0x3d13) : uint16_t(mcu.pc+2); return true;
+        }
+        case 0x3d01: case 0x3d0b: mcu.pc = (mcu.sr&STATUS_V) ? 0x3d11 : uint16_t(mcu.pc+2); return true;
+        case 0x3d05:
+            mcu.pc = !(mcu.sr&STATUS_Z) && bool(mcu.sr&STATUS_N) == bool(mcu.sr&STATUS_V) ? 0x3d11 : 0x3d07; return true;
+        case 0x3d07: mcu.pc = 0x3d13; return true;
+        case 0x3d09: mcu.r[4] = add(mcu.r[4],mcu.r[6]); mcu.pc += 2; return true;
+        case 0x3d11: mcu.r[4] = mcu.r[5]; nz(mcu.r[4]); mcu.pc += 2; return true;
+        case 0x3d13: MCU_Write16(mcu,block+30,mcu.r[4]); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3ccc: case 0x3d16: MCU_Write16(mcu,block+32,mcu.r[4]); nz(mcu.r[4]); mcu.pc += 3; return true;
+        case 0x3ccf: case 0x3d19:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        default: return false;
+    }
+}
+
+inline bool TryStepFirstModulationCopy(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0], source = mcu.r[2];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    auto sourceValid = [&] { return source >= 0xacde && source <= 0xc7a4 && (source-0xacde)%0x12a == 0; };
+    auto nz = [&](unsigned value, bool byte = false) {
+        value &= byte ? 255 : 65535;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    if (mcu.pc >= 0x3d32 && mcu.pc <= 0x3d65) {
+        const unsigned relative = mcu.pc-0x3d32;
+        if (relative%3) return false;
+        const unsigned distance = 112-(relative/6)*2;
+        if (relative%6 == 0) {
+            if (!sourceValid()) return false;
+            mcu.r[6] = ReadWord(mcu,source-distance);
+        } else MCU_Write16(mcu,voice-distance,mcu.r[6]);
+        nz(mcu.r[6]); mcu.pc += 3; return true;
+    }
+    switch (mcu.pc) {
+        case 0x3d1a:
+            if (!sourceValid()) return false;
+            mcu.r[1] = ReadWord(mcu,source-2); nz(mcu.r[1]); mcu.pc += 3; return true;
+        case 0x3d1d: case 0x3d26: {
+            const unsigned before = mcu.r[1], result = before*2;
+            mcu.r[1] = uint16_t(result); nz(mcu.r[1]);
+            mcu.sr = uint16_t((mcu.sr&~3)|(result&65536 ? STATUS_C : 0)|((before^result)&32768 ? STATUS_V : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3d1f: case 0x3d28:
+            if (mcu.r[1] > 46 || (mcu.r[1]&1)) return false;
+            if (mcu.pc == 0x3d1f) mcu.r[6] = ReadWord(mcu,0xc84e + mcu.r[1]);
+            else MCU_Write16(mcu,0xc84e + mcu.r[1],mcu.r[6]);
+            nz(mcu.r[6]); mcu.pc += 4; return true;
+        case 0x3d23: mcu.r[1] = ReadWord(mcu,voice-2); nz(mcu.r[1]); mcu.pc += 3; return true;
+        case 0x3d2c: case 0x3d68:
+            if (!sourceValid()) return false;
+            mcu.r[6] = uint16_t((mcu.r[6]&0xff00)|MCU_Read(mcu,source-(mcu.pc == 0x3d2c ? 25 : 115)));
+            nz(mcu.r[6],true); mcu.pc += 3; return true;
+        case 0x3d2f: case 0x3d6b:
+            MCU_Write(mcu,voice-(mcu.pc == 0x3d2f ? 25 : 115),uint8_t(mcu.r[6]));
+            nz(mcu.r[6],true); mcu.pc += 3; return true;
+        case 0x3d6e:
+            if (!sourceValid()) return false;
+            mcu.r[6] = ReadWord(mcu,source-114); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3d71: MCU_Write16(mcu,voice-114,mcu.r[6]); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3d74: case 0x3d86:
+            mcu.r[6] = ReadWord(mcu,voice-(mcu.pc == 0x3d74 ? 104 : 102)); nz(mcu.r[6]); mcu.pc += 3; return true;
+        case 0x3d77: case 0x3d89: {
+            const unsigned value = mcu.r[6], result = uint16_t(value-65535);
+            mcu.sr = uint16_t((mcu.sr&~15)|(result&32768 ? STATUS_N : 0)|(!result ? STATUS_Z : 0)
+                |(value != 65535 ? STATUS_C : 0)|(value == 32767 ? STATUS_V : 0));
+            mcu.pc += 3; return true;
+        }
+        case 0x3d7a: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3d86 : 0x3d7c; return true;
+        case 0x3d8c: mcu.pc = (mcu.sr&STATUS_Z) ? 0x3e1e : 0x3d8f; return true;
+        case 0x3d7c: case 0x3d7f: case 0x3d82:
+            MCU_Write16(mcu,voice-(122-((mcu.pc-0x3d7c)/3)*2),0);
+            mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 3; return true;
+        case 0x3d8f: case 0x3da1:
+            mcu.r[2] = ReadWord(mcu,voice-(mcu.pc == 0x3d8f ? 128 : 126)); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3d92: mcu.pc = (mcu.sr&STATUS_N) ? 0x3d94 : 0x3d9c; return true;
+        case 0x3da4: mcu.pc = (mcu.sr&STATUS_N) ? 0x3da6 : 0x3dae; return true;
+        case 0x3d94: case 0x3d98: case 0x3da6: case 0x3daa: {
+            const unsigned previous = mcu.r[2]; mcu.r[2] = uint16_t(0u-previous);
+            mcu.sr = uint16_t((mcu.sr&~15)|(mcu.r[2]&32768 ? STATUS_N : 0)|(!mcu.r[2] ? STATUS_Z : 0)
+                |(previous ? STATUS_C : 0)|(previous == 32768 ? STATUS_V : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3d96: case 0x3d9c: case 0x3da8: case 0x3dae: {
+            const uint32_t product = uint32_t(mcu.r[2])*mcu.r[6];
+            mcu.r[2] = uint16_t(product>>16); mcu.r[3] = uint16_t(product);
+            mcu.sr = uint16_t((mcu.sr&~15)|(product&0x80000000 ? STATUS_N : 0)|(!product ? STATUS_Z : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3d9a: mcu.pc = 0x3d9e; return true;
+        case 0x3dac: mcu.pc = 0x3db0; return true;
+        case 0x3d9e: case 0x3db0:
+            MCU_Write16(mcu,voice-(mcu.pc == 0x3d9e ? 122 : 120),mcu.r[2]); nz(mcu.r[2]); mcu.pc += 3; return true;
+        case 0x3d85:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        default: return false;
+    }
+}
+
+inline bool TryStepSharedThirdDepth(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp || mcu.dp || (mcu.sr&STATUS_T)
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a) return false;
+    auto nz = [&](unsigned value, bool byte = true) {
+        value &= byte ? 255 : 65535;
+        mcu.sr = uint16_t((mcu.sr&~14)|(value&(byte ? 128 : 32768) ? STATUS_N : 0)|(!value ? STATUS_Z : 0));
+    };
+    auto byteMove = [&](unsigned reg, unsigned value) {
+        mcu.r[reg] = uint16_t((mcu.r[reg]&0xff00)|(value&255)); nz(value);
+    };
+    auto arithmetic = [&](unsigned reg, unsigned a, unsigned b, bool sub, bool byte = true) {
+        const unsigned mask = byte ? 255 : 65535, sign = byte ? 128 : 32768;
+        a &= mask; b &= mask;
+        const unsigned wide = sub ? a-b : a+b, value = wide&mask;
+        mcu.r[reg] = uint16_t((byte ? mcu.r[reg]&0xff00 : 0)|value);
+        mcu.sr = uint16_t((mcu.sr&~15)|(value&sign ? STATUS_N : 0)|(!value ? STATUS_Z : 0)
+            |(wide&(mask+1) ? STATUS_C : 0)
+            |((sub ? (a^b)&(a^value) : ~(a^b)&(a^value))&sign ? STATUS_V : 0));
+    };
+    switch (mcu.pc) {
+        case 0x3dbb: mcu.r[2] = ReadWord(mcu,voice+168); nz(mcu.r[2],false); mcu.pc += 4; return true;
+        case 0x3dbf: mcu.sr &= ~STATUS_C; nz(mcu.r[2]); mcu.pc += 2; return true;
+        case 0x3dc1: mcu.pc = (mcu.sr&STATUS_N) ? 0x3dc3 : 0x3dcd; return true;
+        case 0x3dc3: byteMove(2,mcu.r[2]&127); mcu.pc += 3; return true;
+        case 0x3dc6: case 0x3dcd: arithmetic(3,mcu.r[3],64,true); mcu.pc += 3; return true;
+        case 0x3dc9: mcu.pc = (mcu.sr&STATUS_C) ? 0x3dcb : 0x3df4; return true;
+        case 0x3dcb: mcu.pc = 0x3de8; return true;
+        case 0x3dd0: mcu.pc = (mcu.sr&STATUS_C) ? 0x3dd2 : 0x3dde; return true;
+        case 0x3dd2: case 0x3de8: arithmetic(3,0,mcu.r[3],true); mcu.pc += 2; return true;
+        case 0x3dd4: case 0x3dde: case 0x3dea: case 0x3df4: arithmetic(3,mcu.r[3],mcu.r[3],false); mcu.pc += 2; return true;
+        case 0x3dd6: case 0x3df6: arithmetic(2,mcu.r[2],mcu.r[3],true); mcu.pc += 2; return true;
+        case 0x3de0: case 0x3dec: arithmetic(2,mcu.r[2],mcu.r[3],false); mcu.pc += 2; return true;
+        case 0x3dd8: case 0x3de2: mcu.pc = (mcu.sr&STATUS_N) ? uint16_t(mcu.pc+2) : 0x3e0f; return true;
+        case 0x3dee: case 0x3df8: mcu.pc = (mcu.sr&STATUS_N) ? uint16_t(mcu.pc+2) : 0x3dfc; return true;
+        case 0x3dda: case 0x3dfa: mcu.r[2] &= 0xff00; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3de4: case 0x3df0: byteMove(2,127); mcu.pc += 2; return true;
+        case 0x3ddc: case 0x3de6: mcu.pc = 0x3e0f; return true;
+        case 0x3df2: mcu.pc = 0x3dfc; return true;
+        case 0x3dfc: case 0x3e0f: arithmetic(2,mcu.r[2],mcu.r[2],false,false); mcu.pc += 2; return true;
+        case 0x3dfe: case 0x3e11:
+            if (mcu.r[2] > 254 || (mcu.r[2]&1)) return false;
+            mcu.r[2] = ReadWord(mcu,0x7312+mcu.r[2]); nz(mcu.r[2],false); mcu.pc += 4; return true;
+        case 0x3e02: arithmetic(2,0,mcu.r[2],true,false); mcu.pc += 2; return true;
+        case 0x3e04: MCU_Write16(mcu,voice-124,mcu.r[2]); nz(mcu.r[2],false); mcu.pc += 3; return true;
+
+        case 0x3db3: mcu.r[3] = 0; mcu.sr = uint16_t((mcu.sr&~15)|STATUS_Z); mcu.pc += 2; return true;
+        case 0x3db5: mcu.r[2] = ReadWord(mcu,voice+46); nz(mcu.r[2],false); mcu.pc += 3; return true;
+        case 0x3db8: {
+            const unsigned address = uint16_t(mcu.r[2]+17);
+            if (address < 0x8000 || address > 0xdfff) return false;
+            byteMove(3,MCU_Read(mcu,address)); mcu.pc += 3; return true;
+        }
+        case 0x3e07: case 0x3e0b: arithmetic(2,0,mcu.r[2],true,false); mcu.pc += 2; return true;
+        case 0x3e09: case 0x3e18: {
+            const uint32_t product = uint32_t(mcu.r[2])*mcu.r[6];
+            mcu.r[2] = uint16_t(product>>16); mcu.r[3] = uint16_t(product);
+            mcu.sr = uint16_t((mcu.sr&~15)|(product&0x80000000 ? STATUS_N : 0)|(!product ? STATUS_Z : 0));
+            mcu.pc += 2; return true;
+        }
+        case 0x3e0d: mcu.pc = 0x3e1a; return true;
+        case 0x3e15: MCU_Write16(mcu,voice-124,mcu.r[2]); nz(mcu.r[2],false); mcu.pc += 3; return true;
+        case 0x3e1a: MCU_Write16(mcu,voice-118,mcu.r[2]); nz(mcu.r[2],false); mcu.pc += 3; return true;
+        case 0x3e1d:
+            if ((mcu.r[7]&1) || mcu.r[7] < 0x8000 || mcu.r[7] > 0xdffe) return false;
+            ++mcu.pc; mcu.pc = MCU_PopStack(mcu); return true;
+        case 0x3e1e: case 0x3e24:
+            mcu.r[6] = ReadWord(mcu,voice-(mcu.pc == 0x3e1e ? 128 : 126)); nz(mcu.r[6],false); mcu.pc += 3; return true;
+        case 0x3e21: case 0x3e27:
+            MCU_Write16(mcu,voice-(mcu.pc == 0x3e21 ? 122 : 120),mcu.r[6]); nz(mcu.r[6],false); mcu.pc += 3; return true;
+        case 0x3e2a: mcu.r[6] = 65535; nz(mcu.r[6],false); mcu.pc += 3; return true;
+        case 0x3e2d: mcu.pc = 0x3db3; return true;
+        default: return false;
+    }
 }
 
 } // namespace mcu_native

@@ -941,7 +941,7 @@ void MCU_Step(mcu_t& mcu)
         switch (mcu.pc)
         {
         case 0x309b:
-            native = mcu_native::TryComposeLevelV121(mcu)
+            native = mcu_native::TryComposeLevelV121(mcu) || mcu_native::TryStepLevelConnections(mcu)
                 || (mcu.cp == 0 && !mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55
                     && mcu_native::TryComputeLevel(mcu));
             break;
@@ -978,6 +978,15 @@ void MCU_Step(mcu_t& mcu)
         case 0x312b:
             native = mcu_native::TryModulateLevel(mcu) || mcu_native::TryStepLevelModulation(mcu);
             break;
+        case 0x309d: case 0x30a1: case 0x30a5: case 0x30a8: case 0x30ab:
+        case 0x30ad: case 0x30b1: case 0x30b3: case 0x30b5: case 0x30b7:
+        case 0x30b9: case 0x30bb: case 0x30bd: case 0x30bf: case 0x30c1:
+        case 0x30c4: case 0x30c6: case 0x30ca: case 0x30cc: case 0x30ce:
+        case 0x30d0: case 0x30d2: case 0x30d4:
+        case 0x30d6: case 0x30da: case 0x30dc: case 0x30e0: case 0x30e2:
+        case 0x30e4: case 0x30e6: case 0x30e8: case 0x30eb: case 0x30ef:
+        case 0x30f1: case 0x30f3: case 0x30f5: case 0x30f7: case 0x30f9:
+        case 0x30fb: case 0x30fd:
         case 0x30ea: case 0x30ff: case 0x3102: case 0x3106: case 0x3109:
         case 0x310b: case 0x310e: case 0x3112: case 0x3115: case 0x3117:
         case 0x3119: case 0x311d: case 0x3120: case 0x3122: case 0x3124:
@@ -1054,7 +1063,7 @@ void MCU_Step(mcu_t& mcu)
             break;
         case 0x3b26:
         case 0x3b2c:
-            native = mcu_native::TryAdvanceLfo(mcu);
+            native = mcu_native::TryAdvanceLfo(mcu) || mcu_native::TryStepLfoPhase(mcu);
             break;
         case 0x473c:
             native = mcu_native::TryAdvanceCutoff(mcu) || mcu_native::TryStepFilterConversion(mcu);
@@ -1114,6 +1123,47 @@ void MCU_Step(mcu_t& mcu)
             }
             break;
         default:
+            if (mcu.cp == 0 && mcu.pc >= 0x3db3 && mcu.pc <= 0x3e2d) {
+                native = mcu_native::TryStepSharedThirdDepth(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x3d1a && mcu.pc <= 0x3db0) {
+                native = mcu_native::TryStepFirstModulationCopy(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x3cac && mcu.pc <= 0x3d19) {
+                native = mcu_native::TryStepLfoSampleHold(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x3bee && mcu.pc <= 0x3cab) {
+                native = mcu_native::TryStepLfoSine(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x3b28 && mcu.pc <= 0x3bec) {
+                native = mcu_native::TryStepLfoPhase(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && ((mcu.pc >= 0x3a7a && mcu.pc <= 0x3aac)
+                || (mcu.pc >= 0x3aeb && mcu.pc <= 0x3b25))) {
+                native = mcu_native::TryStepSecondVoiceLink(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x3aae && mcu.pc <= 0x3aea) {
+                native = mcu_native::TryStepSharedModulationCopy(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x39f6 && mcu.pc <= 0x3a77) {
+                native = mcu_native::TryStepVoiceParameterBias(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x3985 && mcu.pc <= 0x39f5) {
+                native = mcu_native::TryStepVoiceLink(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && mcu.pc >= 0x5b0b && mcu.pc <= 0x5c1d) {
+                native = mcu_native::TryStepVoiceScan(mcu);
+                break;
+            }
             if (mcu.cp == 0 && mcu.pc >= 0x312d && mcu.pc <= 0x3187) {
                 native = mcu_native::TryStepLevelModulation(mcu);
                 break;
@@ -1124,6 +1174,11 @@ void MCU_Step(mcu_t& mcu)
             }
             if (mcu.cp == 0 && mcu.pc >= 0x47fd && mcu.pc <= 0x4854) {
                 native = mcu_native::TryStepFilterModulation(mcu);
+                break;
+            }
+            if (mcu.cp == 0 && ((mcu.pc >= 0x318c && mcu.pc <= 0x3210)
+                || (mcu.pc >= 0x5855 && mcu.pc <= 0x5898))) {
+                native = mcu_native::TryStepVoiceOutput(mcu);
                 break;
             }
             if (mcu.cp == 0 && mcu.pc >= 0x32f0 && mcu.pc <= 0x3362) {

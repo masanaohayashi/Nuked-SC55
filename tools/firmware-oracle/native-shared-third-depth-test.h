@@ -6,9 +6,9 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativeLevelConnections(mcu_t& cpu)
+inline void verifyNativeSharedThirdDepth(mcu_t& cpu)
 {
-    constexpr uint16_t entries[]{0x309b,0x309d,0x30a1,0x30a5,0x30a8,0x30ab,0x30ad,0x30b1,0x30b3,0x30b5,0x30b7,0x30b9,0x30bb,0x30bd,0x30bf,0x30c1,0x30c4,0x30c6,0x30ca,0x30cc,0x30ce,0x30d0,0x30d2,0x30d4,0x30d6,0x30da,0x30dc,0x30e0,0x30e2,0x30e4,0x30e6,0x30e8,0x30eb,0x30ef,0x30f1,0x30f3,0x30f5,0x30f7,0x30f9,0x30fb,0x30fd,0x30ff,0x3102,0x3106,0x310b,0x310e,0x3112,0x3109,0x3115,0x30ea,0x3126,0x312a,0x3117,0x3119,0x311d,0x3120,0x3122,0x3124,0x3127};
+    constexpr uint16_t entries[]{0x3dbb,0x3dbf,0x3dc1,0x3dc3,0x3dc6,0x3dcd,0x3dc9,0x3dcb,0x3dd0,0x3dd2,0x3de8,0x3dd4,0x3dde,0x3dea,0x3df4,0x3dd6,0x3df6,0x3de0,0x3dec,0x3dd8,0x3de2,0x3dee,0x3df8,0x3dda,0x3dfa,0x3de4,0x3df0,0x3ddc,0x3de6,0x3df2,0x3dfc,0x3e0f,0x3dfe,0x3e11,0x3e02,0x3e04,0x3db3,0x3db5,0x3db8,0x3e07,0x3e0b,0x3e09,0x3e18,0x3e0d,0x3e15,0x3e1a,0x3e1d,0x3e1e,0x3e24,0x3e21,0x3e27,0x3e2a,0x3e2d};
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
     unsigned cases = 0;
@@ -20,15 +20,15 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         for (auto& reg : cpu.r) reg = next();
         cpu.r[0] = uint16_t(0xacde + (variant%24)*0x12a);
         cpu.r[1] = uint16_t(variant%24); cpu.r[7] = 0xd000;
-        if (entry == 0x30a1) cpu.r[2] = uint16_t(variant%16);
-        if (entry == 0x30a8 || entry == 0x30c6) cpu.r[3] = uint16_t(0x9000+variant);
         MCU_Write(cpu,0xcaf4+cpu.r[1],uint8_t(variant));
+        if (entry == 0x3db8) cpu.r[2] = uint16_t(0x9000+variant);
+        if (entry == 0x3dfe || entry == 0x3e11) cpu.r[2] = uint16_t((variant%128)*2);
         const auto sr = cpu.sr;
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
-        if (!mcu_native::TryStepLevelConnections(cpu) || cpu.native_debt)
-            throw std::runtime_error("Level connection rejected");
+        if (!mcu_native::TryStepSharedThirdDepth(cpu) || cpu.native_debt)
+            throw std::runtime_error("Shared third depth rejected");
         const auto nextPc = cpu.pc, nextSr = cpu.sr;
         std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
         const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
@@ -40,11 +40,11 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         if (cpu.pc != nextPc || cpu.sr != nextSr
             || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
             || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
-            std::fprintf(stderr,"Level connection mismatch at %04x variant %u\n",entry,variant);
-            throw std::runtime_error("Level connection differs from H8");
+            std::fprintf(stderr,"Shared third depth mismatch at %04x variant %u\n",entry,variant);
+            throw std::runtime_error("Shared third depth differs from H8");
         }
         ++cases;
     }
-    std::printf("Native level connections: %u instruction boundaries matched\n",cases);
+    std::printf("Native shared third depth: %u instruction boundaries matched\n",cases);
 }
 }

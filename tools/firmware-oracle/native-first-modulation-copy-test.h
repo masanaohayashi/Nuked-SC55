@@ -6,9 +6,9 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativeLevelConnections(mcu_t& cpu)
+inline void verifyNativeFirstModulationCopy(mcu_t& cpu)
 {
-    constexpr uint16_t entries[]{0x309b,0x309d,0x30a1,0x30a5,0x30a8,0x30ab,0x30ad,0x30b1,0x30b3,0x30b5,0x30b7,0x30b9,0x30bb,0x30bd,0x30bf,0x30c1,0x30c4,0x30c6,0x30ca,0x30cc,0x30ce,0x30d0,0x30d2,0x30d4,0x30d6,0x30da,0x30dc,0x30e0,0x30e2,0x30e4,0x30e6,0x30e8,0x30eb,0x30ef,0x30f1,0x30f3,0x30f5,0x30f7,0x30f9,0x30fb,0x30fd,0x30ff,0x3102,0x3106,0x310b,0x310e,0x3112,0x3109,0x3115,0x30ea,0x3126,0x312a,0x3117,0x3119,0x311d,0x3120,0x3122,0x3124,0x3127};
+    constexpr uint16_t entries[]{0x3d8f,0x3d92,0x3d94,0x3d96,0x3d98,0x3d9a,0x3d9c,0x3d9e,0x3da1,0x3da4,0x3da6,0x3da8,0x3daa,0x3dac,0x3dae,0x3db0,0x3d1a,0x3d1d,0x3d26,0x3d1f,0x3d28,0x3d23,0x3d2c,0x3d68,0x3d2f,0x3d6b,0x3d6e,0x3d71,0x3d74,0x3d86,0x3d77,0x3d89,0x3d7a,0x3d8c,0x3d7c,0x3d7f,0x3d82,0x3d85,0x3d32,0x3d35,0x3d38,0x3d3b,0x3d3e,0x3d41,0x3d44,0x3d47,0x3d4a,0x3d4d,0x3d50,0x3d53,0x3d56,0x3d59,0x3d5c,0x3d5f,0x3d62,0x3d65};
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
     unsigned cases = 0;
@@ -20,15 +20,15 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         for (auto& reg : cpu.r) reg = next();
         cpu.r[0] = uint16_t(0xacde + (variant%24)*0x12a);
         cpu.r[1] = uint16_t(variant%24); cpu.r[7] = 0xd000;
-        if (entry == 0x30a1) cpu.r[2] = uint16_t(variant%16);
-        if (entry == 0x30a8 || entry == 0x30c6) cpu.r[3] = uint16_t(0x9000+variant);
         MCU_Write(cpu,0xcaf4+cpu.r[1],uint8_t(variant));
+        cpu.r[2] = uint16_t(0xacde + ((variant+7)%24)*0x12a);
+        if (entry == 0x3d1f || entry == 0x3d28) cpu.r[1] = uint16_t((variant%24)*2);
         const auto sr = cpu.sr;
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
-        if (!mcu_native::TryStepLevelConnections(cpu) || cpu.native_debt)
-            throw std::runtime_error("Level connection rejected");
+        if (!mcu_native::TryStepFirstModulationCopy(cpu) || cpu.native_debt)
+            throw std::runtime_error("First modulation copy rejected");
         const auto nextPc = cpu.pc, nextSr = cpu.sr;
         std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
         const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
@@ -40,11 +40,11 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         if (cpu.pc != nextPc || cpu.sr != nextSr
             || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
             || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
-            std::fprintf(stderr,"Level connection mismatch at %04x variant %u\n",entry,variant);
-            throw std::runtime_error("Level connection differs from H8");
+            std::fprintf(stderr,"First modulation copy mismatch at %04x variant %u\n",entry,variant);
+            throw std::runtime_error("First modulation copy differs from H8");
         }
         ++cases;
     }
-    std::printf("Native level connections: %u instruction boundaries matched\n",cases);
+    std::printf("Native first modulation copy: %u instruction boundaries matched\n",cases);
 }
 }

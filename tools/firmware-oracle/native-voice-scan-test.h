@@ -6,45 +6,50 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativeLevelConnections(mcu_t& cpu)
+inline void verifyNativeVoiceScan(mcu_t& cpu)
 {
-    constexpr uint16_t entries[]{0x309b,0x309d,0x30a1,0x30a5,0x30a8,0x30ab,0x30ad,0x30b1,0x30b3,0x30b5,0x30b7,0x30b9,0x30bb,0x30bd,0x30bf,0x30c1,0x30c4,0x30c6,0x30ca,0x30cc,0x30ce,0x30d0,0x30d2,0x30d4,0x30d6,0x30da,0x30dc,0x30e0,0x30e2,0x30e4,0x30e6,0x30e8,0x30eb,0x30ef,0x30f1,0x30f3,0x30f5,0x30f7,0x30f9,0x30fb,0x30fd,0x30ff,0x3102,0x3106,0x310b,0x310e,0x3112,0x3109,0x3115,0x30ea,0x3126,0x312a,0x3117,0x3119,0x311d,0x3120,0x3122,0x3124,0x3127};
+    constexpr uint16_t entries[]{0x5b0b,0x5b0e,0x5b5f,0x5b11,0x5b62,0x5b13,0x5b42,0x5b64,0x5b54,0x5b15,0x5b44,0x5b56,0x5b66,0x5b19,0x5b1d,0x5b1f,0x5b22,0x5b24,0x5b28,0x5b2c,0x5b2e,0x5b35,0x5b33,0x5b3a,0x5b3c,0x5b4a,0x5b40,0x5b48,0x5b5a,0x5b4e,0x5b50,0x5b52,0x5b5c,0x5b6d,0x5b6a,0x5b70,0x5b73,0x5b89,0x5b9c,0x5bb4,0x5bdb,0x5bf9,0x5b7e,0x5b91,0x5bc6,0x5be3,0x5b8d,0x5b8e,0x5b8f,0x5b90,0x5bdf,0x5be0,0x5be1,0x5be2,0x5b77,0x5bb8,0x5bbf,0x5b7b,0x5bbc,0x5bc3,0x5b82,0x5b95,0x5ba0,0x5ba7,0x5bca,0x5be7,0x5bfd,0x5c0b,0x5bd0,0x5bee,0x5c04,0x5c12,0x5bd4,0x5bf2,0x5bae,0x5c19,0x5bb2,0x5c1d,0x5b86,0x5b99,0x5ba4,0x5bab,0x5bce,0x5bd8,0x5beb,0x5bf6,0x5c01,0x5c08,0x5c0f,0x5c16};
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
     unsigned cases = 0;
     for (auto entry : entries) for (unsigned variant = 0; variant < 384; ++variant) {
         cpu.native_v121_enabled = true;
         cpu.cp = cpu.dp = 0; cpu.ep = 1;
+        cpu.tp = 0;
         cpu.pc = entry; cpu.sr = uint16_t((variant&15)|(((variant/16)%8)<<8)); cpu.native_debt = 0;
         for (auto& byte : cpu.sram) byte = uint8_t(next());
         for (auto& reg : cpu.r) reg = next();
         cpu.r[0] = uint16_t(0xacde + (variant%24)*0x12a);
         cpu.r[1] = uint16_t(variant%24); cpu.r[7] = 0xd000;
-        if (entry == 0x30a1) cpu.r[2] = uint16_t(variant%16);
-        if (entry == 0x30a8 || entry == 0x30c6) cpu.r[3] = uint16_t(0x9000+variant);
         MCU_Write(cpu,0xcaf4+cpu.r[1],uint8_t(variant));
+        if (entry == 0x5b15 || entry == 0x5b44 || entry == 0x5b66) cpu.r[2] = uint16_t((variant%24)*2);
+        if (entry == 0x5b56) cpu.r[0] = uint16_t((variant%24)*2);
+        cpu.ex_ignore = 0;
+        if (entry == 0x5bc3) cpu.r[2] = uint16_t(0xacde + (variant%24)*0x12a);
         const auto sr = cpu.sr;
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
-        if (!mcu_native::TryStepLevelConnections(cpu) || cpu.native_debt)
-            throw std::runtime_error("Level connection rejected");
+        if (!mcu_native::TryStepVoiceScan(cpu) || cpu.native_debt)
+            throw std::runtime_error("Voice scan rejected");
         const auto nextPc = cpu.pc, nextSr = cpu.sr;
         std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
         const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
+        const auto nextEp = cpu.ep, nextIgnore = cpu.ex_ignore;
+        cpu.ep = 1; cpu.ex_ignore = 0;
         cpu.pc = entry; cpu.sr = sr;
         std::copy(before.begin(),before.end(),std::begin(cpu.r));
         std::copy(memory.begin(),memory.end(),std::begin(cpu.sram));
         const auto opcode = MCU_ReadCodeAdvance(cpu);
         MCU_Operand_Table[opcode](cpu,opcode);
-        if (cpu.pc != nextPc || cpu.sr != nextSr
+        if (cpu.pc != nextPc || cpu.sr != nextSr || cpu.ep != nextEp || cpu.ex_ignore != nextIgnore
             || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
             || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
-            std::fprintf(stderr,"Level connection mismatch at %04x variant %u\n",entry,variant);
-            throw std::runtime_error("Level connection differs from H8");
+            std::fprintf(stderr,"Voice scan mismatch at %04x variant %u\n",entry,variant);
+            throw std::runtime_error("Voice scan differs from H8");
         }
         ++cases;
     }
-    std::printf("Native level connections: %u instruction boundaries matched\n",cases);
+    std::printf("Native voice scan: %u instruction boundaries matched\n",cases);
 }
 }

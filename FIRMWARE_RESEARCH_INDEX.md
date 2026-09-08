@@ -183,6 +183,46 @@
 
 ## 証拠・再開手順
 
+- [第1変調系の共有登録・コピー](docs/firmware/NATIVE_FIRST_MODULATION_COPY_2026-09-09.md):
+  3d1a..3db0の56命令。共有登録・コピー・ディレイ判定・2変調量の係数適用。
+
+- [PCM由来の値を保持するLFO](docs/firmware/NATIVE_LFO_SAMPLE_HOLD_2026-09-09.md):
+  3cac..3d19の45命令。位相overflow時のPCM読み取り・保持・平滑化。
+
+- [テーブル補間型LFO](docs/firmware/NATIVE_LFO_SINE_2026-09-09.md):
+  3bee..3cabの80命令。テーブル補間・矩形・鋸歯状・折り返し波形。
+
+- [LFOディレイ・立ち上がり](docs/firmware/NATIVE_LFO_PHASE_2026-09-09.md):
+  3b26..3becの76命令。ディレイ・立ち上がり・係数適用・周波数補正・波形選択。
+
+- [第2変調系の共有先検証](docs/firmware/NATIVE_SECOND_VOICE_LINK_2026-09-09.md):
+  3a7a..3aac/3aeb..3b25の40命令。共有コピーへの接続と参照付け替え。
+
+- [共有変調状態のコピー](docs/firmware/NATIVE_SHARED_MODULATION_COPY_2026-09-09.md):
+  3aae..3aeaの21命令と3a71..3a77のLFO更新への接続。
+
+- [ボイスのパラメーター補正前段](docs/firmware/NATIVE_VOICE_PARAMETER_BIAS_2026-09-09.md):
+  39f6..3a6eの53命令。8bit飽和補正と符号付きテーブル変換。
+
+- [ボイス共有先の検証](docs/firmware/NATIVE_VOICE_LINK_2026-09-09.md):
+  3985..39f5の41命令。パラメーター比較・参照付け替え・割り込み後の再確認。
+
+- [更新対象ボイスの走査](docs/firmware/NATIVE_VOICE_SCAN_2026-09-09.md):
+  5b0b..5c1dの90命令。走査・周回マーク・関連ボイスのサービス呼び出し。
+
+- [置換後の実行時間サンプル](docs/firmware/NATIVE_RUNTIME_PROFILE_2026-09-09.md):
+  PCM・MCU・タイマーの比重を記録。単命令置換では残る周辺更新費用を区別。
+
+- [音量・ボイス出力追加後のCPU比較](docs/firmware/NATIVE_LEVEL_VOICE_PERFORMANCE_2026-09-09.md):
+  24音/アイドルとも今回の比較では高速化未確認。命令数削減とCPU改善を区別する。
+
+- [ボイス出力の準備処理](docs/firmware/NATIVE_VOICE_OUTPUT_2026-09-09.md):
+  318c..3210と5855..5898の72命令を単命令C++化。PCM副作用・割り込み抑制を比較済み。
+  3190付近の逆アセンブルの命令境界訂正を含む。
+
+- [共有ボイスの第3変調量](docs/firmware/NATIVE_SHARED_THIRD_DEPTH_2026-09-09.md):
+  3db3..3e2dの53命令。バイアス・飽和・係数適用と命令境界比較。
+
 1. 本索引で対象分野と訂正先を確認する。
 2. 該当する実装ヘッダーとoracle/testを読む。検証済み入力範囲と未対応条件を確認する。
 3. [保全記録](docs/firmware/evidence/README.md)で元ログとハッシュを特定する。

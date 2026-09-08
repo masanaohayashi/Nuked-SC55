@@ -6,9 +6,9 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativeLevelConnections(mcu_t& cpu)
+inline void verifyNativeVoiceLink(mcu_t& cpu)
 {
-    constexpr uint16_t entries[]{0x309b,0x309d,0x30a1,0x30a5,0x30a8,0x30ab,0x30ad,0x30b1,0x30b3,0x30b5,0x30b7,0x30b9,0x30bb,0x30bd,0x30bf,0x30c1,0x30c4,0x30c6,0x30ca,0x30cc,0x30ce,0x30d0,0x30d2,0x30d4,0x30d6,0x30da,0x30dc,0x30e0,0x30e2,0x30e4,0x30e6,0x30e8,0x30eb,0x30ef,0x30f1,0x30f3,0x30f5,0x30f7,0x30f9,0x30fb,0x30fd,0x30ff,0x3102,0x3106,0x310b,0x310e,0x3112,0x3109,0x3115,0x30ea,0x3126,0x312a,0x3117,0x3119,0x311d,0x3120,0x3122,0x3124,0x3127};
+    constexpr uint16_t entries[]{0x3985,0x3988,0x398a,0x39bb,0x398d,0x39c0,0x39d2,0x398f,0x3993,0x3997,0x399b,0x399f,0x39a4,0x39a6,0x39ac,0x39b2,0x39aa,0x39b0,0x39b6,0x39b8,0x39be,0x39c2,0x39c6,0x39c9,0x39cc,0x39ce,0x39d0,0x39d4,0x39d8,0x39da,0x39de,0x39e1,0x39e4,0x39ec,0x39e8,0x39e9,0x39ea,0x39eb,0x39f0,0x39f3,0x39f5};
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
     unsigned cases = 0;
@@ -20,31 +20,34 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         for (auto& reg : cpu.r) reg = next();
         cpu.r[0] = uint16_t(0xacde + (variant%24)*0x12a);
         cpu.r[1] = uint16_t(variant%24); cpu.r[7] = 0xd000;
-        if (entry == 0x30a1) cpu.r[2] = uint16_t(variant%16);
-        if (entry == 0x30a8 || entry == 0x30c6) cpu.r[3] = uint16_t(0x9000+variant);
         MCU_Write(cpu,0xcaf4+cpu.r[1],uint8_t(variant));
+        if (entry == 0x398f || entry == 0x39c2) cpu.r[1] = uint16_t((variant%24)*2);
+        if (entry == 0x39d4 || entry == 0x39da) cpu.r[3] = uint16_t((variant%24)*2);
+        if (entry == 0x399f || entry == 0x39a6 || entry == 0x39ac || entry == 0x39b2) cpu.r[2] = uint16_t(0xacde + (variant%24)*0x12a);
+        cpu.ex_ignore = 0;
         const auto sr = cpu.sr;
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
-        if (!mcu_native::TryStepLevelConnections(cpu) || cpu.native_debt)
-            throw std::runtime_error("Level connection rejected");
+        if (!mcu_native::TryStepVoiceLink(cpu) || cpu.native_debt)
+            throw std::runtime_error("Voice link rejected");
         const auto nextPc = cpu.pc, nextSr = cpu.sr;
         std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
         const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
+        const auto nextIgnore = cpu.ex_ignore; cpu.ex_ignore = 0;
         cpu.pc = entry; cpu.sr = sr;
         std::copy(before.begin(),before.end(),std::begin(cpu.r));
         std::copy(memory.begin(),memory.end(),std::begin(cpu.sram));
         const auto opcode = MCU_ReadCodeAdvance(cpu);
         MCU_Operand_Table[opcode](cpu,opcode);
-        if (cpu.pc != nextPc || cpu.sr != nextSr
+        if (cpu.pc != nextPc || cpu.sr != nextSr || cpu.ex_ignore != nextIgnore
             || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
             || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
-            std::fprintf(stderr,"Level connection mismatch at %04x variant %u\n",entry,variant);
-            throw std::runtime_error("Level connection differs from H8");
+            std::fprintf(stderr,"Voice link mismatch at %04x variant %u\n",entry,variant);
+            throw std::runtime_error("Voice link differs from H8");
         }
         ++cases;
     }
-    std::printf("Native level connections: %u instruction boundaries matched\n",cases);
+    std::printf("Native voice link: %u instruction boundaries matched\n",cases);
 }
 }

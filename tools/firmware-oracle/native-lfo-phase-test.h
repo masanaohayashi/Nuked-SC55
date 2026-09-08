@@ -6,9 +6,9 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativeLevelConnections(mcu_t& cpu)
+inline void verifyNativeLfoPhase(mcu_t& cpu)
 {
-    constexpr uint16_t entries[]{0x309b,0x309d,0x30a1,0x30a5,0x30a8,0x30ab,0x30ad,0x30b1,0x30b3,0x30b5,0x30b7,0x30b9,0x30bb,0x30bd,0x30bf,0x30c1,0x30c4,0x30c6,0x30ca,0x30cc,0x30ce,0x30d0,0x30d2,0x30d4,0x30d6,0x30da,0x30dc,0x30e0,0x30e2,0x30e4,0x30e6,0x30e8,0x30eb,0x30ef,0x30f1,0x30f3,0x30f5,0x30f7,0x30f9,0x30fb,0x30fd,0x30ff,0x3102,0x3106,0x310b,0x310e,0x3112,0x3109,0x3115,0x30ea,0x3126,0x312a,0x3117,0x3119,0x311d,0x3120,0x3122,0x3124,0x3127};
+    constexpr uint16_t entries[]{0x3b26,0x3b28,0x3b2c,0x3b52,0x3b2f,0x3b55,0x3b48,0x3b32,0x3b58,0x3b34,0x3b5a,0x3b37,0x3b5d,0x3be1,0x3b3b,0x3b61,0x3b3d,0x3b63,0x3b41,0x3b67,0x3b43,0x3b69,0x3b45,0x3b6e,0x3b4b,0x3b4d,0x3b6b,0x3b71,0x3baa,0x3b74,0x3b86,0x3b99,0x3b76,0x3b7a,0x3b88,0x3b8c,0x3b9b,0x3b9f,0x3b78,0x3b7e,0x3b8a,0x3b90,0x3b9d,0x3ba3,0x3b7c,0x3b8e,0x3ba1,0x3b80,0x3bad,0x3b92,0x3bb3,0x3ba5,0x3bb9,0x3b83,0x3bb0,0x3b95,0x3bb6,0x3ba8,0x3bbc,0x3bbe,0x3bc1,0x3bc3,0x3bc7,0x3bca,0x3bcc,0x3bd7,0x3bce,0x3bd9,0x3bd1,0x3bdc,0x3bd3,0x3bd5,0x3bde,0x3be5,0x3be8,0x3bec};
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
     unsigned cases = 0;
@@ -20,15 +20,16 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         for (auto& reg : cpu.r) reg = next();
         cpu.r[0] = uint16_t(0xacde + (variant%24)*0x12a);
         cpu.r[1] = uint16_t(variant%24); cpu.r[7] = 0xd000;
-        if (entry == 0x30a1) cpu.r[2] = uint16_t(variant%16);
-        if (entry == 0x30a8 || entry == 0x30c6) cpu.r[3] = uint16_t(0x9000+variant);
         MCU_Write(cpu,0xcaf4+cpu.r[1],uint8_t(variant));
+        cpu.r[1] = uint16_t(cpu.r[0]-(variant%2 ? 128 : 94));
         const auto sr = cpu.sr;
+        if (entry == 0x3bc3) cpu.r[3] = uint16_t((variant%256)*2);
+        if (entry == 0x3be8) cpu.r[2] = uint16_t((variant%6)*2);
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
-        if (!mcu_native::TryStepLevelConnections(cpu) || cpu.native_debt)
-            throw std::runtime_error("Level connection rejected");
+        if (!mcu_native::TryStepLfoPhase(cpu) || cpu.native_debt)
+            throw std::runtime_error("LFO phase rejected");
         const auto nextPc = cpu.pc, nextSr = cpu.sr;
         std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
         const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
@@ -40,11 +41,11 @@ inline void verifyNativeLevelConnections(mcu_t& cpu)
         if (cpu.pc != nextPc || cpu.sr != nextSr
             || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
             || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
-            std::fprintf(stderr,"Level connection mismatch at %04x variant %u\n",entry,variant);
-            throw std::runtime_error("Level connection differs from H8");
+            std::fprintf(stderr,"LFO phase mismatch at %04x variant %u\n",entry,variant);
+            throw std::runtime_error("LFO phase differs from H8");
         }
         ++cases;
     }
-    std::printf("Native level connections: %u instruction boundaries matched\n",cases);
+    std::printf("Native LFO phase: %u instruction boundaries matched\n",cases);
 }
 }
