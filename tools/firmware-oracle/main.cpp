@@ -29,6 +29,7 @@
 #include "native-player-test.h"
 #include "rhythm-velocity-oracle.h"
 #include "control-clock-probe.h"
+#include "native-tva-test.h"
 
 namespace {
 FILE* trace = nullptr;
@@ -530,6 +531,15 @@ void Oracle_PCM_Write(pcm_t& pcm, uint32_t address, uint8_t value)
 
 int main(int argc, char** argv)
 {
+    if (argc == 3 && std::string(argv[1]) == "--native-tva-test")
+    {
+        try { return verifyNativeTva (argv[2]); }
+        catch (const std::exception& error)
+        {
+            std::fprintf(stderr, "Native TVA test: %s\n", error.what());
+            return 1;
+        }
+    }
     if (argc == 4 && std::string(argv[1]) == "--native-player-test")
         return verifyNativePlayer(argv[2],argv[3]);
     if (argc == 4 && std::string(argv[1]) == "--native-wave-output-test")

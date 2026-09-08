@@ -252,4 +252,49 @@ inline bool TryComputeLevel (mcu_t& mcu)
     return true;
 }
 
+// 00:36ee..3734: periodic TVA ramp and PCM output word. The level in r5
+// has already been calculated by the firmware (including silence/saturation).
+// Only ordinary SRAM under the firmware's interrupt mask is eligible.
+inline bool TryAdvanceTva (mcu_t& mcu)
+{
+    const uint16_t voice = mcu.r[0];
+    if (!mcu.native_tva_enabled || mcu.cp != 0 || mcu.pc != 0x36ee
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || (voice & 1) != 0 || voice < 0x8000 || voice > 0xdfce)
+        return false;
+
+    const uint16_t oldRamp = ReadWord(mcu, voice + 6);
+    const uint32_t sum = uint32_t(oldRamp) + 0x2000;
+    const uint16_t ramp = sum > 0xffff ? 0xffff : uint16_t(sum);
+    const uint32_t product = uint32_t(mcu.r[5]) * ramp;
+    const uint16_t previous = ReadWord(mcu, voice + 0x18);
+    const uint16_t now = uint16_t(product >> 16);
+    const unsigned magnitude = now < previous ? unsigned(previous - now) : unsigned(now - previous);
+    uint16_t calculated;
+    const uint16_t command = sc55::TvaWord(mcu.r[5], ramp, previous, calculated);
+
+    if (oldRamp != 0xffff)
+        MCU_Write16(mcu, voice + 6, ramp);
+    MCU_Write16(mcu, voice + 0x18, now);
+    MCU_Write16(mcu, voice + 0x1a, command);
+    mcu.r[2] = uint16_t(magnitude);
+    mcu.r[3] = uint16_t(product);
+    mcu.r[5] = magnitude <= 16 ? now : command;
+    mcu.r[6] = previous;
+    // MOV preserves carry from CMP(magnitude,16), or SUB(now,previous)
+    // on the exact-equality shortcut. All other SR bits are preserved.
+    const unsigned carry = magnitude != 0 && magnitude < 16 ? STATUS_C : 0;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | carry | (command & 0x8000 ? STATUS_N : 0));
+    mcu.pc = 0x3734;
+
+    unsigned instructions = 9; // 36ee..36f4 and 3702..370e
+    if (oldRamp != 0xffff)
+        instructions += 3 + unsigned(sum > 0xffff); // add, branch, store, optional saturation
+    instructions += magnitude == 0 ? 1 : 5 + (magnitude <= 16 ? 1 : 3);
+    // Retain every peripheral clock step; never opt into SC55_BULK here.
+    mcu.native_debt = instructions - 1;
+    return true;
+}
+
 } // namespace mcu_native

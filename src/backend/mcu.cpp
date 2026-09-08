@@ -837,6 +837,7 @@ void MCU_Deinit(mcu_t& mcu)
 
 void MCU_Reset(mcu_t& mcu)
 {
+    mcu.native_debt = 0;
     mcu.r[0] = 0;
     mcu.r[1] = 0;
     mcu.r[2] = 0;
@@ -936,8 +937,13 @@ void MCU_Step(mcu_t& mcu)
     }
     else if (!mcu.sleep)
     {
-        if (mcu.cp == 0 && mcu.pc == 0x309b && !mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55
-            && mcu_native::TryComputeLevel(mcu))
+        if (mcu.pc == 0x36ee
+            && mcu_native::TryAdvanceTva(mcu))
+        {
+            // The v1.21 TVA ramp/output calculation resumes at 00:3734.
+        }
+        else if (mcu.cp == 0 && mcu.pc == 0x309b && !mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55
+                 && mcu_native::TryComputeLevel(mcu))
         {
             // 00:309b の音量合成をネイティブで済ませた。
         }
