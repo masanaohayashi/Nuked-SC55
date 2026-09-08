@@ -4,6 +4,8 @@
 #include "rom_loader.h"
 #include "native-controller-test.h"
 #include "native-cutoff-test.h"
+#include "native-lfo-test.h"
+#include "native-pitch-modulation-test.h"
 #include "native-level-test.h"
 #include <algorithm>
 #include <array>
@@ -106,6 +108,9 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeControllers(cpu);
     verifyNativeCutoff(cpu);
     verifyNativeLevel(cpu);
+    verifyNativeLfo(cpu);
+    verifyNativePitchModulation(cpu);
+    verifyNativePitchModulation(cpu,true);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
@@ -114,6 +119,9 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     uint64_t controllerHits = 0, controllerInstructions = 0;
     uint64_t cutoffHits = 0, cutoffInstructions = 0;
     uint64_t levelHits = 0, levelInstructions = 0;
+    uint64_t lfoHits = 0, lfoInstructions = 0;
+    uint64_t pitchModHits = 0, pitchModInstructions = 0;
+    uint64_t pitchConvertHits = 0, pitchConvertInstructions = 0;
     const bool profile = std::getenv("SC55_TVA_PROFILE") != nullptr;
     std::vector<uint64_t> counts(0x80000);
     for (unsigned mode = 0; mode < 2; ++mode) {
@@ -138,7 +146,23 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                 const bool controllerEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5c20;
                 const bool cutoffEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x473c;
                 const bool levelEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x309b;
+                const bool lfoEntry = mcu.native_debt == 0 && mcu.cp == 0
+                    && (mcu.pc == 0x3b26 || mcu.pc == 0x3b2c);
+                const bool pitchModEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5368;
+                const bool pitchConvertEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x51e7;
                 player.Step();
+                if (mode && pitchConvertEntry && mcu.pc == 0x527c && mcu.native_debt) {
+                    ++pitchConvertHits;
+                    pitchConvertInstructions += mcu.native_debt+1;
+                }
+                if (mode && pitchModEntry && mcu.pc == 0x53e4 && mcu.native_debt) {
+                    ++pitchModHits;
+                    pitchModInstructions += mcu.native_debt+1;
+                }
+                if (mode && lfoEntry && mcu.native_debt) {
+                    ++lfoHits;
+                    lfoInstructions += mcu.native_debt+1;
+                }
                 if (mode && entry && mcu.pc == 0x3734 && mcu.native_debt) ++hits;
                 if (mode && controllerEntry && mcu.pc == 0x5ff4 && mcu.native_debt) {
                     ++controllerHits;
@@ -180,6 +204,15 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     if (!controllerHits) throw std::runtime_error("Real playback never dispatched native controllers");
     if (!cutoffHits) throw std::runtime_error("Real playback never dispatched native cutoff");
     if (!levelHits) throw std::runtime_error("Real playback never dispatched native level");
+    if (!lfoHits) throw std::runtime_error("Real playback never dispatched native LFO");
+    if (!pitchModHits) throw std::runtime_error("Real playback never dispatched native pitch modulation");
+    if (!pitchConvertHits) throw std::runtime_error("Real playback never dispatched native pitch conversion");
+    std::printf("Real playback pitch conversion: %llu calls, %llu instructions\n",
+                (unsigned long long)pitchConvertHits,(unsigned long long)pitchConvertInstructions);
+    std::printf("Real playback pitch modulation: %llu calls, %llu instructions\n",
+                (unsigned long long)pitchModHits,(unsigned long long)pitchModInstructions);
+    std::printf("Real playback LFO: %llu calls, %llu instructions\n",
+                (unsigned long long)lfoHits,(unsigned long long)lfoInstructions);
     std::printf("Level playback: %llu calls, %llu H8 instructions replaced\n",
                 (unsigned long long)levelHits,(unsigned long long)levelInstructions);
     std::printf("Cutoff playback: %llu calls, %llu H8 instructions replaced\n",

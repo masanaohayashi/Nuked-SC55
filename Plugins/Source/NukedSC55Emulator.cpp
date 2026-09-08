@@ -561,12 +561,14 @@ bool NukedSC55Emulator::hasRomSet (const std::string& romDirectory)
     installBackendDiagnostics();
 
     std::error_code filesystemError;
-    if (! std::filesystem::is_directory (std::filesystem::path (romDirectory), filesystemError))
+    // JUCE supplies UTF-8; a narrow path constructor uses the ANSI code page on Windows.
+    const auto path = std::filesystem::u8path (romDirectory);
+    if (! std::filesystem::is_directory (path, filesystemError))
         return false;
 
     common::LoadRomsetResult result {};
     common::RomOverrides overrides {};
-    const auto loadError = common::LoadRomset (std::filesystem::path (romDirectory), {},
+    const auto loadError = common::LoadRomset (path, {},
                                                common::RomLoader::Hashing, overrides, result);
     if (loadError != common::LoadRomsetError {})
         return false;
@@ -577,7 +579,7 @@ bool NukedSC55Emulator::hasRomSet (const std::string& romDirectory)
 void NukedSC55Emulator::logRomSetDiagnostics (const std::string& romDirectory)
 {
 #if JUCE_DEBUG
-    const auto path = std::filesystem::path (romDirectory);
+    const auto path = std::filesystem::u8path (romDirectory);
     std::fprintf (stderr, "[DEBUG-SC55] ROM diagnostics path=\"%s\"\n",
                   romDirectory.c_str());
 
@@ -646,7 +648,7 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
 
     auto nextRoms = std::make_unique<common::LoadRomsetResult>();
     common::RomOverrides overrides {};
-    const auto loadError = common::LoadRomset (std::filesystem::path (romDirectory), {},
+    const auto loadError = common::LoadRomset (std::filesystem::u8path (romDirectory), {},
                                                common::RomLoader::Hashing, overrides, *nextRoms);
     if (loadError != common::LoadRomsetError {})
     {

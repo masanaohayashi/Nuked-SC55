@@ -590,4 +590,232 @@ inline bool TryComposeLevelV121(mcu_t& mcu)
     return true;
 }
 
+// Both modulation blocks share 3b2c. Delay, attack and frequency preparation
+// are SRAM-only. Sine generation is folded too; other waveforms resume in H8,
+// especially sample/hold where PCM readback must occur at its original cycle.
+inline bool TryAdvanceLfo(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    const bool secondEntry = mcu.pc == 0x3b26;
+    const unsigned block = secondEntry ? uint16_t(voice-94) : mcu.r[1];
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || (!secondEntry && mcu.pc != 0x3b2c)
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a != 0
+        || (block != voice-128 && block != voice-94))
+        return false;
+    const unsigned rate = MCU_Read(mcu,block+12), shape = ReadWord(mcu,block+20);
+    if (rate > 127 || (shape & 1) || shape > 12) return false;
+    const uint16_t tick = ReadWord(mcu,0xac5a);
+    unsigned instructions = (secondEntry ? 2 : 0) + 3;
+    uint16_t r6 = ReadWord(mcu,block+24);
+    bool delayed = false;
+    if (r6 != 0xffff)
+    {
+        const uint32_t sum = uint32_t(ReadWord(mcu,block+16))*tick+r6;
+        instructions += 6;
+        if ((sum>>16) == 0)
+        {
+            MCU_Write16(mcu,block+24,uint16_t(sum));
+            instructions += 3;
+            delayed = uint16_t(sum) != 0xffff;
+        }
+        if (!delayed) { MCU_Write16(mcu,block+24,0xffff); ++instructions; }
+    }
+    if (!delayed)
+    {
+        r6 = ReadWord(mcu,block+26);
+        instructions += 3;
+        if (r6 == 0xffff)
+        {
+            for (unsigned i = 0; i < 3; ++i)
+                MCU_Write16(mcu,block+6+i*2,ReadWord(mcu,block+i*2));
+            instructions += 6;
+        }
+        else
+        {
+            const uint32_t sum = uint32_t(ReadWord(mcu,block+18))*tick+r6;
+            const uint16_t attack = sum > 0xffff ? 0xffff : uint16_t(sum);
+            instructions += 7 + unsigned(sum > 0xffff);
+            MCU_Write16(mcu,block+26,attack);
+            for (unsigned i = 0; i < 3; ++i)
+            {
+                const uint16_t depth = ReadWord(mcu,block+i*2);
+                const bool negative = (depth & 0x8000) != 0;
+                const uint16_t magnitude = negative ? uint16_t(0u-depth) : depth;
+                const uint16_t high = uint16_t((uint32_t(magnitude)*attack)>>16);
+                MCU_Write16(mcu,block+6+i*2,negative ? uint16_t(0u-high) : high);
+                instructions += negative ? 7 : 4;
+            }
+            ++instructions;
+        }
+    }
+    uint16_t r3 = ReadWord(mcu,0x7012+rate*2);
+    const uint16_t modifier = ReadWord(mcu,block+14);
+    uint16_t effective = uint16_t(r3+modifier);
+    bool carry = effective < 0x28f6;
+    instructions += 13;
+    if (effective > 0x28f6)
+    {
+        effective = (modifier & 0x8000) ? 0 : 0x28f6;
+        instructions += (modifier & 0x8000) ? 2 : 1;
+    }
+    const uint32_t product = uint32_t(effective)*tick;
+    uint16_t r4 = uint16_t(product>>16), r5 = uint16_t(product);
+    uint16_t r2 = ReadWord(mcu,0x74c4+shape), exit = r2;
+    uint16_t flags = 0; // MULXU clears C; final target MOV clears N/Z/V.
+    if (shape == 0)
+    {
+        r6 = uint16_t(r5+ReadWord(mcu,block+22));
+        MCU_Write16(mcu,block+22,r6);
+        r5 = r6 < 0x8000 ? uint16_t(0x8000-r6) : uint16_t(r6-0x8000);
+        const unsigned index = r5>>8;
+        const unsigned low = MCU_Read(mcu,0x7412+index), high = MCU_Read(mcu,0x7413+index);
+        const unsigned magnitude = low > high ? low-high : high-low;
+        r2 = uint16_t(magnitude*(r5&255));
+        r4 = low > high ? uint16_t((low<<8)-r2) : uint16_t((low<<8)+r2);
+        r4 >>= 1;
+        carry = r6 < 0x8000;
+        if (r6 > 0x8000) { carry = r4 != 0; r4 = uint16_t(0u-r4); }
+        MCU_Write16(mcu,block+32,r4);
+        flags = uint16_t((carry ? STATUS_C : 0) | (r4 & 0x8000 ? STATUS_N : 0)
+            | (r4 == 0 ? STATUS_Z : 0));
+        instructions += 21 + unsigned(r6 < 0x8000) + (low > high ? 2 : 0) + unsigned(r6 > 0x8000);
+        exit = 0x3c30;
+    }
+    mcu.r[1] = uint16_t(block); mcu.r[2] = r2; mcu.r[3] = r3;
+    mcu.r[4] = r4; mcu.r[5] = r5; mcu.r[6] = r6;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | flags);
+    mcu.pc = exit;
+    mcu.native_debt = instructions-1;
+    return true;
+}
+
+// 5368..53e4: signed depth composition and rounded modulation of 24-bit pitch.
+// Leave the caller's stack and RTS to H8. All data accesses are voice SRAM.
+inline bool TryModulatePitch(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x5368
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a != 0)
+        return false;
+    const uint16_t first = mcu.r[2], second = mcu.r[3];
+    bool negative = (first & 0x8000) != 0;
+    uint16_t magnitude;
+    unsigned instructions = 4;
+    if ((first & 0x8000) == (second & 0x8000))
+    {
+        magnitude = negative ? uint16_t(0u-first-second) : uint16_t(first+second);
+        instructions += negative ? 5 : 3;
+        if (magnitude > 6000) { magnitude = 6000; instructions += 2; }
+    }
+    else
+    {
+        magnitude = uint16_t(first+second);
+        negative = (magnitude & 0x8000) != 0;
+        instructions += 2;
+        if (negative) { magnitude = uint16_t(0u-magnitude); instructions += 2; }
+    }
+    uint16_t waveform = mcu.r[6];
+    instructions += 2;
+    if (waveform & 0x8000)
+    {
+        waveform = uint16_t(0u-waveform);
+        instructions += negative ? 1 : 2;
+        negative = !negative;
+    }
+    const uint32_t product = uint32_t(magnitude)*uint16_t(waveform*2u)+0x8000u;
+    const uint16_t amount = uint16_t(product>>16);
+    uint16_t r5 = uint16_t((mcu.r[5]&0xff00) | MCU_Read(mcu,voice+45));
+    uint16_t r6 = ReadWord(mcu,voice+70);
+    bool carry;
+    instructions += negative ? 10 : 9;
+    if (negative)
+    {
+        const bool borrow = r6 < amount;
+        r6 = uint16_t(r6-amount);
+        carry = (r5&255) < unsigned(borrow);
+        r5 = uint16_t((r5&0xff00) | uint8_t(r5-unsigned(borrow)));
+        if (r5 & 0x80) { r6 = 0; r5 &= 0xff00; carry = false; instructions += 2; }
+    }
+    else
+    {
+        const unsigned sum = unsigned(r6)+amount;
+        r6 = uint16_t(sum);
+        const unsigned high = (r5&255)+(sum>>16);
+        carry = high > 255;
+        r5 = uint16_t((r5&0xff00) | uint8_t(high));
+    }
+    MCU_Write(mcu,voice+45,uint8_t(r5));
+    MCU_Write16(mcu,voice+70,r6);
+    instructions += 2;
+    mcu.r[2] = amount; mcu.r[3] = uint16_t(product); mcu.r[5] = r5; mcu.r[6] = r6;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (carry ? STATUS_C : 0)
+        | (r6 & 0x8000 ? STATUS_N : 0) | (r6 == 0 ? STATUS_Z : 0));
+    mcu.pc = 0x53e4;
+    mcu.native_debt = instructions-1;
+    return true;
+}
+
+// 51e7..527c: signed 24-bit pitch delta to PCM rate, using the original ROM
+// tables. Preserve the shift-loop instruction debt, even for extreme deltas.
+inline bool TryConvertPitch(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x51e7
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || voice < 0xacde || voice > 0xc7a4 || (voice-0xacde)%0x12a != 0)
+        return false;
+    const uint32_t input = (uint32_t(mcu.r[2]&255)<<16)|mcu.r[3];
+    const uint32_t reference = (uint32_t(MCU_Read(mcu,voice+41))<<16)|ReadWord(mcu,voice+62);
+    const uint32_t delta = (input-reference-12000u)&0xffffff;
+    const bool negative = (delta & 0x800000) != 0;
+    const uint32_t magnitude = negative ? (0x1000000u-delta) : delta;
+    uint16_t remainder = uint16_t(magnitude%12000);
+    uint16_t octave = uint16_t(magnitude/12000);
+    uint16_t r1 = mcu.r[1], r2 = remainder, r3 = octave, r4, r5 = mcu.r[5];
+    unsigned instructions = 5 + (negative ? 8 : 4);
+    bool carry = false;
+    if (!negative && octave != 0) { r4 = 0xffff; instructions += 2; }
+    else
+    {
+        if (negative && remainder != 0) {
+            ++octave; remainder = uint16_t(12000-remainder); instructions += 3;
+        }
+        const uint16_t fine = ReadWord(mcu,0x7b7a+(remainder&255)*2);
+        r1 = ReadWord(mcu,0x7d7a+(remainder>>8)*2);
+        const uint32_t product = uint32_t(fine)*r1;
+        r5 = uint16_t(product);
+        const uint16_t high = uint16_t(product>>16);
+        // ROTL twice, mask low byte to 3, SWAP, then add coarse table value.
+        const uint16_t rotated = uint16_t((high<<2)|(high>>14));
+        const uint16_t masked = uint16_t((rotated&0xff00)|(rotated&3));
+        const uint16_t correction = uint16_t((masked<<8)|(masked>>8));
+        const unsigned sum = unsigned(correction)+r1;
+        r4 = uint16_t(sum); carry = sum > 0xffff;
+        r2 = uint16_t((remainder<<8)|(remainder>>8));
+        r3 = octave;
+        instructions += 15;
+        if (negative)
+        {
+            instructions += 2;
+            if (octave != 0) {
+                carry = octave <= 16 && ((r4>>(octave-1))&1) != 0;
+                r4 = octave < 16 ? uint16_t(r4>>octave) : 0;
+                r3 = 0xffff;
+                instructions += 2+2*unsigned(octave);
+            }
+        }
+    }
+    MCU_Write16(mcu,0xc8b0,r4);
+    mcu.r[1] = r1; mcu.r[2] = r2; mcu.r[3] = r3; mcu.r[4] = r4; mcu.r[5] = r5;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (carry ? STATUS_C : 0)
+        | (r4 & 0x8000 ? STATUS_N : 0) | (r4 == 0 ? STATUS_Z : 0));
+    mcu.pc = 0x527c; mcu.native_debt = instructions; // includes final store
+    return true;
+}
+
 } // namespace mcu_native

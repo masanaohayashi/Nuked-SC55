@@ -948,11 +948,21 @@ void MCU_Step(mcu_t& mcu)
         case 0x36ee:
             native = mcu_native::TryAdvanceTva(mcu);
             break;
+        case 0x3b26:
+        case 0x3b2c:
+            native = mcu_native::TryAdvanceLfo(mcu);
+            break;
         case 0x473c:
             native = mcu_native::TryAdvanceCutoff(mcu);
             break;
         case 0x5c20:
             native = mcu_native::TryPrepareControllers(mcu);
+            break;
+        case 0x5368:
+            native = mcu_native::TryModulatePitch(mcu);
+            break;
+        case 0x51e7:
+            native = mcu_native::TryConvertPitch(mcu);
             break;
         default:
             break;

@@ -40,7 +40,7 @@
       <key>NSExtensionAttributes</key>
       <dict>
         <key>AudioComponentBundle</key>
-        <string></string>
+        <string/>
         <key>AudioComponents</key>
         <array>
           <dict>

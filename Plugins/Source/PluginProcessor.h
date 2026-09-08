@@ -102,7 +102,7 @@ public:
     /** Selects one of the ROM folders returned by getStoredRomNames(). */
     bool selectStoredRom (const juce::String& name);
 
-    /** Returns the App Group-backed directory used for persistent user-specific files. */
+    /** Returns the persistent user data directory (App Group on Apple platforms). */
     static juce::File getUserSettingsDirectory();
 
     /** Returns the shared directory containing imported ROM folders. */

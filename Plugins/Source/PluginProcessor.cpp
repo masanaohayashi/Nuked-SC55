@@ -36,7 +36,7 @@ constexpr const char* romNameStateProperty = "romName";
 // loading because ROMs must come from the App Group's shared library.
 constexpr const char* romDirectoryStateProperty = "romDirectory";
 
-#if ! (JUCE_MAC || JUCE_IOS)
+#if JUCE_LINUX
 juce::File getLegacyUserSettingsDirectory()
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
@@ -496,6 +496,16 @@ juce::File NukedSC55AudioProcessor::getUserSettingsDirectory()
 {
 #if JUCE_MAC || JUCE_IOS
     return getAppGroupUserSettingsDirectory();
+#elif JUCE_WINDOWS
+    const auto directory = juce::File::getSpecialLocation (
+        juce::File::userApplicationDataDirectory)
+        .getChildFile ("STUDIO-R")
+        .getChildFile (userDataDirectoryName);
+
+    if (directory.createDirectory().failed())
+        return {};
+
+    return directory;
 #else
     return getLegacyUserSettingsDirectory();
 #endif
