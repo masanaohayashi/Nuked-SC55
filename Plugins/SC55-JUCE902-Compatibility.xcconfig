@@ -1,7 +1,0 @@
-// Compatibility for projects exported by the custom Projucer 9.0.0.
-// JUCE remains 9.0.2. Do not pretend that a different Projucer exported it.
-// Version comes from juce_gui_extra/native/typescript/webview-interop/package.json.
-// JuceHeader.h explicitly permits removing this generator-version definition
-// when maintaining build compatibility separately from Projucer.
-OTHER_CFLAGS = $(inherited) -UJUCE_PROJUCER_VERSION -DJUCE_WEBVIEW_INTEROP_LIBRARY_VERSION=\"1.0.0\"
-OTHER_CPLUSPLUSFLAGS = $(inherited) -UJUCE_PROJUCER_VERSION -DJUCE_WEBVIEW_INTEROP_LIBRARY_VERSION=\"1.0.0\"

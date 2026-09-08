@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.0
+  Created with Projucer version: 9.0.2
 
   ------------------------------------------------------------------------------
 
