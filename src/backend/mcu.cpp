@@ -937,7 +937,11 @@ void MCU_Step(mcu_t& mcu)
     }
     else if (!mcu.sleep)
     {
-        if (mcu.pc == 0x36ee
+        if (mcu.pc == 0x5c20 && mcu_native::TryPrepareControllers(mcu))
+        {
+            // All eleven controller-derived pitch/EG/LFO words, through 5ff4.
+        }
+        else if (mcu.pc == 0x36ee
             && mcu_native::TryAdvanceTva(mcu))
         {
             // The v1.21 TVA ramp/output calculation resumes at 00:3734.

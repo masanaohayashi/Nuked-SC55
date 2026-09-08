@@ -106,7 +106,7 @@ void Emulator::SetSampleCallback(mcu_sample_callback callback, void* userdata)
 
 bool Emulator::LoadRoms(Romset romset, const RomsetInfo& info, RomLocationSet* loaded)
 {
-    m_mcu->native_tva_enabled = false;
+    m_mcu->native_v121_enabled = false;
     if (loaded)
     {
         loaded->fill(false);
@@ -144,7 +144,7 @@ bool Emulator::LoadRoms(Romset romset, const RomsetInfo& info, RomLocationSet* l
     MCU_PatchROM(*m_mcu);
 
     SHA256_Digest internalDigest{};
-    m_mcu->native_tva_enabled = romset == Romset::MK1
+    m_mcu->native_v121_enabled = romset == Romset::MK1
         && SHA256_HashBytes(m_mcu->rom1, internalDigest)
         && internalDigest == SHA256_ToDigest("7e1bacd1d7c62ed66e465ba05597dcd60dfc13fc23de0287fdbce6cf906c6544")
         && std::getenv("SC55_NONATIVE") == nullptr;

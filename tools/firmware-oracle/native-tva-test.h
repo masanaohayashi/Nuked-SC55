@@ -2,6 +2,7 @@
 
 #include "mcu_native.h"
 #include "rom_loader.h"
+#include "native-controller-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -23,7 +24,7 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     if (!emulator.Init({}) || !emulator.LoadRoms(roms.romset, roms.romset_info))
         throw std::runtime_error("Cannot initialise emulator");
     auto& cpu = emulator.GetMCU();
-    if (!cpu.native_tva_enabled)
+    if (!cpu.native_v121_enabled)
         throw std::runtime_error("Native TVA ROM gate rejected v1.21 (unset SC55_NONATIVE)");
     constexpr uint16_t voice = 0x9400;
     auto prepare = [&](uint16_t level, uint16_t ramp, uint16_t previous) {
@@ -85,33 +86,37 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
             case 5: cpu.r[0] = 0x9401; break;
             case 6: cpu.r[0] = 0x7ffe; break;
             case 7: cpu.r[0] = 0xdff0; break;
-            case 8: cpu.native_tva_enabled = false; break;
+            case 8: cpu.native_v121_enabled = false; break;
         }
         if (mcu_native::TryAdvanceTva(cpu) || cpu.pc != 0x36ee || cpu.native_debt != 0)
             throw std::runtime_error("Native TVA fallback guard failed");
     }
     auto modified = roms.romset_info;
     modified.rom_data[size_t(RomLocation::ROM1)][0] ^= 1;
-    if (!emulator.LoadRoms(roms.romset, modified) || cpu.native_tva_enabled)
+    if (!emulator.LoadRoms(roms.romset, modified) || cpu.native_v121_enabled)
         throw std::runtime_error("Modified ROM was allowed into native TVA");
-    if (!emulator.LoadRoms(roms.romset, roms.romset_info) || !cpu.native_tva_enabled)
+    if (!emulator.LoadRoms(roms.romset, roms.romset_info) || !cpu.native_v121_enabled)
         throw std::runtime_error("Reload did not re-evaluate native eligibility");
     cpu.native_debt = 10;
     emulator.Reset();
     if (cpu.native_debt != 0) throw std::runtime_error("Reset retained native debt");
     std::printf("TVA: %u register/SR/SRAM/instruction-count cases matched\n", cases);
+    verifyNativeControllers(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
     std::array<double, 2> elapsed{};
     uint64_t hits = 0;
+    uint64_t controllerHits = 0, controllerInstructions = 0;
+    const bool profile = std::getenv("SC55_TVA_PROFILE") != nullptr;
+    std::vector<uint64_t> counts(0x80000);
     for (unsigned mode = 0; mode < 2; ++mode) {
         Emulator player;
         if (!player.Init({}) || !player.LoadRoms(roms.romset, roms.romset_info))
             throw std::runtime_error("Cannot initialise playback");
         player.Reset();
         auto& mcu = player.GetMCU();
-        if (mode == 0) mcu.native_tva_enabled = false;
+        if (mode == 0) mcu.native_v121_enabled = false;
         audio[mode].reserve(600000);
         player.SetSampleCallback([](void* data, const AudioFrame<int32_t>& frame) {
             auto& samples = *static_cast<std::vector<int32_t>*>(data);
@@ -121,9 +126,16 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
         auto run = [&](uint64_t cycles) {
             const auto end = mcu.cycles + cycles;
             while (mcu.cycles < end) {
+                if (profile && mode == 0 && mcu.cycles >= 60000000 && mcu.cp < 8)
+                    ++counts[(unsigned(mcu.cp) << 16) | mcu.pc];
                 const bool entry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x36ee;
+                const bool controllerEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5c20;
                 player.Step();
                 if (mode && entry && mcu.pc == 0x3734 && mcu.native_debt) ++hits;
+                if (mode && controllerEntry && mcu.pc == 0x5ff4 && mcu.native_debt) {
+                    ++controllerHits;
+                    controllerInstructions += mcu.native_debt+1;
+                }
             }
         };
         run(60000000);
@@ -133,6 +145,11 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
         }
         const auto start = std::chrono::steady_clock::now();
         run(40000000);
+        // Exercise controller producers while voices are sounding, not only
+        // the all-zero default contribution rows.
+        const uint8_t controllers[]{0xb0,1,90, 0xd0,110, 0xa0,48,100,
+                                    0xb0,16,90, 0xb0,17,50};
+        player.PostMIDI(controllers);
         for (uint8_t value : {uint8_t(0xb0), uint8_t(7), uint8_t(32)}) player.PostMIDI(value);
         run(20000000);
         for (uint8_t key = 36; key < 60; ++key) {
@@ -142,12 +159,36 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
         elapsed[mode] = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     }
     if (!hits) throw std::runtime_error("Real playback never dispatched native TVA");
+    if (!controllerHits) throw std::runtime_error("Real playback never dispatched native controllers");
+    std::printf("Controllers playback: %llu calls, %llu H8 instructions replaced\n",
+                (unsigned long long)controllerHits, (unsigned long long)controllerInstructions);
+    if (profile) {
+        std::vector<std::pair<uint64_t, unsigned>> buckets;
+        uint64_t total = 0;
+        for (unsigned base = 0; base < counts.size(); base += 256) {
+            uint64_t sum = 0;
+            for (unsigned j = 0; j < 256; ++j) sum += counts[base+j];
+            total += sum;
+            buckets.emplace_back(sum, base);
+        }
+        std::sort(buckets.rbegin(), buckets.rend());
+        uint64_t controllerCount = 0;
+        for (unsigned pc = 0x5c20; pc < 0x5ff4; ++pc) controllerCount += counts[pc];
+        std::printf("H8 controller region: %llu / %llu instructions (%.2f%%)\n",
+                    (unsigned long long)controllerCount, (unsigned long long)total,
+                    100.0*controllerCount/total);
+        for (unsigned i = 0; i < 20; ++i)
+            std::printf("H8 %06x %llu %.2f%%\n", buckets[i].second,
+                        (unsigned long long)buckets[i].first, 100.0*buckets[i].first/total);
+    }
     if (audio[0] != audio[1]) throw std::runtime_error("Playback PCM differs from H8");
     if (std::none_of(audio[0].begin(), audio[0].end(), [](int32_t value) { return value != 0; }))
         throw std::runtime_error("Playback was silent");
-    std::printf("Playback: %zu stereo frames bit-identical, %llu native hits; H8 %.6fs, native %.6fs (%.2f%%)\n",
-                audio[0].size()/2, static_cast<unsigned long long>(hits), elapsed[0], elapsed[1],
-                100.0*(elapsed[0]-elapsed[1])/elapsed[0]);
+    std::printf("Playback: %zu stereo frames bit-identical, %llu native TVA hits\n",
+                audio[0].size()/2, static_cast<unsigned long long>(hits));
+    if (!profile)
+        std::printf("Smoke timing: H8 %.6fs, native %.6fs (%.2f%%); not a host CPU benchmark\n",
+                    elapsed[0], elapsed[1], 100.0*(elapsed[0]-elapsed[1])/elapsed[0]);
     return 0;
 }
 } // namespace

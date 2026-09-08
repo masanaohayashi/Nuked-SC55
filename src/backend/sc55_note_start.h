@@ -1,6 +1,7 @@
 #pragma once
 #include "sc55_note_dispatch.h"
 #include "sc55_voice_lifecycle.h"
+#include "sc55_controller_scale.h"
 
 namespace sc55
 {
@@ -183,25 +184,10 @@ inline VoiceControllerState PrepareVoiceControllers(const VoiceControllerInputs&
     std::array<uint16_t,11> values{};
     for (unsigned i = 0; i < values.size(); ++i)
     {
-        const bool centered = i <= 3 || i == 7;
-        const bool negativeInput = centered && input.sensitivity[i] < 64;
-        const unsigned magnitude = centered ? (negativeInput ? 64-input.sensitivity[i] : input.sensitivity[i]-64)
-                                             : input.sensitivity[i];
-        const unsigned shift = i == 0 ? 0 : centered ? 1 : 2;
-        const auto product = uint16_t((magnitude*input.keyValue)>>shift);
-        uint16_t sum = negativeInput ? uint16_t(0u-product) : product;
-        for (const auto& contribution : input.contributions) sum = uint16_t(sum+contribution[i]);
-        const bool negative = (sum&32768) != 0;
-        const uint16_t absolute = negative ? uint16_t(0u-sum) : sum;
-        const bool rate = i == 3 || i == 7;
-        const bool level = i == 2 || i == 6 || i == 10;
-        const bool envelope = i == 5 || i == 9;
-        const unsigned cap = i == 0 ? 0x0be8 : i <= 2 || rate ? 0x0fa0 : 0x0fc0;
-        const unsigned leftShift = i <= 1 ? 3 : level ? 4 : 1;
-        const unsigned coefficient = i == 0 ? 0xfbf8 : i == 1 ? 0xc49c : i == 2 ? 0x820d
-            : rate ? 0xa7c7 : level ? 0x8105 : envelope ? 0xc30d : 0xbe7a;
-        const auto result = uint16_t((uint32_t(uint16_t(std::min(unsigned(absolute),cap)<<leftShift))*coefficient)>>16);
-        values[i] = negative ? uint16_t(0u-result) : result;
+        std::array<uint16_t,5> contributions;
+        for (unsigned source = 0; source < 5; ++source)
+            contributions[source] = input.contributions[source][i];
+        values[i] = ScaleVoiceController(i,input.sensitivity[i],input.keyValue,contributions).value;
     }
     return {values[0],values[1],values[2],{values[3],values[7]},
         {values[6],values[10]},{values[5],values[9]},{values[4],values[8]}};

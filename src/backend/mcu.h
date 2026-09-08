@@ -236,7 +236,7 @@ struct mcu_t {
     // ネイティブ置き換えで先に済ませた命令の残り。1 ステップにつき 1 ずつ払う。
     // まとめて cycles を進めないのは、周辺装置と割り込みの位置をずらさないため。
     uint32_t native_debt = 0;
-    bool native_tva_enabled = false; // Set at ROM load, never lazily on the audio thread.
+    bool native_v121_enabled = false; // Set at ROM load, never lazily on the audio thread.
     int8_t native_ok = -1;         // -1: 未判定, 0: このファームウェアでは置き換えない
     MCU_Exception_Source exception_pending{};
     BoundedOrderedBitSet<INTERRUPT_SOURCE_MAX, MCU_Interrupt_Source> interrupt_pending;

@@ -20,6 +20,7 @@
 
 #include "mcu.h"
 #include "sc55_level.h"
+#include "sc55_controller_scale.h"
 #include <cstdint>
 #include <cstdlib>
 
@@ -258,7 +259,7 @@ inline bool TryComputeLevel (mcu_t& mcu)
 inline bool TryAdvanceTva (mcu_t& mcu)
 {
     const uint16_t voice = mcu.r[0];
-    if (!mcu.native_tva_enabled || mcu.cp != 0 || mcu.pc != 0x36ee
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x36ee
         || mcu.dp != 0 || mcu.ep != 0
         || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
         || (voice & 1) != 0 || voice < 0x8000 || voice > 0xdfce)
@@ -294,6 +295,54 @@ inline bool TryAdvanceTva (mcu_t& mcu)
     instructions += magnitude == 0 ? 1 : 5 + (magnitude <= 16 ? 1 : 3);
     // Retain every peripheral clock step; never opt into SC55_BULK here.
     mcu.native_debt = instructions - 1;
+    return true;
+}
+
+// 5c20..5ff4: all eleven per-voice controller outputs. The caller has masked
+// interrupts; no peripheral register is accessed in this region. Keep the
+// firmware's store order, scratch SRAM, exit registers and instruction count.
+inline bool TryPrepareControllers(mcu_t& mcu)
+{
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x5c20
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || mcu.r[1] >= 24)
+        return false;
+    const unsigned voice = mcu.r[0];
+    if (voice != ReadWord(mcu, 0x676a + 2*mcu.r[1]))
+        return false;
+    const unsigned part = MCU_Read(mcu, 0xc8e4 + mcu.r[1]);
+    const unsigned key = MCU_Read(mcu, 0xc8fc + mcu.r[1]);
+    if (part >= 16 || key >= 128) return false;
+    const uint16_t partBase = ReadWord(mcu, 0x74a4 + 2*part);
+    if (partBase < 0x8000 || partBase > 0xdfa8 || voice < 0x8072 || voice > 0xdf68)
+        return false;
+    const uint8_t pressure = MCU_Read(mcu, 0x9740 + 128*part + key);
+    MCU_Write16(mcu, 0xcb4e, partBase);
+    MCU_Write(mcu, 0xcb50, pressure);
+    unsigned instructions = 15; // 13 setup instructions plus r3 reload/doubling at 5c58.
+    constexpr unsigned order[]{0,2,1,7,3,10,6,9,5,8,4};
+    constexpr int offsets[]{0x86,0x88,0x8a,-0x72,0x90,0x8c,0x8e,-0x50,0x92,0x94,0x96};
+    sc55::ControllerScaleResult scaled{};
+    for (unsigned i : order)
+    {
+        std::array<uint16_t,5> contributions;
+        for (unsigned source = 0; source < 5; ++source)
+            contributions[source] = ReadWord(mcu, 0x9060 + source*0x160 + i*0x20 + part*2);
+        scaled = sc55::ScaleVoiceController(i,MCU_Read(mcu, partBase+0x4c+i+(i>=3)),
+                                           pressure,contributions);
+        MCU_Write16(mcu, uint16_t(int(voice)+offsets[i]), scaled.value);
+        instructions += scaled.instructions + unsigned(i != 0);
+    }
+    mcu.r[2] = partBase;
+    mcu.r[3] = uint16_t(part*2);
+    mcu.r[4] = scaled.value;
+    mcu.r[5] = scaled.productLow;
+    mcu.r[6] = uint16_t(part);
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (scaled.carry ? STATUS_C : 0)
+        | (scaled.value & 0x8000 ? STATUS_N : 0) | (scaled.value == 0 ? STATUS_Z : 0));
+    mcu.pc = 0x5ff4; // Leave the final RTS to the interpreter.
+    mcu.native_debt = instructions-1;
     return true;
 }
 
