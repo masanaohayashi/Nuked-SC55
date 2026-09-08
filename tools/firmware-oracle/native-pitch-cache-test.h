@@ -6,7 +6,7 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativePitchCache(mcu_t& cpu)
+inline void verifyNativePitchCache(mcu_t& cpu, bool stepping = false)
 {
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
@@ -23,6 +23,33 @@ inline void verifyNativePitchCache(mcu_t& cpu)
         MCU_Write16(cpu,voice+0xa6,cached);
         MCU_Write(cpu,voice+41,uint8_t(reference>>16));
         MCU_Write16(cpu,voice+62,uint16_t(reference)); MCU_Write16(cpu,0xc8b0,base);
+        if (stepping) {
+            cpu.ep = 1; cpu.sr = uint16_t(cases&15);
+            unsigned steps = 0;
+            while (cpu.pc != 0x5367) {
+                const auto pc = cpu.pc, sr = cpu.sr;
+                std::array<uint16_t,8> before, after;
+                std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
+                const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
+                if (!mcu_native::TryStepPitchCache(cpu) || cpu.native_debt || ++steps > 2000)
+                    throw std::runtime_error("Unmasked cache rejected");
+                const auto nextPc = cpu.pc, nextSr = cpu.sr;
+                std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
+                const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
+                cpu.pc = pc; cpu.sr = sr;
+                std::copy(before.begin(),before.end(),std::begin(cpu.r));
+                std::copy(memory.begin(),memory.end(),std::begin(cpu.sram));
+                const auto opcode = MCU_ReadCodeAdvance(cpu);
+                MCU_Operand_Table[opcode](cpu,opcode);
+                if (cpu.pc != nextPc || cpu.sr != nextSr
+                    || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
+                    || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
+                    std::fprintf(stderr,"Unmasked cache mismatch at %04x\n",pc);
+                    throw std::runtime_error("Unmasked cache differs from H8");
+                }
+            }
+            ++cases; return;
+        }
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const auto beforeSr = cpu.sr;
@@ -65,6 +92,7 @@ inline void verifyNativePitchCache(mcu_t& cpu)
         check(reference,source,hit,base,cached);
     }
     for (unsigned guard = 0; guard < 12; ++guard) {
+        if (stepping && (guard == 3 || guard == 4)) continue;
         cpu.native_v121_enabled = true;
         cpu.cp = cpu.dp = cpu.ep = 0; cpu.sr = 0x0700;
         cpu.pc = 0x527c; cpu.native_debt = 0; cpu.r[0] = 0xacde;
@@ -84,14 +112,19 @@ inline void verifyNativePitchCache(mcu_t& cpu)
             case 11: MCU_Write16(cpu,0xacde + 46,0xdff9); break;
         }
         std::array<uint16_t,8> registers;
+        if (stepping && guard >= 10) {
+            cpu.pc = 0x5281; cpu.r[1] = guard == 10 ? 0x7fff : 0xdff9;
+        }
         std::copy(std::begin(cpu.r),std::end(cpu.r),registers.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
         const auto sr = cpu.sr, pc = cpu.pc;
-        if (mcu_native::TryCorrectPitch(cpu) || cpu.pc != pc || cpu.native_debt || cpu.sr != sr
+        if ((stepping ? mcu_native::TryStepPitchCache(cpu) : mcu_native::TryCorrectPitch(cpu))
+            || cpu.pc != pc || cpu.native_debt || cpu.sr != sr
             || !std::equal(registers.begin(),registers.end(),std::begin(cpu.r))
             || !std::equal(memory.begin(),memory.end(),std::begin(cpu.sram)))
             throw std::runtime_error("Pitch cache fallback mutated state");
     }
-    std::printf("Pitch cache: %u register/SR/SRAM/instruction-count cases and guards matched\n",cases);
+    std::printf("Pitch cache%s: %u register/SR/SRAM/instruction-count cases and guards matched\n",
+                stepping ? " unmasked" : "",cases);
 }
 }

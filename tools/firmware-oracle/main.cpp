@@ -495,6 +495,7 @@ void verifyKeyArithmetic(std::span<const uint8_t> rom1,std::span<const uint8_t> 
 
 void Oracle_PCM_Write(pcm_t& pcm, uint32_t address, uint8_t value)
 {
+    if (captureVoiceStop) captureVoiceStopWrite(*pcm.mcu,address,value);
     if (terminationByte < expectedTermination.size())
     {
         const auto expected = expectedTermination[terminationByte++];

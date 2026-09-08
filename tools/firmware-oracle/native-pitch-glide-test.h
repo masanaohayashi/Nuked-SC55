@@ -6,7 +6,7 @@
 #include <stdexcept>
 
 namespace {
-inline void verifyNativePitchGlide(mcu_t& cpu)
+inline void verifyNativePitchGlide(mcu_t& cpu, bool stepping = false)
 {
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
@@ -30,6 +30,33 @@ inline void verifyNativePitchGlide(mcu_t& cpu)
         MCU_Write16(cpu,voice+70,uint16_t(pitch));
         MCU_Write(cpu,voice+41,uint8_t(pitch>>16));
         MCU_Write16(cpu,voice+62,uint16_t(pitch));
+        if (stepping) {
+            cpu.ep = 1; cpu.sr = uint16_t(cases&15);
+            unsigned steps = 0;
+            while (cpu.pc != exit) {
+                const auto pc = cpu.pc, sr = cpu.sr;
+                std::array<uint16_t,8> before, after;
+                std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
+                const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
+                if (!mcu_native::TryStepPitchGlide(cpu) || cpu.native_debt || ++steps > 50)
+                    throw std::runtime_error("Unmasked glide rejected");
+                const auto nextPc = cpu.pc, nextSr = cpu.sr;
+                std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
+                const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
+                cpu.pc = pc; cpu.sr = sr;
+                std::copy(before.begin(),before.end(),std::begin(cpu.r));
+                std::copy(memory.begin(),memory.end(),std::begin(cpu.sram));
+                const auto opcode = MCU_ReadCodeAdvance(cpu);
+                MCU_Operand_Table[opcode](cpu,opcode);
+                if (cpu.pc != nextPc || cpu.sr != nextSr
+                    || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
+                    || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
+                    std::fprintf(stderr,"Unmasked glide mismatch at %04x\n",pc);
+                    throw std::runtime_error("Unmasked glide differs from H8");
+                }
+            }
+            ++cases; return;
+        }
         std::array<uint16_t,8> before, after;
         std::copy(std::begin(cpu.r),std::end(cpu.r),before.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
@@ -72,6 +99,7 @@ inline void verifyNativePitchGlide(mcu_t& cpu)
         for (uint16_t sign : {0,1,0x7f,0x80,0xff})
             check(sign,0xffff,uint16_t(0xff00|rate),0xffffff);
     for (unsigned guard = 0; guard < 13; ++guard) {
+        if (stepping && (guard == 3 || guard == 4)) continue;
         cpu.native_v121_enabled = true;
         cpu.cp = cpu.dp = cpu.ep = 0; cpu.sr = 0x0700;
         cpu.pc = entry; cpu.native_debt = 0; cpu.r[0] = 0xacde;
@@ -93,15 +121,21 @@ inline void verifyNativePitchGlide(mcu_t& cpu)
             case 12: MCU_Write(cpu,0xab26,128); break;
         }
         std::array<uint16_t,8> registers;
+        if (stepping && guard >= 10) {
+            cpu.pc = guard == 12 ? 0x5197 : 0x5193;
+            cpu.r[2] = guard == 10 ? 0x7fff : 0xe000;
+            cpu.r[3] = 256;
+        }
         std::copy(std::begin(cpu.r),std::end(cpu.r),registers.begin());
         const std::vector<uint8_t> memory(std::begin(cpu.sram),std::end(cpu.sram));
         const auto sr = cpu.sr, pc = cpu.pc;
-        if (mcu_native::TryAdvancePitchGlide(cpu)
+        if ((stepping ? mcu_native::TryStepPitchGlide(cpu) : mcu_native::TryAdvancePitchGlide(cpu))
             || cpu.pc != pc || cpu.native_debt || cpu.sr != sr
             || !std::equal(registers.begin(),registers.end(),std::begin(cpu.r))
             || !std::equal(memory.begin(),memory.end(),std::begin(cpu.sram)))
             throw std::runtime_error("Pitch fallback mutated state");
     }
-    std::printf("Pitch glide: %u register/SR/SRAM/instruction-count cases and guards matched\n",cases);
+    std::printf("Pitch glide%s: %u register/SR/SRAM/instruction-count cases and guards matched\n",
+                stepping ? " unmasked" : "",cases);
 }
 }

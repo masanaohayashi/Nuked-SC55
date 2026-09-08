@@ -6,6 +6,40 @@
 ## 最初に読むこと
 
 - 通常起動は現在もH8経路。製品のC++化は未完了。
+- 2026-09-09: 3つのEGのリリース準備とLFO前の割り込み区間を追加。
+  [状態・命令数・音声一致](docs/firmware/NATIVE_VOICE_RELEASE_2026-09-09.md)。
+- 2026-09-09: EG間の割り込み窓・呼び出し・復帰を単命令C++化。
+  [命令境界・音声一致](docs/firmware/NATIVE_VOICE_SERVICE_2026-09-09.md)。
+- 2026-09-09: PCM停止指示とタスク通知を単命令C++化。
+  [書き込みcycle・PC・値の一致](docs/firmware/NATIVE_VOICE_STOP_2026-09-09.md)。
+- 2026-09-09: 終了ボイスのリンク解除を追加。
+  [管理テーブル・音声一致](docs/firmware/NATIVE_VOICE_UNLINK_2026-09-09.md)。
+- 2026-09-09: 音量EGの遅延・マスク解除・復帰を追加。
+  [命令境界修正・状態一致](docs/firmware/NATIVE_TVA_DELAY_EXIT_2026-09-09.md)。
+- 2026-09-09: 音量EGの保持・短時間更新を追加。
+  [合流状態の一致と実経路到達の未確認](docs/firmware/NATIVE_TVA_IMMEDIATE_2026-09-09.md)。
+- 2026-09-09: 音量EGの段階遷移と3組の設定を追加。
+  [テーブル分岐・音声一致・残件](docs/firmware/NATIVE_TVA_STAGE_2026-09-09.md)。
+- 2026-09-09: 音量EGの3系統duration算出を追加。
+  [controller・倍率境界と音声一致](docs/firmware/NATIVE_TVA_DURATION_2026-09-09.md)。
+- 2026-09-09: 音量EGのphase/rate進行を補間・出力へ統合。
+  [時間持ち越し・音声一致・性能](docs/firmware/NATIVE_TVA_PHASE_2026-09-09.md)。
+- 2026-09-09: 音量EGの出力差符号化を追加。
+  [音声一致・命令削減と性能上の未改善](docs/firmware/NATIVE_TVA_TARGET_2026-09-09.md)。
+- 2026-09-09: 音量EGの線形・曲線補間を一括C++化。
+  [状態・音声一致、残存H8減少と性能](docs/firmware/NATIVE_TVA_INTERPOLATION_2026-09-09.md)。
+- 2026-09-09: 実演奏のピッチ領域fallback=0、残存H8分布と性能回帰を監査。
+  [判定負荷の削減・次の優先対象](docs/firmware/NATIVE_FALLBACK_AUDIT_2026-09-09.md)。
+- 2026-09-09: 割り込み可能なキャッシュ補正・最終PCMレート合成を追加。
+  [キャッシュ境界・音声一致と未監査範囲](docs/firmware/NATIVE_PITCH_UNMASKED_CACHE_2026-09-09.md)。
+- 2026-09-09: 割り込み可能な音程差→PCMレート変換を追加。
+  [除算・シフト・状態一致](docs/firmware/NATIVE_PITCH_UNMASKED_CONVERSION_2026-09-09.md)。
+- 2026-09-09: 割り込み可能なグライドを追加。
+  [全レート・命令境界・音声一致](docs/firmware/NATIVE_PITCH_UNMASKED_GLIDE_2026-09-09.md)。
+- 2026-09-09: 割り込み可能なピッチ変調を追加。
+  [符号・丸め・音声一致](docs/firmware/NATIVE_PITCH_UNMASKED_MODULATION_2026-09-09.md)。
+- 2026-09-09: 割り込み可能なcontroller/global/part音程補正を追加。
+  [命令境界・新経路到達・音声一致](docs/firmware/NATIVE_PITCH_UNMASKED_ADJUST_2026-09-09.md)。
 - 2026-09-09: 割り込み可能なピッチ補間と呼び出し・復帰を追加。
   [命令境界と音声の比較](docs/firmware/NATIVE_PITCH_CONNECTIONS_2026-09-09.md)。
 - 2026-09-09: ピッチ後段のcontroller/global/part補正と、割り込み可能な段階設定を追加。

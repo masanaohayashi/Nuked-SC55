@@ -948,6 +948,69 @@ void MCU_Step(mcu_t& mcu)
         case 0x36ee:
             native = mcu_native::TryAdvanceTva(mcu);
             break;
+        case 0x3393:
+            native = mcu_native::TryUnlinkFinishedVoice(mcu);
+            break;
+        case 0x3212:
+            native = mcu_native::TryPrepareVoiceRelease(mcu);
+            break;
+        case 0x33c9: case 0x33cb: case 0x33d0: case 0x33d4:
+        case 0x33d8: case 0x33da: case 0x33dc:
+            native = mcu_native::TryStepVoiceStop(mcu);
+            break;
+        case 0x346b: case 0x346d: case 0x3471: case 0x3472: case 0x3474:
+        case 0x348b: case 0x36a7: case 0x36ad: case 0x36da:
+            native = mcu_native::TryStepTvaExit(mcu);
+            break;
+        case 0x35db:
+            native = mcu_native::TryInterpolateTva(mcu);
+            if (native) {
+                const auto interpolationDebt = mcu.native_debt;
+                if (mcu_native::TryEncodeTvaTarget(mcu))
+                    mcu.native_debt += interpolationDebt+1;
+            }
+            break;
+        case 0x348c: case 0x34e2: case 0x3536:
+        case 0x33f4:
+        case 0x344b:
+        case 0x3477: case 0x36ae: case 0x36c6:
+        case 0x358e:
+            native = mcu.pc == 0x33f4 ? mcu_native::TryDispatchTvaStage(mcu)
+                : mcu.pc == 0x344b ? mcu_native::TryAdvanceTvaDelay(mcu)
+                : mcu.pc == 0x358e ? mcu_native::TryAdvanceTvaPhase(mcu)
+                : (mcu.pc == 0x3477 || mcu.pc == 0x36ae || mcu.pc == 0x36c6) ? mcu_native::TrySetTvaImmediate(mcu)
+                                  : mcu_native::TryComputeTvaDuration(mcu);
+            if (native && (mcu.pc == 0x348c || mcu.pc == 0x34e2 || mcu.pc == 0x3536)) {
+                const auto stageDebt = mcu.native_debt;
+                if (mcu_native::TryComputeTvaDuration(mcu)) mcu.native_debt += stageDebt+1;
+            }
+            if (native && mcu.pc == 0x344b) {
+                const auto stageDebt = mcu.native_debt;
+                if (mcu_native::TryAdvanceTvaDelay(mcu)) mcu.native_debt += stageDebt+1;
+            }
+            if (native && mcu.pc == 0x358e) {
+                const auto durationDebt = mcu.native_debt;
+                if (mcu_native::TryAdvanceTvaPhase(mcu)) mcu.native_debt += durationDebt+1;
+            }
+            if (native) {
+                auto accumulatedDebt = mcu.native_debt;
+                if ((mcu.pc == 0x3477 || mcu.pc == 0x36ae || mcu.pc == 0x36c6)
+                    && mcu_native::TrySetTvaImmediate(mcu)) {
+                    mcu.native_debt += accumulatedDebt+1;
+                    accumulatedDebt = mcu.native_debt;
+                }
+                if (mcu.pc == 0x35db && mcu_native::TryInterpolateTva(mcu)) {
+                    mcu.native_debt += accumulatedDebt+1;
+                    accumulatedDebt = mcu.native_debt;
+                }
+                if ((mcu.pc == 0x365d || mcu.pc == 0x3666) && mcu_native::TryEncodeTvaTarget(mcu))
+                    mcu.native_debt += accumulatedDebt+1;
+            }
+            break;
+        case 0x365d:
+        case 0x3666:
+            native = mcu_native::TryEncodeTvaTarget(mcu);
+            break;
         case 0x3b26:
         case 0x3b2c:
             native = mcu_native::TryAdvanceLfo(mcu);
@@ -959,19 +1022,23 @@ void MCU_Step(mcu_t& mcu)
             native = mcu_native::TryPrepareControllers(mcu);
             break;
         case 0x5368:
-            native = mcu_native::TryModulatePitch(mcu);
+            native = mcu_native::TryModulatePitch(mcu)
+                || mcu_native::TryStepPitchModulation(mcu);
             break;
-        case 0x5367: case 0x53e4:
+        case 0x5367: case 0x53e4: case 0x56d8: case 0x56d9:
             native = mcu_native::TryStepPitchConnections(mcu);
             break;
         case 0x5175:
-            native = mcu_native::TryAdvancePitchGlide(mcu);
+            native = mcu_native::TryAdvancePitchGlide(mcu)
+                || mcu_native::TryStepPitchGlide(mcu);
             break;
         case 0x50cf:
-            native = mcu_native::TryAdjustEnvelopePitch(mcu);
+            native = mcu_native::TryAdjustEnvelopePitch(mcu)
+                || mcu_native::TryStepPitchAdjustment(mcu);
             break;
         case 0x5124:
-            native = mcu_native::TryApplyPitchTuning(mcu);
+            native = mcu_native::TryApplyPitchTuning(mcu)
+                || mcu_native::TryStepPitchAdjustment(mcu);
             break;
         case 0x4f51:
             native = mcu_native::TryInitialisePitchEnvelope(mcu)
@@ -997,25 +1064,57 @@ void MCU_Step(mcu_t& mcu)
             }
             break;
         case 0x51e7:
-            native = mcu_native::TryConvertPitch(mcu);
-            if (native) {
+            native = mcu_native::TryConvertPitch(mcu)
+                || mcu_native::TryStepPitchConversion(mcu);
+            if (native && mcu.pc == 0x527c) {
                 const auto conversionDebt = mcu.native_debt;
                 if (mcu_native::TryCorrectPitch(mcu))
                     mcu.native_debt += conversionDebt+1;
             }
             break;
         default:
+            if (mcu.cp == 0 && mcu.pc >= 0x32f0 && mcu.pc <= 0x3362) {
+                native = mcu_native::TryStepVoiceService(mcu);
+                break;
+            }
+            // Non-pitch firmware must not traverse every single-step range.
+            if (mcu.cp != 0 || mcu.pc < 0x4f51 || mcu.pc > 0x53e4)
+                break;
+            if (mcu.pc >= 0x527c && mcu.pc <= 0x5364) {
+                native = mcu_native::TryStepPitchCache(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x51ea && mcu.pc <= 0x5278) {
+                native = mcu_native::TryStepPitchConversion(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x5178 && mcu.pc <= 0x51e4) {
+                native = mcu_native::TryStepPitchGlide(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x536a && mcu.pc <= 0x53e1) {
+                native = mcu_native::TryStepPitchModulation(mcu);
+                break;
+            }
             if (mcu.pc >= 0x4f9e && mcu.pc <= 0x505e)
                 native = mcu_native::TryStepPitchStage(mcu);
             else if (mcu.pc >= 0x5064 && mcu.pc <= 0x50cc)
                 native = mcu_native::TryStepPitchEnvelope(mcu);
+            else if ((mcu.pc >= 0x50d2 && mcu.pc <= 0x5107)
+                     || (mcu.pc >= 0x5127 && mcu.pc <= 0x5172))
+                native = mcu_native::TryStepPitchAdjustment(mcu);
             else if ((mcu.pc >= 0x4f5c && mcu.pc <= 0x4f9b)
                      || (mcu.pc >= 0x510a && mcu.pc <= 0x5121))
                 native = mcu_native::TryStepPitchConnections(mcu);
             break;
         }
-        if (!native)
+        if (!native) {
+#if defined(SC55_ORACLE_H8_PROFILE)
+            extern void Oracle_H8Fallback(const mcu_t&);
+            Oracle_H8Fallback(mcu);
+#endif
             MCU_ReadInstruction(mcu);
+        }
     }
 
     mcu.cycles += 12; // FIXME: assume 12 cycles per instruction

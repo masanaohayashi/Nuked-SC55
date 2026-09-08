@@ -15,7 +15,7 @@ add_executable(sc55-firmware-oracle main.cpp
 target_include_directories(sc55-firmware-oracle PRIVATE "${BACKEND}" "${ROOT}/src/common")
 # Route only CPU writes through the observer. The PCM implementation is unchanged.
 # This definition exists only in this standalone research build.
-set_source_files_properties(${BACKEND}/mcu.cpp PROPERTIES COMPILE_DEFINITIONS "PCM_Write=Oracle_PCM_Write")
+set_source_files_properties(${BACKEND}/mcu.cpp PROPERTIES COMPILE_DEFINITIONS "PCM_Write=Oracle_PCM_Write;SC55_ORACLE_H8_PROFILE=1")
 enable_testing()
 add_test(NAME uart-status COMMAND sc55-firmware-oracle --uart-status-test)
 add_executable(sc55-patch-layout-test patch-layout-test.cpp ${BACKEND}/sc55_patch.cpp ${BACKEND}/sha/sha224-256.c)

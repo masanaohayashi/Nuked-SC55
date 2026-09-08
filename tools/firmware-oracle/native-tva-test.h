@@ -14,12 +14,34 @@
 #include "native-pitch-adjust-test.h"
 #include "native-pitch-connections-test.h"
 #include "native-level-test.h"
+#include "native-tva-interpolation-test.h"
+#include "native-tva-target-test.h"
+#include "native-tva-phase-test.h"
+#include "native-tva-duration-test.h"
+#include "native-tva-stage-test.h"
+#include "native-tva-immediate-test.h"
+#include "native-tva-delay-test.h"
+#include "native-tva-exit-test.h"
+#include "native-voice-unlink-test.h"
+#include "native-voice-stop-test.h"
+#include "native-voice-service-test.h"
+#include "native-voice-release-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <filesystem>
 #include <stdexcept>
 #include <vector>
+
+namespace {
+bool collectH8Fallback = false;
+std::array<uint64_t,0x80000> h8FallbackCounts{};
+}
+void Oracle_H8Fallback(const mcu_t& cpu)
+{
+    if (collectH8Fallback && cpu.cycles >= 60000000 && cpu.cp < 8)
+        ++h8FallbackCounts[(unsigned(cpu.cp)<<16)|cpu.pc];
+}
 
 namespace
 {
@@ -118,8 +140,12 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeLfo(cpu);
     verifyNativePitchModulation(cpu);
     verifyNativePitchModulation(cpu,true);
+    verifyNativePitchModulation(cpu,false,true);
+    verifyNativePitchModulation(cpu,true,true);
     verifyNativePitchCache(cpu);
+    verifyNativePitchCache(cpu,true);
     verifyNativePitchGlide(cpu);
+    verifyNativePitchGlide(cpu,true);
     verifyNativePitchEnvelope(cpu);
     verifyNativePitchEnvelope(cpu,true);
     verifyNativePitchStages(cpu);
@@ -130,7 +156,22 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativePitchInit(cpu,true);
     verifyNativePitchAdjust(cpu);
     verifyNativePitchAdjust(cpu,true);
+    verifyNativePitchAdjust(cpu,false,true);
+    verifyNativePitchAdjust(cpu,true,true);
     verifyNativePitchConnections(cpu);
+    verifyNativeTvaInterpolation(cpu);
+    verifyNativeTvaTarget(cpu);
+    verifyNativeTvaTarget(cpu,true);
+    verifyNativeTvaPhase(cpu);
+    verifyNativeTvaDuration(cpu);
+    verifyNativeTvaStage(cpu);
+    verifyNativeTvaImmediate(cpu);
+    verifyNativeTvaDelay(cpu);
+    verifyNativeTvaExit(cpu);
+    verifyNativeVoiceUnlink(cpu);
+    verifyNativeVoiceStop(cpu);
+    verifyNativeVoiceService(cpu);
+    verifyNativeVoiceRelease(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
@@ -149,9 +190,11 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     uint64_t pitchStageHits = 0, pitchStageInstructions = 0;
     uint64_t pitchInitHits = 0, pitchReentryHits = 0, pitchReentryVisits = 0;
     uint64_t pitchAdjustHits = 0, pitchTuningHits = 0;
+    uint64_t pitchAdjustStepHits = 0, pitchTuningStepHits = 0;
     const bool profile = std::getenv("SC55_TVA_PROFILE") != nullptr;
     std::vector<uint64_t> counts(0x80000);
     for (unsigned mode = 0; mode < 2; ++mode) {
+        collectH8Fallback = profile && mode == 1;
         Emulator player;
         if (!player.Init({}) || !player.LoadRoms(roms.romset, roms.romset_info))
             throw std::runtime_error("Cannot initialise playback");
@@ -184,6 +227,9 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                     && mcu.r[0] >= 0xacde && mcu.r[0] <= 0xc7a4 && (mcu.r[0]-0xacde)%0x12a == 0;
                 const bool pitchAdjustEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x50cf;
                 const bool pitchTuningEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5124;
+                const bool pitchAdjustmentStepEligible = (pitchAdjustEntry || pitchTuningEntry)
+                    && mcu.native_v121_enabled && mcu.dp == 0 && !(mcu.sr&STATUS_T)
+                    && mcu.r[0] >= 0xacde && mcu.r[0] <= 0xc7a4 && (mcu.r[0]-0xacde)%0x12a == 0;
                 const bool pitchReentryEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x4f9e;
                 if (mode && pitchReentryEntry) ++pitchReentryVisits;
                 const bool pitchStageEntry = mcu.native_debt == 0 && mcu.cp == 0
@@ -203,6 +249,10 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                 if (mode && pitchEnvelopeStepEntry && mcu.pc == 0x5064 && !mcu.native_debt)
                     ++pitchEnvelopeStepEntries;
                 if (mode && pitchAdjustEntry && mcu.pc == 0x510a && mcu.native_debt) ++pitchAdjustHits;
+                if (mode && pitchAdjustmentStepEligible && !mcu.native_debt) {
+                    if (pitchAdjustEntry && mcu.pc == 0x50d2) ++pitchAdjustStepHits;
+                    if (pitchTuningEntry && mcu.pc == 0x5127) ++pitchTuningStepHits;
+                }
                 if (mode && pitchTuningEntry && mcu.pc == 0x5175 && mcu.native_debt) ++pitchTuningHits;
                 if (mode && pitchInitEntry
                     && (mcu.pc == 0x4f54 || ((mcu.pc == 0x4f5c || mcu.pc == 0x4f85) && mcu.native_debt))) ++pitchInitHits;
@@ -298,6 +348,10 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     std::printf("Real playback reentry visits: %llu\n",(unsigned long long)pitchReentryVisits);
     if (!pitchAdjustHits || !pitchTuningHits)
         throw std::runtime_error("Real playback never dispatched pitch adjustment/tuning");
+    if (!pitchAdjustStepHits || !pitchTuningStepHits)
+        throw std::runtime_error("Real playback never dispatched unmasked pitch adjustment/tuning");
+    std::printf("Real playback unmasked adjustment/tuning: %llu/%llu entries\n",
+                (unsigned long long)pitchAdjustStepHits,(unsigned long long)pitchTuningStepHits);
     std::printf("Real playback pitch adjustment/tuning: %llu/%llu calls\n",
                 (unsigned long long)pitchAdjustHits,(unsigned long long)pitchTuningHits);
     std::printf("Real playback pitch stages: %llu calls, %llu instructions\n",
@@ -321,7 +375,23 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                 (unsigned long long)cutoffHits,(unsigned long long)cutoffInstructions);
     std::printf("Controllers playback: %llu calls, %llu H8 instructions replaced\n",
                 (unsigned long long)controllerHits, (unsigned long long)controllerInstructions);
+    collectH8Fallback = false;
     if (profile) {
+        uint64_t remaining = 0, pitchRemaining = 0;
+        std::vector<std::pair<uint64_t,unsigned>> fallbackBuckets;
+        for (unsigned base = 0; base < h8FallbackCounts.size(); base += 256) {
+            uint64_t sum = 0;
+            for (unsigned j = 0; j < 256; ++j) sum += h8FallbackCounts[base+j];
+            remaining += sum; fallbackBuckets.emplace_back(sum,base);
+        }
+        for (unsigned pc = 0x4f51; pc <= 0x53e4; ++pc) pitchRemaining += h8FallbackCounts[pc];
+        std::sort(fallbackBuckets.rbegin(),fallbackBuckets.rend());
+        std::printf("Native playback H8 fallback: %llu instructions, pitch region %llu\n",
+                    (unsigned long long)remaining,(unsigned long long)pitchRemaining);
+        for (unsigned i = 0; i < 20; ++i)
+            std::printf("Fallback %06x %llu %.2f%%\n",fallbackBuckets[i].second,
+                        (unsigned long long)fallbackBuckets[i].first,
+                        remaining ? 100.0*fallbackBuckets[i].first/remaining : 0);
         std::vector<std::pair<uint64_t, unsigned>> buckets;
         uint64_t total = 0;
         for (unsigned base = 0; base < counts.size(); base += 256) {
