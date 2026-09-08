@@ -937,21 +937,27 @@ void MCU_Step(mcu_t& mcu)
     }
     else if (!mcu.sleep)
     {
-        if (mcu.pc == 0x5c20 && mcu_native::TryPrepareControllers(mcu))
+        bool native = false;
+        switch (mcu.pc)
         {
-            // All eleven controller-derived pitch/EG/LFO words, through 5ff4.
+        case 0x309b:
+            native = mcu_native::TryComposeLevelV121(mcu)
+                || (mcu.cp == 0 && !mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55
+                    && mcu_native::TryComputeLevel(mcu));
+            break;
+        case 0x36ee:
+            native = mcu_native::TryAdvanceTva(mcu);
+            break;
+        case 0x473c:
+            native = mcu_native::TryAdvanceCutoff(mcu);
+            break;
+        case 0x5c20:
+            native = mcu_native::TryPrepareControllers(mcu);
+            break;
+        default:
+            break;
         }
-        else if (mcu.pc == 0x36ee
-            && mcu_native::TryAdvanceTva(mcu))
-        {
-            // The v1.21 TVA ramp/output calculation resumes at 00:3734.
-        }
-        else if (mcu.cp == 0 && mcu.pc == 0x309b && !mcu.is_mk1 && !mcu.is_jv880 && !mcu.is_scb55
-                 && mcu_native::TryComputeLevel(mcu))
-        {
-            // 00:309b の音量合成をネイティブで済ませた。
-        }
-        else
+        if (!native)
             MCU_ReadInstruction(mcu);
     }
 

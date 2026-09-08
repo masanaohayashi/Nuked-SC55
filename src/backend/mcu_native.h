@@ -1,9 +1,8 @@
 // ファームウェアの一部を、同じ結果を出すネイティブなコードに置き換える。
 //
-// エミュレータの費用はほぼ全部が命令解釈で、実測では音声コールバックの 85%。
-// 1 命令あたりを速くする余地はもう無い（オペランド解決を表引きにしても変わらなかった）。
-// 減らせるのは実行する命令の数だけで、そのためには何をしているかを理解して、
-// 同じ結果を出す C++ に置き換えるしかない。
+// 通常H8経路の命令解釈を、ROMごとに確認した区間単位で省く。
+// 残るH8処理にもメモリアクセスや呼び出し判定の改善余地があるため、
+// 区間の置き換えと合わせて、実際の音源経路で削減量を測定する。
 //
 // 置き換えが成立する条件は 2 つある。
 //
@@ -342,6 +341,251 @@ inline bool TryPrepareControllers(mcu_t& mcu)
     mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (scaled.carry ? STATUS_C : 0)
         | (scaled.value & 0x8000 ? STATUS_N : 0) | (scaled.value == 0 ? STATUS_Z : 0));
     mcu.pc = 0x5ff4; // Leave the final RTS to the interpreter.
+    mcu.native_debt = instructions-1;
+    return true;
+}
+
+// 473c..47fa: cutoff interpolation, ceiling and PCM ramp command. Stop at the
+// selected RTS so stack effects remain in H8. The firmware masks interrupts
+// across this SRAM-only calculation; all elapsed peripheral steps are retained.
+inline bool TryAdvanceCutoff(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0];
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x473c
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || (voice & 1) || voice < 0x8030 || voice > 0xdf96)
+        return false;
+    const uint16_t control = ReadWord(mcu,voice+0x22);
+    const uint8_t originalFlag = MCU_Read(mcu,voice+0x68);
+    const uint16_t selector = ReadWord(mcu,voice-0x30);
+    if (control > 0x7fff || originalFlag > 127 || selector > 8) return false;
+
+    unsigned instructions = 8;
+    uint16_t r4 = control;
+    uint16_t level = ReadWord(mcu,0x7612+2*(control>>8));
+    if (control & 255)
+    {
+        const uint16_t difference = uint16_t(ReadWord(mcu,0x7614+2*(control>>8))-level);
+        const uint32_t product = uint32_t(control&255)*difference;
+        r4 = uint16_t(product>>16);
+        level = uint16_t(level+uint16_t(product>>8));
+        instructions += 8;
+    }
+    level = uint16_t(level*2u);
+    uint16_t r5 = ReadWord(mcu,voice+0x24);
+    const uint8_t flag = originalFlag < 8 ? 8 : originalFlag;
+    instructions += 4 + unsigned(originalFlag < 8);
+    uint16_t r3 = uint16_t(MCU_Read(mcu,0x7816+flag)<<8);
+    instructions += 6;
+    if (level > r3) { level = r3; ++instructions; }
+    instructions += 3;
+    if (level > 0xe600) { level = 0xe600; ++instructions; }
+    if (originalFlag < 8) MCU_Write(mcu,voice+0x68,flag);
+    MCU_Write16(mcu,voice+0x24,level);
+    uint16_t r2 = uint16_t(level-r5), r6 = level;
+    uint16_t command = 0xff00, exit = 0x47f4;
+    bool carry = false;
+    instructions += 3;
+    if (r2 == 0)
+        ++instructions; // 47ef store
+    else
+    {
+        ++instructions; // 4794
+        if (level < r5)
+        {
+            r2 = uint16_t(0u-r2);
+            instructions += 2;
+        }
+        else
+        {
+            r6 &= 0xff00;
+            r5 &= 0xff00;
+            instructions += 4;
+            if (r6 == r5)
+            {
+                r6 = uint16_t(r6+0x100);
+                instructions += 7;
+                if (r6 > r3) { r6 = r3; ++instructions; }
+            }
+        }
+        carry = r6 < 0xe600;
+        instructions += 4;
+        if (r6 > 0xe600) { r6 = 0xe600; ++instructions; }
+        mcu.r[1] = selector;
+        if (selector == 0)
+        {
+            r6 = uint16_t((r6 & 0xff00) | 0xaf);
+            command = r6;
+            exit = 0x47fa;
+            instructions += 2;
+        }
+        else
+        {
+            r3 = MCU_Read(mcu,0x6b06+selector);
+            instructions += 2;
+            // Nonzero r2 reaches carry in at most 16 iterations.
+            for (unsigned shift = 0; shift < 16; ++shift)
+            {
+                const bool overflow = (r2 & 0x8000) != 0;
+                r2 = uint16_t(r2<<1);
+                instructions += 2;
+                if (overflow) break;
+                ++instructions;
+                if (r3-- == 0)
+                {
+                    r3 = 0;
+                    r2 >>= 1;
+                    instructions += 2;
+                    break;
+                }
+            }
+            const unsigned rounded = ((r2>>8)>>3)+1;
+            carry = (rounded & 1) != 0;
+            r2 = uint16_t((rounded>>1) | MCU_Read(mcu,0x67ba+r3));
+            instructions += 9;
+            if (r2 == 0)
+                ++instructions;
+            else
+            {
+                r6 = uint16_t((r6 & 0xff00) | r2);
+                command = r6;
+                exit = 0x47ee;
+                instructions += 2;
+            }
+        }
+    }
+    MCU_Write16(mcu,voice+0x26,command);
+    mcu.r[2] = r2; mcu.r[3] = r3; mcu.r[4] = r4; mcu.r[5] = r5; mcu.r[6] = r6;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (carry ? STATUS_C : 0)
+        | (command & 0x8000 ? STATUS_N : 0) | (command == 0 ? STATUS_Z : 0));
+    mcu.pc = exit;
+    mcu.native_debt = instructions-1;
+    return true;
+}
+
+// Register-accurate 312b..3187 used by v1.21 level composition. Unlike the
+// legacy helper above, no process-global scratch register is used.
+inline unsigned ModulateV121(uint16_t& level, uint16_t a, uint16_t b,
+                            uint16_t& depth, uint16_t& high, uint16_t& low)
+{
+    const bool aNegative = (a & 0x8000) != 0, bNegative = (b & 0x8000) != 0;
+    bool negative = aNegative;
+    unsigned instructions = 4;
+    uint16_t amount;
+    if (aNegative == bNegative)
+    {
+        amount = aNegative ? uint16_t(0u-a-b) : uint16_t(a+b);
+        instructions += aNegative ? 5 : 3;
+        if (amount > 0x7f00) { amount = 0x7f00; instructions += 2; }
+    }
+    else
+    {
+        amount = uint16_t(a+b);
+        negative = (amount & 0x8000) != 0;
+        instructions += 2;
+        if (negative) { amount = uint16_t(0u-amount); instructions += 2; }
+    }
+    const bool flip = (depth & 0x8000) != 0;
+    instructions += 2;
+    if (flip)
+    {
+        depth = uint16_t(0u-depth);
+        instructions += negative ? 1 : 2;
+    }
+    const uint32_t product = (uint32_t(amount)*depth)<<1;
+    high = uint16_t(product>>16);
+    low = uint16_t(product-1);
+    const unsigned delta = unsigned(high) + unsigned(uint16_t(product) != 0);
+    instructions += 7; // six arithmetic/branch instructions plus RTS
+    if (negative != flip)
+    {
+        if (level < delta) { level = 0; ++instructions; }
+        else level = uint16_t(level-delta);
+    }
+    else level = uint16_t(level+delta);
+    return instructions;
+}
+
+// 309b..312a including its two modulation subcalls. Leave the outer RTS to
+// H8, but reproduce both BSR stack writes and all exit registers/flags.
+inline bool TryComposeLevelV121(mcu_t& mcu)
+{
+    const unsigned voice = mcu.r[0], stack = mcu.r[7];
+    const bool stackRam = stack >= 0xfb82 && stack <= 0xff80
+        && (mcu.dev_register[DEV_RAMCR] & 0x80);
+    const bool stackSram = stack >= 0xd002 && stack <= 0xdffe;
+    if (!mcu.native_v121_enabled || mcu.cp != 0 || mcu.pc != 0x309b
+        || mcu.dp != 0 || mcu.ep != 0
+        || (mcu.sr & (STATUS_INT_MASK | STATUS_T)) != STATUS_INT_MASK
+        || (voice & 1) || voice < 0x807a || voice > 0xcf68
+        || (stack & 1) || (!stackRam && !stackSram) || mcu.r[1] >= 24)
+        return false;
+    const unsigned part = MCU_Read(mcu,0xc8e4+mcu.r[1]);
+    const unsigned patch = ReadWord(mcu,voice+0x2e);
+    const unsigned selector = ReadWord(mcu,voice+0x30);
+    if (part >= 16 || patch < 0x8000 || patch > 0xdff7 || selector > 0xdeff)
+        return false;
+    uint16_t r6 = MCU_Read(mcu,0x8002);
+    uint32_t product = uint32_t(MCU_Read(mcu,0xab36+part))*MCU_Read(mcu,patch+8)*r6;
+    uint16_t scaled = uint16_t((product<<2)>>8);
+    unsigned instructions = 17;
+    if (selector)
+    {
+        r6 = MCU_Read(mcu,selector+0x100);
+        scaled = uint16_t(((uint32_t(scaled)*r6)<<1)>>8);
+        product = uint32_t(scaled)*0x830e;
+        instructions += 9;
+    }
+    else { product = uint32_t(scaled)*0x8208; ++instructions; }
+    const bool initialCarry = (product & 0x80000000u) != 0;
+    product <<= 1;
+    uint16_t r2 = uint16_t(product>>16), r3 = uint16_t(product), r4 = r2, r5 = 0;
+    instructions += 4;
+    uint16_t exit = 0x30ea;
+    bool carry = initialCarry;
+    if (r4 == 0) ++instructions; // CLR r5, not the outer RTS
+    else
+    {
+        const uint16_t bias = ReadWord(mcu,voice+0x8a);
+        instructions += 2;
+        if (bias != 0)
+        {
+            ++instructions;
+            if (bias & 0x8000)
+            {
+                const auto magnitude = uint16_t(0u-bias);
+                instructions += 3;
+                if (r4 < magnitude) { r4 = 0; instructions += 2; }
+                else r4 = uint16_t(r4-magnitude);
+            }
+            else { r4 = uint16_t(r4+bias); ++instructions; }
+        }
+        constexpr int offsetsA[]{-122,-88}, offsetsB[]{0x8e,0x96}, depths[]{-96,-62};
+        for (unsigned i = 0; i < 2; ++i)
+        {
+            const auto a = ReadWord(mcu,uint16_t(int(voice)+offsetsA[i]));
+            const auto b = ReadWord(mcu,voice+offsetsB[i]);
+            r6 = ReadWord(mcu,uint16_t(int(voice)+depths[i]));
+            MCU_Write16(mcu,stack-2,i == 0 ? 0x310b : 0x3117);
+            instructions += 4 + ModulateV121(r4,a,b,r6,r2,r3);
+        }
+        product = ((uint32_t(r4)*r4)>>16)*0x208;
+        r4 = uint16_t(product>>16);
+        carry = r4 < 0xff;
+        instructions += 4;
+        if (carry)
+        {
+            r5 = uint16_t(product>>8);
+            exit = 0x3126;
+            instructions += 2;
+        }
+        else { r5 = 0xffff; exit = 0x312a; ++instructions; }
+    }
+    mcu.r[2] = r2; mcu.r[3] = r3; mcu.r[4] = r4; mcu.r[5] = r5; mcu.r[6] = r6;
+    mcu.sr = uint16_t((mcu.sr & ~0x0fu) | (carry ? STATUS_C : 0)
+        | (r5 & 0x8000 ? STATUS_N : 0) | (r5 == 0 ? STATUS_Z : 0));
+    mcu.pc = exit;
     mcu.native_debt = instructions-1;
     return true;
 }

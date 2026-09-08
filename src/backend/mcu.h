@@ -325,6 +325,7 @@ uint8_t MCU_Read_Slow(mcu_t& mcu, uint32_t address);
 // 行き先の内訳を実測すると page 0 の ROM1 が 68.5%、SRAM が 8.5% で、どちらも
 // 副作用の無い素の配列読み。この 2 つだけここで済ませ、残りは元の関数へ落とす。
 // 判定の順序も範囲も変えていないので、返す値は元と同一。
+// MK1も8000..dfffは同じSRAM配置。PCM/LCD/デバイス範囲は従来のSlowへ渡す。
 inline uint8_t MCU_Read(mcu_t& mcu, uint32_t address)
 {
     const uint32_t page = address & 0xf0000;
@@ -334,7 +335,7 @@ inline uint8_t MCU_Read(mcu_t& mcu, uint32_t address)
         const uint16_t offset = (uint16_t) address;
         if (!(offset & 0x8000))
             return mcu.rom1[offset & 0x7fff];
-        if (offset >= 0x8000u && offset < 0xe000u && !mcu.is_mk1)
+        if (offset >= 0x8000u && offset < 0xe000u)
             return mcu.sram[offset & 0x7fff];
     }
     else if (page <= 0x40000)
@@ -355,9 +356,10 @@ void MCU_Write_Slow(mcu_t& mcu, uint32_t address, uint8_t value);
 
 // 読み側と同じ。行き先の内訳は内蔵 RAM 63.8%、SRAM 30.5% で、どちらも素の配列書き。
 // 判定の順序と条件（RAMCR のビットを含む）は元のままにしてある。
+// この2範囲の書き込みはMK1でも同じ。RAMCR無効時の内蔵RAMはSlowへ渡す。
 inline void MCU_Write(mcu_t& mcu, uint32_t address, uint8_t value)
 {
-    if ((address & 0xf0000) == 0 && !mcu.is_mk1)
+    if ((address & 0xf0000) == 0)
     {
         const uint16_t offset = (uint16_t) address;
         if (offset >= 0xfb80u && offset < 0xff80u

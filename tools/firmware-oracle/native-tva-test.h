@@ -3,6 +3,8 @@
 #include "mcu_native.h"
 #include "rom_loader.h"
 #include "native-controller-test.h"
+#include "native-cutoff-test.h"
+#include "native-level-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -102,12 +104,16 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     if (cpu.native_debt != 0) throw std::runtime_error("Reset retained native debt");
     std::printf("TVA: %u register/SR/SRAM/instruction-count cases matched\n", cases);
     verifyNativeControllers(cpu);
+    verifyNativeCutoff(cpu);
+    verifyNativeLevel(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
     std::array<double, 2> elapsed{};
     uint64_t hits = 0;
     uint64_t controllerHits = 0, controllerInstructions = 0;
+    uint64_t cutoffHits = 0, cutoffInstructions = 0;
+    uint64_t levelHits = 0, levelInstructions = 0;
     const bool profile = std::getenv("SC55_TVA_PROFILE") != nullptr;
     std::vector<uint64_t> counts(0x80000);
     for (unsigned mode = 0; mode < 2; ++mode) {
@@ -130,11 +136,23 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
                     ++counts[(unsigned(mcu.cp) << 16) | mcu.pc];
                 const bool entry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x36ee;
                 const bool controllerEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x5c20;
+                const bool cutoffEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x473c;
+                const bool levelEntry = mcu.native_debt == 0 && mcu.cp == 0 && mcu.pc == 0x309b;
                 player.Step();
                 if (mode && entry && mcu.pc == 0x3734 && mcu.native_debt) ++hits;
                 if (mode && controllerEntry && mcu.pc == 0x5ff4 && mcu.native_debt) {
                     ++controllerHits;
                     controllerInstructions += mcu.native_debt+1;
+                }
+                if (mode && cutoffEntry && mcu.native_debt
+                    && (mcu.pc == 0x47ee || mcu.pc == 0x47f4 || mcu.pc == 0x47fa)) {
+                    ++cutoffHits;
+                    cutoffInstructions += mcu.native_debt+1;
+                }
+                if (mode && levelEntry && mcu.native_debt
+                    && (mcu.pc == 0x30ea || mcu.pc == 0x3126 || mcu.pc == 0x312a)) {
+                    ++levelHits;
+                    levelInstructions += mcu.native_debt+1;
                 }
             }
         };
@@ -160,6 +178,12 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     }
     if (!hits) throw std::runtime_error("Real playback never dispatched native TVA");
     if (!controllerHits) throw std::runtime_error("Real playback never dispatched native controllers");
+    if (!cutoffHits) throw std::runtime_error("Real playback never dispatched native cutoff");
+    if (!levelHits) throw std::runtime_error("Real playback never dispatched native level");
+    std::printf("Level playback: %llu calls, %llu H8 instructions replaced\n",
+                (unsigned long long)levelHits,(unsigned long long)levelInstructions);
+    std::printf("Cutoff playback: %llu calls, %llu H8 instructions replaced\n",
+                (unsigned long long)cutoffHits,(unsigned long long)cutoffInstructions);
     std::printf("Controllers playback: %llu calls, %llu H8 instructions replaced\n",
                 (unsigned long long)controllerHits, (unsigned long long)controllerInstructions);
     if (profile) {
