@@ -223,6 +223,48 @@
 - [共有ボイスの第3変調量](docs/firmware/NATIVE_SHARED_THIRD_DEPTH_2026-09-09.md):
   3db3..3e2dの53命令。バイアス・飽和・係数適用と命令境界比較。
 
+- [フィルター入口](docs/firmware/NATIVE_FILTER_ENTRY_2026-09-09.md):
+  3e30..3f02の77命令。DP/EP変更、モード分岐、ROMテーブル参照、係数/コントローラー補正、履歴クリア、命令境界訂正。
+
+- [フィルター深度の係数設定](docs/firmware/NATIVE_FILTER_DEPTH_2026-09-09.md):
+  3f05..3f8dの61命令。係数設定、符号による経路選択、両経路の乗算・桁上げ・合成・飽和処理。
+
+- [第2フィルター深度補正](docs/firmware/NATIVE_SECOND_FILTER_DEPTH_2026-09-09.md):
+  3f90..400cの56命令。SRAM係数による乗算と合成・飽和。
+
+- [第3フィルター深度補正](docs/firmware/NATIVE_THIRD_FILTER_DEPTH_2026-09-09.md):
+  400f..408bの56命令。パッチbyte47による補正と合成・飽和。
+
+- [第4フィルター深度補正](docs/firmware/NATIVE_FOURTH_FILTER_DEPTH_2026-09-09.md):
+  408e..410aの56命令。パッチbyte48による補正と合成・飽和。
+
+- [第5フィルター深度補正](docs/firmware/NATIVE_FIFTH_FILTER_DEPTH_2026-09-09.md):
+  410d..4189の56命令。パッチbyte49による補正と合成・飽和。
+
+- [フィルター深度の最大値選択](docs/firmware/NATIVE_FILTER_MAXIMUM_2026-09-09.md):
+  418c..4257の84命令。最大値選択、パッチ補正、合成・丸め・テーブル変換と上限補正。
+
+- [フィルター補正テーブルの選択](docs/firmware/NATIVE_FILTER_CURVE_2026-09-09.md):
+  425b..42baの39命令。ページ3のテーブル参照、符号補正、乗算・変換・保存。
+
+- [第2フィルター補正テーブル](docs/firmware/NATIVE_SECOND_FILTER_CURVE_2026-09-09.md):
+  42bf..4322の40命令。第1経路との差分と最終ANDを含む変換・保存。
+
+- [フィルターのコントローラー係数](docs/firmware/NATIVE_FILTER_CONTROLLER_SCALE_2026-09-09.md):
+  4327..4379の32命令。パッチbyte62、乗算/除算による係数生成。
+
+- [第2フィルターコントローラー係数](docs/firmware/NATIVE_SECOND_FILTER_CONTROLLER_SCALE_2026-09-09.md):
+  437c..43ceの32命令。パッチbyte63、乗算/除算による係数生成。
+
+- [フィルター設定転送・初期化](docs/firmware/NATIVE_FILTER_SETUP_2026-09-09.md):
+  43d1..4440の34命令。パッチ値転送、履歴初期化、更新呼び出しと周期値復元。
+
+- [ディスパッチ費用の改善とCPU比較](docs/firmware/NATIVE_DISPATCH_PERFORMANCE_2026-09-09.md):
+  範囲判定の積み上がりを除去。旧測定版比で24音-2.92%、idle-3.80%（各2回）。
+
+- [ボイス基準値の更新](docs/firmware/NATIVE_VOICE_BASE_VALUE_2026-09-09.md):
+  4858..4923の72命令。基準値補正・保存とページ3の補正テーブル参照、桁借り付き補正とゼロ制限。LDC.Wの命令境界訂正を含む。
+
 1. 本索引で対象分野と訂正先を確認する。
 2. 該当する実装ヘッダーとoracle/testを読む。検証済み入力範囲と未対応条件を確認する。
 3. [保全記録](docs/firmware/evidence/README.md)で元ログとハッシュを特定する。

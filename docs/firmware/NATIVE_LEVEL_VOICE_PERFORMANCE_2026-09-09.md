@@ -33,6 +33,7 @@ Logic、UI、プラグインラッパーを含まないためLogicのCPUメー�
   SHA256 `f2c46bfaf5989fb1b62d4c517362c51a6e2e991f25636b1f191a5df3d1c374e5`
 - 新: `/tmp/sc55-perf-uYIHTJ/release/sc55-perf`
   SHA256 `720a4c52f28bb0e26f962281f9a6e21a1acc4570773da55459ee6b479b059ea5`
+  後続測定のため現在は `/tmp/sc55-perf-uYIHTJ/sc55-perf-before-voice-lfo-setup` に保全。
 - コマンド: 各バイナリにROMディレクトリ、`chord 120`または`idle 120`を渡す。
 
 ROM・バイナリはリポジトリへ追加していない。

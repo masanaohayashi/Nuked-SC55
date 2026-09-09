@@ -50,6 +50,19 @@
 #include "native-shared-modulation-copy-test.h"
 #include "native-first-modulation-copy-test.h"
 #include "native-shared-third-depth-test.h"
+#include "native-filter-entry-test.h"
+#include "native-filter-depth-test.h"
+#include "native-second-filter-depth-test.h"
+#include "native-third-filter-depth-test.h"
+#include "native-fourth-filter-depth-test.h"
+#include "native-fifth-filter-depth-test.h"
+#include "native-filter-maximum-test.h"
+#include "native-filter-curve-test.h"
+#include "native-second-filter-curve-test.h"
+#include "native-filter-controller-scale-test.h"
+#include "native-second-filter-controller-scale-test.h"
+#include "native-filter-setup-test.h"
+#include "native-voice-base-value-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -223,6 +236,19 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeSharedModulationCopy(cpu);
     verifyNativeFirstModulationCopy(cpu);
     verifyNativeSharedThirdDepth(cpu);
+    verifyNativeFilterEntry(cpu);
+    verifyNativeFilterDepth(cpu);
+    verifyNativeSecondFilterDepth(cpu);
+    verifyNativeThirdFilterDepth(cpu);
+    verifyNativeFourthFilterDepth(cpu);
+    verifyNativeFifthFilterDepth(cpu);
+    verifyNativeFilterMaximum(cpu);
+    verifyNativeFilterCurve(cpu);
+    verifyNativeSecondFilterCurve(cpu);
+    verifyNativeFilterControllerScale(cpu);
+    verifyNativeSecondFilterControllerScale(cpu);
+    verifyNativeFilterSetup(cpu);
+    verifyNativeVoiceBaseValue(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;
