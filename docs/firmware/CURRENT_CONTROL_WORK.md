@@ -11,6 +11,30 @@
 
 ## 現在の製品構造
 
+2026-09-10 Note Onの準備・割当をボイスエンジンへ集約：受信側に残っていた
+poly／high-note mapping、mono／portamento source再利用、rhythmの3経路を
+`NativeVoiceEngine::serviceAdmission`へ移した。準備用PCM／EG入力、capacity確保後の再開、
+音色変更によるreuse invalidation、発音確定時のpitch historyもボイス側で管理する。
+受信側は発音要求を渡し、結果のfailed／unsupportedを扱う。
+設定反映時の24voice入力更新も同じ所有者の`refreshControls`で行う。
+
+`Configuration`は同一音声スレッド内の設定への読み取り専用viewで、呼出しを越えて保持しない。
+受信時に決まったtoneは要求に保存、soft pedal／part設定／共有drum mapは発音準備時に読む。
+無効kitへ変更された後でも、既に受理済みのdrum Note Onを取り消さない既存仕様を維持する。
+共通制御周期、PCM開始・再利用待ち、mono戻り発音とdrum key-latch保護は変更していない。
+新規H8機能やCPU改善の主張ではなく、意味単位の発音管理を一つの所有者へまとめる変更。
+command取出しと一部のportamento値設定、起動初期化・診断にはまだ受信側からの状態参照が残る。
+
+通常C++ targetでchecksum `3b54320560580fd3`、0/1/127/129/257frame分割一致、
+GATCHA55初期化後のミュート→part16第8音、55KTIZKEの13kickのfirst-ms gainがPASS。
+H8比較はrelease integration111件、shared rhythm42件がPASS。native-player試験もPASS。
+ログ `/tmp/sc55-admission-owner-{synth,part16,kick,release-test,rhythm,player}.log`。
+発音準備中Program Change（受理済みdrumと後続無効kitを含む）とGS part変更もH8比較PASS
+(`/tmp/sc55-admission-owner-program-order.log`、`/tmp/sc55-admission-owner-part-order.log`)。
+Release arm64 Standalone＋内蔵AUv3もBUILD SUCCEEDED
+(`/tmp/sc55-admission-owner-release.log`)。Resave・署名登録・インストールなし。
+Logicでの実演奏／CPUメーター確認は未実施。
+
 2026-09-10 Note Off／ペダル／モード変更の発音管理をボイス所有側へ集約：
 `NativeVoiceEngine`がpolyの解放snapshot、monoの保持キー判断と戻り発音要求、
 hold/sostenuto/portamento、controller reset、mono/poly変更時の停止・キー初期化を扱う。

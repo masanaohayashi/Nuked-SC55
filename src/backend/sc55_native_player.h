@@ -214,7 +214,7 @@ public:
     uint8_t portamentoSource(unsigned part) const noexcept
     { return part<16 ? engine_.mono[part].source : uint8_t(255); }
     bool reuseInvalidated(unsigned part) const noexcept
-    { return part<16 && (reuseInvalidation_&(1u<<part)); }
+    { return engine_.reuseInvalidated(part); }
     uint64_t unsupportedEvents() const noexcept { return unsupported_; }
     uint64_t pcmBoundaryEvents() const noexcept { return pcmBoundaryEvents_; }
     unsigned freeVoices() const noexcept { return engine_.notes.allocator.freeCount; }
@@ -636,16 +636,7 @@ private:
     void seedPitchHistory(unsigned part) noexcept
     { seedPitchHistory(part,selectedTone_[part]); }
     void seedPitchHistory(unsigned part,std::optional<uint16_t> tone) noexcept
-    {
-        if(!tone) return;
-        const auto* patch=data_.patch(*tone);
-        if(!patch) return;
-        const auto& settings=parts_.parts[part];
-        const auto key=TransposeMasterKey(TransposePartKey(60,settings.keyShift,
-            uint8_t(settings.controls.coarseTuning)),system_.master.keyShift);
-        for(unsigned p=0;p<2;++p) if(patch->partial[p].used)
-            engine_.preparation.partKeys[part][p]=TransposePartialKey(key,patch->partial[p].raw[10]);
-    }
+    { engine_.seedPitchHistory(part,tone,voiceConfiguration(),data_); }
     bool stopPartGroups(unsigned part) noexcept
     {
         return engine_.stopPartGroups(part,[&](uint8_t a) { return read(a); },ControlWriter{pcm_});
@@ -658,7 +649,6 @@ private:
     bool applyPartMode(unsigned part,bool poly) noexcept
     {
         if(!engine_.changePartMode(part,poly,[&](uint8_t a) { return read(a); },ControlWriter{pcm_})) return false;
-        reuseInvalidation_&=uint16_t(~(1u<<part));
         return true;
     }
     bool changeRhythmMode(unsigned part,uint8_t value) noexcept
@@ -799,7 +789,6 @@ private:
         std::copy_n(defaults_->bytes.begin()+0x18,16,system_.capacity.reserves.begin());
         system_.capacity.startPartControl=defaults_->bytes[0x28];
         rhythmRejected_={}; selectedRhythmProgram_={}; rhythmMapPrograms_={};
-        reuseInvalidation_=0;
         const auto program=rhythm_->resolve(0);
         if (!program) { failed_=true; return; }
         rhythmSettings_.reset(rhythm_->records[rhythm_->programs[*program]]);
@@ -837,8 +826,7 @@ private:
     void applyProgramVoiceState(unsigned part,uint16_t tone) noexcept
     {
         updateCapacityMode(part,tone);
-        reuseInvalidation_|=uint16_t(1u<<part);
-        seedPitchHistory(part,tone);
+        engine_.programChanged(part,tone,voiceConfiguration(),data_);
     }
     // Shared committed program selection. MIDI gates are checked by receive;
     // GS supplies the addressed part directly, independent of MIDI RX flags.
@@ -902,48 +890,11 @@ private:
     };
     bool tasksPending() const noexcept
     { return engine_.operationsPending(); }
-    void applyMaster(VoiceControlInputs& input) const noexcept
-    {
-        input.level.master = system_.master.volume;
-        input.spatial.masterPan = system_.master.pan;
-        input.pitch.masterTune = system_.master.tune;
-    }
-    void applyPart(unsigned part,VoiceControlInputs& input,unsigned map = 255,unsigned key = 0) const noexcept
-    {
-        applyMaster(input);
-        input.glideRate=engine_.mono[part].glideRate;
-        ApplyChannelOutputControls(parts_.parts[part].controls,input.level,input.spatial);
-        input.pitch.partTune=uint16_t(parts_.parts[part].controls.finePitch());
-        input.correctionSource=parts_.parts[part].fineTune;
-        const auto& tone=parts_.parts[part].controls.tone.values;
-        input.amplitude={tone[4],tone[5],tone[6]};
-        input.secondTiming.attack=tone[4]; input.secondTiming.decay=tone[5]; input.secondTiming.release=tone[6];
-        input.second.control=tone[2]; input.secondController=tone[3];
-        input.level.has_tone_scale = input.spatial.hasToneScale = map < 2;
-        if (map < 2)
-        {
-            const auto output=rhythmSettings_.output(map,key);
-            input.level.tone_scale = output.level;
-            input.spatial.panScale = output.pan;
-            input.spatial.reverbScale = output.reverb;
-            input.spatial.chorusScale = output.chorus;
-        }
-        if (!effectsTables_) input.spatial.reverb = input.spatial.chorus = 0;
-    }
+    NativeVoiceEngine::Configuration voiceConfiguration() const noexcept
+    { return {parts_,system_.master,system_.capacity,rhythmSettings_,rhythm_ ? &*rhythm_ : nullptr,
+        effectsTables_.has_value()}; }
     void refreshControls() noexcept
-    {
-        for (unsigned slot = 0; slot < 24; ++slot)
-            if (engine_.runtime.voices[slot]) {
-                applyPart(engine_.installation.voices[slot].input.part,engine_.runtime.inputs[slot],
-                    engine_.preparation.drumMap[slot],engine_.preparation.drumKey[slot]);
-                applyToneModulation(engine_.installation.voices[slot].input.part,engine_.runtime.firstInputs[slot]);
-            }
-    }
-    void applyToneModulation(unsigned part,FirstModulationInputs& input) const noexcept
-    {
-        const auto& tone=parts_.parts[part].controls.tone.values;
-        input.rateControl=tone[0]; input.depthControl=tone[1]; input.delayControl=tone[7];
-    }
+    { engine_.refreshControls(voiceConfiguration()); }
     bool resetVoiceControllers(unsigned part,bool allNotes) noexcept
     {
         if (!engine_.resetVoiceControllers(part,(parts_.routing[part].noteFlags&0x10)!=0,allNotes))
@@ -1430,109 +1381,6 @@ private:
         return MidiDispatchResult::accepted;
     }
 
-    void startMonoOrSource(MidiDecoder::Event event,unsigned part,bool polySource=false) noexcept
-    {
-        auto& mono=engine_.mono[part];
-        const auto& settings=parts_.parts[part];
-        const auto tone=engine_.admission->request.tone;
-        if (!tone) { engine_.admission.reset(); return; }
-        const auto selection=PrepareMappedNoteVelocity(event,*tone,settings.controls.softPedal,0,data_);
-        if (!selection) { failed_=true; return; }
-        if (!selection->partials.candidates.count) {
-            if(!polySource && !engine_.admission->isHeldReturn()) mono.held.set(event.first,true);
-            if (!engine_.admission->isHeldReturn()) mono.source=255;
-            if (engine_.admission->isHeldReturn() && engine_.notes.allocator.partHead[part]<24) {
-                if (!engine_.notes.allocator.releaseMonoGroup(part)
-                    || !engine_.runtime.publishNoteReleases(engine_.notes.allocator)) failed_=true;
-            }
-            engine_.admission.reset(); return;
-        }
-        auto& allocator=engine_.notes.allocator;
-        uint8_t group=allocator.partHead[part];
-        if(polySource) {
-            const auto found=engine_.admission->sourceReuse==PendingAdmission::SourceReuse::fresh ? std::optional<uint8_t>(255)
-                : allocator.findSourceGroup(part,mono.source);
-            if(!found) { failed_=true; return; }
-            group=*found;
-        }
-        if (reuseInvalidated(part) && (!polySource || group<24)) {
-            reuseInvalidation_&=uint16_t(~(1u<<part));
-            if(polySource && group<24) {
-                if(!engine_.stopGroup(part,group,
-                    [&](uint8_t a) { return read(a); },ControlWriter{pcm_})) failed_=true;
-                // H8 jumps straight to fresh admission after invalidating
-                // this source. Do not search and steal another older source
-                // group when the native continuation resumes after PCM work.
-                engine_.admission->sourceReuse=PendingAdmission::SourceReuse::fresh;
-            } else if (!stopPartGroups(part)) failed_=true;
-            return; // Task4 and PCM must settle before the new allocation.
-        }
-        const bool reuse=group<24;
-        const auto source=engine_.admission->isHeldReturn() ? uint8_t(255) : mono.source;
-        const auto reuseFlags=engine_.monoReuseFlags(part,group,engine_.admission->isHeldReturn(),polySource);
-        if (!reuseFlags) { failed_=true; return; }
-        const auto flags=*reuseFlags;
-        const MelodicAllocationInputs allocation{settings.bank,false,0,uint8_t(part),0x80,255,
-            {},0,{},tone};
-        // CC84 without a matching source group uses the same fresh-note
-        // retirement as ordinary poly (00:0fab -> 17b8), before capacity.
-        if(!reuse && !engine_.retireAdmission(allocation.groupFlags,parts_.routing[part].noteFlags,
-            [&](uint8_t a) {return read(a);},ControlWriter{pcm_})) { failed_=true; return; }
-        auto probe=allocator;
-        const auto selected=reuse ? PrepareMonoReuseAllocation(*selection,part,data_,probe,group)
-            : AllocateMelodicNote(event,settings.controls,allocation,data_,probe);
-        if (selected.status==MelodicAllocationResult::Status::needsCapacity) {
-            const auto capacity=engine_.ensureCapacity(part,selection->partials.candidates.count,system_.capacity,
-                [&](uint8_t a) { return read(a); },ControlWriter{pcm_});
-            if (!capacity) failed_=true;
-            else if (!*capacity) {
-                if(!polySource && !engine_.admission->isHeldReturn()) mono.held.set(event.first,true);
-                engine_.admission.reset(); // Valid note, protected capacity: discard only this admission.
-            }
-            return;
-        }
-        if (selected.status!=MelodicAllocationResult::Status::allocated) { failed_=true; return; }
-        const auto key=TransposeMasterKey(TransposePartKey(event.first,settings.keyShift,
-            uint8_t(settings.controls.coarseTuning)),system_.master.keyShift);
-        const PartialSampleInstallInputs sample{settings.scale,key,event.first,event.first,255,0,event.first,0,flags};
-        std::array<PartialSampleInstallInputs,2> samples{sample,sample};
-        VoiceControlInputs controls; applyPart(part,controls); controls.glideRate=mono.glideRate;
-        std::array<NormalPartialDspInputs,2> dsp{};
-        for (unsigned partial=0;partial<2;++partial) {
-            const auto slot=selected.dispatch[partial].voice;
-            dsp[partial]={mono.portamento ? engine_.preparation.partKeys[part][partial] : uint8_t(255),(flags&128)!=0,0,controls,{},{}};
-            if (source<128 && selected.dispatch[partial].prepare) {
-                const auto& raw=data_.patch(selection->tone)->partial[partial].raw;
-                const auto origin=PreparePortamentoSourceKey(TransposeMasterKey(
-                    TransposePartKey(source,settings.keyShift,uint8_t(settings.controls.coarseTuning)),
-                    system_.master.keyShift),engine_.preparation.reference,raw[10],raw[13]);
-                if (!origin) { failed_=true; return; }
-                dsp[partial].sourceKey=*origin;
-            }
-            samples[partial].minimumKey=dsp[partial].sourceKey;
-            applyToneModulation(part,dsp[partial].firstControls);
-            if (slot<24) dsp[partial].previousPitch=engine_.preparation.previousPitch[slot];
-        }
-        const auto result=reuse
-            ? engine_.startReusedMelodicNote(*selection,part,samples,dsp,controllers_,data_,conversion_,waves_,
-                [&](uint8_t a) { return read(a); },ControlWriter{pcm_},group)
-            : engine_.startRoutedMelodicNote(event,settings.controls,allocation,samples,dsp,
-                controllers_,data_,conversion_,waves_,[&](uint8_t a) { return read(a); },ControlWriter{pcm_});
-        using Status=VoiceControlRuntime::MelodicStartResult::Status;
-        if (result.status==Status::deferred || result.status==Status::needsCapacity) return;
-        if (result.status!=Status::started && result.status!=Status::preparedOnly) { failed_=true; return; }
-        if(!polySource) { mono.current=event.first; mono.velocity=event.second; mono.tone=tone; }
-        if(!polySource && !engine_.admission->isHeldReturn()) mono.held.set(event.first,true);
-        const auto committedGroup=selected.group->group;
-        if(polySource && result.requests->count) {
-            allocator.noteGroups[committedGroup].key=event.first;
-            allocator.noteGroups[committedGroup].status=0;
-        }
-        if (!engine_.admission->isHeldReturn()) mono.source=255;
-        if(!engine_.rememberPreparedNote(part,result,event.first)) { failed_=true; return; }
-        engine_.admission.reset();
-    }
-
     void serviceVoiceCommand() noexcept
     {
 #if defined(SC55_NATIVE_IO_AUDIT)
@@ -1569,130 +1417,11 @@ private:
                 }
             }
         }
-        if (failed() || !engine_.admission) return;
-        auto event = engine_.admission->event();
-        const auto originalNote=event.first;
-        const auto part = engine_.admission->request.part;
-        const auto& settings = parts_.parts[part];
-        const auto& channel = settings.controls;
-        const auto load = [&](uint8_t a) { return read(a); };
-        const ControlWriter store{pcm_};
-        if (parts_.routing[part].noteFlags&0x10)
-        {
-            startRhythm(event,part);
-            return;
-        }
-        const bool high=event.first>=125;
-        if (!high && !(parts_.routing[part].noteFlags&0x80)) { startMonoOrSource(event,part); return; }
-        if(!high && engine_.mono[part].source<128) { startMonoOrSource(event,part,true); return; }
-        MelodicAllocationInputs allocation{settings.bank,false,0,part,0x80,255,
-            {},0,{},engine_.admission->request.tone};
-        if(high) {
-            const auto* patch=engine_.admission->request.tone ? data_.patch(*engine_.admission->request.tone) : nullptr;
-            const auto mapping=patch ? MapHighNote(event.first,patch->common) : std::nullopt;
-            if(!mapping) { failed_=true; return; }
-            if(mapping->tone&0x8000) { engine_.admission.reset(); return; }
-            event.first=mapping->note;
-            allocation.resolvedTone=mapping->tone; allocation.groupFlags=0x81;
-            allocation.groupNote=originalNote;
-            allocation.keyRange={}; allocation.velocityAdjustment={};
-        }
-        const auto preview=engine_.previewMelodicAdmission(event,channel,allocation,
-            parts_.routing[part].noteFlags,data_,load,store);
-        if(!preview) { failed_=true; return; }
-        const auto& selected=*preview;
-        using Allocated = MelodicAllocationResult::Status;
-        if (selected.status == Allocated::needsCapacity)
-        {
-            // The MIDI event is already owned by engine_.admission; a reclaim is never
-            // replayed as a queue callback returning deferred.
-            const auto count = selected.selection->partials.candidates.count;
-            const auto capacity = engine_.ensureCapacity(part,count,system_.capacity,load,store);
-            if (!capacity) failed_ = true;
-            else if (!*capacity) engine_.admission.reset();
-            return;
-        }
-        if (selected.status == Allocated::keyRangeRejected || selected.status == Allocated::velocityRejected)
-        { engine_.admission.reset(); return; }
-        if (selected.status != Allocated::allocated) { ++unsupported_; engine_.admission.reset(); return; }
-        const auto key = high ? event.first : TransposeMasterKey(
-            TransposePartKey(event.first,settings.keyShift,uint8_t(channel.coarseTuning)),system_.master.keyShift);
-        // Validate lookup before committing allocation. Negative sample IDs
-        // take113e's return-to-free-list path; they are not synthetic waves.
-        const auto& patch = *data_.patch(selected.selection->tone);
-        for (unsigned partial = 0; partial < 2; ++partial)
-            if (selected.dispatch[partial].prepare)
-            {
-                const auto plan = PreparePartialSample(patch.partial[partial],*data_.samples(),
-                    key,event.first,event.first,settings.scale,!high && engine_.mono[part].portamento ? engine_.preparation.partKeys[part][partial] : uint8_t(255),high ? 0x81 : 0,event.first);
-                if (!plan)
-                { ++unsupported_; engine_.admission.reset(); return; }
-            }
-        const PartialSampleInstallInputs sample{settings.scale,key,event.first,event.first,255,0,event.first,0,160};
-        std::array<PartialSampleInstallInputs,2> samples{sample,sample};
-        VoiceControlInputs controls;
-        applyPart(part,controls);
-        std::array<NormalPartialDspInputs,2> dsp{};
-        for (unsigned partial = 0; partial < 2; ++partial)
-        {
-            // Ordinary poly preparation leaves A1CC/C974 atff. A MIDI key
-            // here would manufacture a glide that cancels tuning at startup.
-            dsp[partial] = {255,false,0,controls,{},{}};
-            if(high) {
-                samples[partial].flags=255; samples[partial].mode=0x81;
-                dsp[partial].sourceKey=255; dsp[partial].unoffsetStart=true;
-            } else if(engine_.mono[part].portamento) {
-                samples[partial].flags=255;
-                samples[partial].minimumKey=engine_.preparation.partKeys[part][partial];
-                dsp[partial].sourceKey=engine_.preparation.partKeys[part][partial];
-                dsp[partial].unoffsetStart=true;
-            }
-            applyToneModulation(part,dsp[partial].firstControls);
-            const auto slot = selected.dispatch[partial].voice;
-            if (slot < 24)
-            {
-                dsp[partial].previousPitch = engine_.preparation.previousPitch[slot];
-                if (engine_.runtime.voices[slot])
-                    dsp[partial].previousPitch.glide = engine_.runtime.voices[slot]->pitch.glide;
-            }
-        }
-        const auto result = engine_.startRoutedMelodicNote(event,channel,allocation,samples,dsp,
-            controllers_,data_,conversion_,waves_,load,store);
-        using Start = VoiceControlRuntime::MelodicStartResult::Status;
-        if (result.status == Start::deferred || result.status == Start::needsCapacity) return;
-        engine_.admission.reset();
-        if (result.status != Start::started && result.status != Start::preparedOnly) { failed_ = true; return; }
-        if(!engine_.rememberPreparedNote(part,result,event.first)) { failed_=true; return; }
-    }
-
-    void startRhythm(MidiDecoder::Event event,unsigned part) noexcept
-    {
-        const auto& settings = parts_.parts[part];
-        const auto flags = parts_.routing[part].noteFlags;
-        const unsigned mapIndex = (flags&0x20) ? 0 : 1;
-        const auto& map = rhythmSettings_.map(mapIndex);
-        // Receive-time rejection already belongs to the accepted NoteRequest.
-        // A later invalid kit must not cancel an earlier accepted request;
-        // 00:0c3c reads the live drum map, not the current AB06 receiver gate.
-        const auto selected = PrepareRhythmNoteVelocity(event,settings.controls.program,map,
-            rhythm_->program127Accumulators,0,settings.controls.softPedal,data_);
-        if (!selected) { ++unsupported_; engine_.admission.reset(); return; }
-        const auto keys = PrepareRhythmInitialKeys(event.first,map,settings.keyShift,uint8_t(settings.controls.coarseTuning));
-        if (!keys) { failed_ = true; return; }
-        VoiceControlInputs controls;
-        applyPart(part,controls,mapIndex,event.first);
-        NormalPartialDspInputs dsp{keys->sourceKey,false,0,controls,{},{}};
-        applyToneModulation(part,dsp.firstControls);
-        const auto result = engine_.startRoutedRhythmNote(*selected,part,flags,map,settings.keyShift,
-            uint8_t(settings.controls.coarseTuning),settings.scale,{0,0},{160,160},system_.capacity,{dsp,dsp},
-            controllers_,data_,conversion_,waves_,[&](uint8_t a) { return read(a); },
-            ControlWriter{pcm_});
-        using Status = NativeVoiceEngine::RhythmStartResult::Status;
-        if (result.status == Status::deferred) return;
-        engine_.admission.reset();
-        if (result.status == Status::failed || result.status == Status::invalidInput) { failed_ = true; return; }
-        if (result.status != Status::started) return;
-        if(!engine_.rememberPreparedNote(part,*result.start,keys->sourceKey,uint8_t(mapIndex),event.first)) failed_=true;
+        if(failed()) return;
+        const auto result=engine_.serviceAdmission(voiceConfiguration(),controllers_,data_,conversion_,waves_,
+            [&](uint8_t a) { return read(a); },ControlWriter{pcm_});
+        if(result.failed) failed_=true;
+        if(result.unsupported) ++unsupported_;
     }
 
     void serviceMidiInput() noexcept
@@ -1872,9 +1601,6 @@ private:
     bool receiveRecovery_=false;
     uint64_t completedReceiveRecoveries_=0;
     using PendingAdmission=NativeVoiceEngine::PendingAdmission;
-    // A1CE: changed program invalidates the next applicable reuse even if a
-    // second program change restores the original tone before the next note.
-    uint16_t reuseInvalidation_=0;
     // Shared melodic/rhythm preparation key (A1B4), read by CC84 before the
     // next note installs its own reference. Serialized with all note fanout.
     PartSettings parts_;

@@ -12,7 +12,7 @@
 | MIDI受信・パート振分け | `NativeMelodicPlayer::push/receive`、`receiveNote/receiveController/receiveVoiceController` | 直接設定更新と発音commandは別。GS part受信を発音準備中にも反映する試験が通る |
 | 任意CCによるportamento source | `receiveVoiceController`と`PortamentoSourceRequest` | 最新コードで既存768ケースを実行しH8一致。全128CC、値0/48/127、melodic/rhythmの2経路。固定CCとの優先順位と主要scalar副作用を比較 |
 | 16種の発音管理command | `VoiceCommands`と`serviceVoiceCommand`、receive recovery | NoteOn/Off、hold/sostenuto/portamento、source、notes/sound off、reset、program、mono/polyを接続。下記の111比較はこれらの全入力空間を網羅しない |
-| melodic/rhythm/monoの割当 | `NativeVoiceEngine`、`VoiceControlRuntime`、note admission | release integration111比較、shared rhythm42比較。単なる関数単体ではなくMIDIを流した比較 |
+| melodic/rhythm/monoの割当 | `NativeVoiceEngine::serviceAdmission`、`VoiceControlRuntime` | 3経路の準備・割当・再開をvoice ownerへ集約。変更後もrelease integration111比較、shared rhythm42比較がPASS。単なる関数単体ではなくMIDIを流した比較 |
 | stealing・partial reserve | `ensureCapacity`と`VoiceCapacityPolicy` | 実曲の満杯状態まで通るが、H8とのsurvivor／key-on数の差は残る。同一サンプル時刻の一致を目的に待ちを追加しない |
 | PCM完了・停止・再利用 | `receivePcmBoundary/servicePcmBoundaries/serviceActivation/serviceRetirements` | 既存PCMを使用。mono欠落とdrum attackの回帰条件を保持。単なるactive bitで所有・発音・解放を同一視しない |
 | GS/GM reset | `resetVoices`＋controller側の設定復元 | EOX、sustain、24slot使用、連続reset、後続MIDI保持をnative-player試験で確認 |
