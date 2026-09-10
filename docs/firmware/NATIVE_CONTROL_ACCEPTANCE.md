@@ -35,6 +35,12 @@
    既知入口を繰り返し読むだけでは進捗にならない。別の通知元の証拠が得られた時に追う。
    Rx Remoteは外部入力経路であり通常MIDIに読み替えない。
 3. **実曲の差の意味**。GATCHA55 part16の第8音は回帰条件を通るがkey-on数87/84。
+   この87/84は`--song-part16`の初期化後パネルミュート試験。追加traceにより差3件は
+   H8物理ボタンとnative commandのミュート受付差に分類できた。
+   GS part4のkey71/67（MIDI3.722821秒）はnative muted／H8 unmutedの区間、
+   part9のkey48（4.954703秒）も同じ条件で受信する。
+   `/tmp/sc55-identity-mute-part4.log`、`/tmp/sc55-identity-mute-part9.log`。
+   この3件を未解決の音源欠音として追わない。全曲・他の差まで正しいという証明ではない。
    55KTIZKE先頭60秒は13kickの頭のgainが一致するがkey-on数2100/2114。
    この数だけで欠音とも許容差とも断定しない。再調査時は音楽的なノート要求と
    PCMの再キーオンを区別し、実際の欠音／attack／reserve違反に結び付ける。

@@ -11,6 +11,23 @@
 
 ## 現在の製品構造
 
+2026-09-10 GATCHA55の87/84差をミュート境界に分類：`--song-part16`先頭18秒で
+GS part4/9だけを記録する診断を追加。入力MIDI、PCM開始、先頭gainと実際のmute設定を比較。
+part4のnative muteは3.722812秒時点で確認、H8 muteは3.799281秒時点で確認。
+key79の3回目は入力3.713763秒で両方発音、key71/67は入力3.722821秒でH8だけ発音。
+part9もnative muteは4.924344秒、H8は5.003969秒時点で確認し、その間の
+key48（入力4.954703秒、H8開始4.957687秒）がH8だけ発音している。
+これで既存identity差3件と87/84の全差が対応する。未識別開始は両方0。
+設定観測は最大128frame間隔であり、上記を正確なボタン処理時刻とは扱わない。
+
+物理ボタンscan経由とnative commandのUI受付差を、音源の欠音やcapacityバグと
+取り違えない。音源に待ち時間を追加せず、製品コードは変更しない。
+両診断ともpart16第8音の回帰条件はPASS。先頭音数の全曲一致／音声全体の証明ではない。
+ログ `/tmp/sc55-identity-mute-part4.log`、`/tmp/sc55-identity-mute-part9.log`。
+再現はSC55_NATIVE_IO_AUDIT有効のsc55-cpu-rolesで、SC55_SONG_IDENTITIES=1と
+SC55_SONG_TRACE_PART=4または9を指定して同じ`--song-part16 GATCHA55.MID`を実行する。
+今回は診断targetのみbuild。音声製品が変わっていないためXcode再buildは行わない。
+
 2026-09-10 通常周期passの1voice計算を一括実行へ接続：`resumeControlWork`は
 通常passでLFO／EG／filter／pitch／levelごとにphase dispatcherへ戻らず、
 既存の`CalculateVoiceControl`を一回呼ぶ。共通tick、group選択、controller読出し、

@@ -52,7 +52,8 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         bool allKicks=false;
         struct KickGain { double seconds; uint64_t gain; };
         std::vector<KickGain> kicks;
-        struct Voice { uint64_t begin=0; uint32_t address=0; unsigned age=0; uint64_t peakGain=0; };
+        struct Voice { uint64_t begin=0; uint32_t address=0; unsigned age=0; uint64_t peakGain=0;
+            unsigned part=255,key=255; };
         std::array<Voice,24> voices{};
         unsigned starts=0;
 #if defined(SC55_NATIVE_IO_AUDIT)
@@ -63,6 +64,7 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         std::map<Identity,unsigned> identities;
         std::array<std::array<unsigned,3>,16> partModes{}; // poly, mono, rhythm
         unsigned unknownIdentity=0;
+        int tracePart=-1;
         void recordIdentity(unsigned slot,uint32_t sample) {
             if(!cpu && !player) return;
             unsigned part=255,group=255,key=255;
@@ -77,10 +79,15 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
                 if(group<24) key=allocator.noteGroups[group].key;
             }
             if(part<16 && key<128) {
+                voices[slot].part=part; voices[slot].key=key;
                 ++identities[{part,key,sample}];
                 const auto flags=cpu ? MCU_Read(*cpu,0x804d+0x70*part)
                                      : player->partSettings().routing[part].noteFlags;
                 ++partModes[part][(flags&0x10) ? 2 : (flags&0x80) ? 0 : 1];
+                if(int(part)==tracePart)
+                    std::printf("IDENTITY_START %s t=%.6f gs_part=%u key=%u slot=%u sample=%x mode=%x gain=%u,%u\n",
+                        name,voices[slot].begin/20000000.0,part,key,slot,sample,flags,
+                        pcm->ram2[slot][9],pcm->ram2[slot][10]);
             }
             else ++unknownIdentity;
         }
@@ -93,6 +100,12 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
                 // PCM's key-on is key && !okey, not an edge in the mask:
                 // installing a reused slot clears its latched mode bit 5.
                 if((active&(1u<<slot)) && !(p.ram2[slot][7]&0x20)) {
+#if defined(SC55_NATIVE_IO_AUDIT)
+                    if(int(voice.part)==self.tracePart && voice.age && voice.age<128)
+                        std::printf("IDENTITY_RESTART %s t=%.6f gs_part=%u key=%u sample=%x age=%u peak=%llu\n",
+                            self.name,voice.begin/20000000.0,voice.part,voice.key,voice.address,voice.age,
+                            (unsigned long long)voice.peakGain);
+#endif
                     voice={p.cycles-self.base,p.ram1[slot][4],0,0}; ++self.starts;
 #if defined(SC55_NATIVE_IO_AUDIT)
                     self.recordIdentity(slot,voice.address);
@@ -108,6 +121,12 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
                             self.name,voice.begin/20000000.0,slot,voice.age,voice.address,p.ram1[slot][4],p.ram2[slot][0],
                             p.ram2[slot][3],p.ram2[slot][4],p.ram2[slot][5],p.ram2[slot][9],p.ram2[slot][10],p.ram2[slot][11],p.ram1[slot][5],p.ram1[slot][1],p.ram1[slot][3]);
                     if(++voice.age==128) {
+#if defined(SC55_NATIVE_IO_AUDIT)
+                        if(int(voice.part)==self.tracePart)
+                            std::printf("IDENTITY_ATTACK %s t=%.6f gs_part=%u key=%u sample=%x peak=%llu\n",
+                                self.name,voice.begin/20000000.0,voice.part,voice.key,voice.address,
+                                (unsigned long long)voice.peakGain);
+#endif
                         self.silentAttacks+=voice.peakGain==0;
                         if(voice.begin>=uint64_t(17.518*20000000) && voice.begin<uint64_t(17.56*20000000)
                             && (voice.address&0xfff00)==0xcd900) {
@@ -125,6 +144,12 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
 #if defined(SC55_NATIVE_IO_AUDIT)
     if(std::getenv("SC55_SONG_IDENTITIES")) {
         h8Attacks.cpu=&cpu;nativeAttacks.player=&player;
+        if(const auto* value=std::getenv("SC55_SONG_TRACE_PART")) {
+            char* end=nullptr; const auto part=std::strtol(value,&end,10);
+            if(end==value || *end || part<0 || part>=16)
+                throw std::runtime_error("SC55_SONG_TRACE_PART must be a GS part index 0..15");
+            h8Attacks.tracePart=nativeAttacks.tracePart=int(part);
+        }
     }
 #endif
     if(firstKick) h8Attacks.probeTime=nativeAttacks.probeTime=kickTime-0.0001;
@@ -136,6 +161,7 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
     size_t next=0; unsigned mismatches=0,full=0,notes=0,panelStep=0;
 #if defined(SC55_NATIVE_IO_AUDIT)
     std::array<unsigned,16> monoChecks{},monoDifferences{};
+    unsigned traceMuteState=~0u;
 #endif
     const auto limit=uint64_t(std::min(song.totalSeconds(),firstKick&&!allKicks?kickTime+0.15:part16Only?18.0:60.0)*32000);
     std::printf("SONG %s events=%zu duration=%.3f replay=%.3f\n",path,song.events.size(),song.totalSeconds(),limit/32000.0);
@@ -157,6 +183,12 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         }
         while(next<song.events.size() && uint64_t(song.events[next].seconds*32000)<=frame) {
             const auto& bytes=song.events[next++].bytes;
+#if defined(SC55_NATIVE_IO_AUDIT)
+            if(nativeAttacks.tracePart>=0 && bytes.size()>=2 && bytes[0]>=0x80 && bytes[0]<0xf0
+                && (bytes[0]&15)==player.partSettings().routing[unsigned(nativeAttacks.tracePart)].channel)
+                std::printf("IDENTITY_MIDI index=%zu t=%.6f status=%02x data=%u,%u\n",next-1,
+                    song.events[next-1].seconds,bytes[0],bytes[1],bytes.size()>2 ? bytes[2] : 0);
+#endif
             if(part16Only && panelStep==60)
                 for(unsigned part=0;part<16;++part)
                     if(player.partMuted(part)!=(part!=15)
@@ -172,6 +204,16 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         player.renderFrames(until-frame); frame=until;
         if(player.failed()) throw std::runtime_error("native song playback failed");
 #if defined(SC55_NATIVE_IO_AUDIT)
+        if(nativeAttacks.tracePart>=0) {
+            const auto part=unsigned(nativeAttacks.tracePart);
+            const unsigned muted=(!(MCU_Read16(cpu,0x804a+0x70*part)&0x0200) ? 1u : 0u)
+                | (player.partMuted(part) ? 2u : 0u);
+            if(muted!=traceMuteState) {
+                std::printf("IDENTITY_MUTE t=%.6f gs_part=%u H8=%u CPP=%u\n",
+                    frame/32000.0,part,muted&1,(muted>>1)&1);
+                traceMuteState=muted;
+            }
+        }
         if(h8Attacks.cpu && !player.queuedEvents()
             && MCU_Read(cpu,0xaaf8)==MCU_Read(cpu,0xaaf9)
             && MCU_Read16(cpu,0xabf8)==MCU_Read16(cpu,0xabf6)) {

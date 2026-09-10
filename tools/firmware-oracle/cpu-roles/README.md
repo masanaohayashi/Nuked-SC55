@@ -99,6 +99,16 @@ It also compares mono retained keys when native queued work is empty, H8 RX and
 command rings are empty, and H8 pending voice operations are clear. A zero count
 of mismatches proves only these observations, not every intervening audible note.
 
+For a targeted trace, also set `SC55_SONG_TRACE_PART=4` (GS part index 0..15,
+not display numbering). `IDENTITY_MIDI` records messages on that part's current
+receive channel; `IDENTITY_START/ATTACK/RESTART` record PCM starts and early gain,
+and `IDENTITY_MUTE` records observed H8/native mute changes. Mute observations
+are at replay boundaries (up to128 frames), not exact button-consumption times.
+Use this to separate notes received under different mute states from missing
+unmuted notes. The part16 regression's physical H8 buttons and immediate native
+commands do not have equal UI latency. Do not add artificial audio delays to
+make their key-on counts match. This trace is diagnostic-only, not a benchmark.
+
 Pass start/end replay observations use the actual instruction-entry hook, not
 the pre-Step PC (interrupt dispatch can otherwise duplicate an opportunity).
 After this correction, `end` and `end-clock-start` still pass; `end-unit` and
