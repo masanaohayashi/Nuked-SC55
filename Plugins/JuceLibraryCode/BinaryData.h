@@ -15,7 +15,7 @@ namespace BinaryData
     const int            Background_pngSize = 437586;
 
     extern const char*   BackPanel_png;
-    const int            BackPanel_pngSize = 16691;
+    const int            BackPanel_pngSize = 57343;
 
     extern const char*   DecButton_down_png;
     const int            DecButton_down_pngSize = 4744;
