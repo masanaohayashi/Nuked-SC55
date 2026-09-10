@@ -1,6 +1,7 @@
 #pragma once
 #include "sc55_voice_render_update.h"
 #include "sc55_voice_operation.h"
+#include "sc55_voice_set.h"
 #include "sc55_voice_allocator.h"
 #include "sc55_envelope_pcm.h"
 #include "sc55_voice_setup.h"
@@ -1024,12 +1025,12 @@ std::optional<uint8_t> StopAndReclaimGroup(VoiceAllocator& allocator,
     auto checked = allocator;
     std::array<uint8_t,24> order{};
     unsigned count = 0;
-    uint32_t seen = 0;
+    VoiceSet seen;
     do
     {
         const auto voice = checked.groups.tail[group];
-        if (voice >= 24 || count == order.size() || (seen & (1u<<voice))) return std::nullopt;
-        seen |= 1u<<voice;
+        if (voice >= 24 || count == order.size() || seen.contains(voice)) return std::nullopt;
+        seen.set(voice);
         order[count++] = voice;
         if (!checked.reclaimStoppedVoice(voice,group,part,prepend)) return std::nullopt;
     } while (checked.groups.tail[group] < 128);
@@ -1061,11 +1062,11 @@ std::optional<unsigned> StopRhythmExclusiveGroups(VoiceAllocator& allocator,
     if (selector == 0) return 0;
     const auto visit = [&](auto& state,auto& life,auto&& load,auto&& store) -> std::optional<unsigned> {
         unsigned count = 0;
-        uint32_t seen = 0;
+        VoiceSet seen;
         for (auto group = state.partHead[part]; group < 128;)
         {
-            if (group >= 24 || (seen&(1u<<group))) return std::nullopt;
-            seen |= 1u<<group;
+            if (group >= 24 || seen.contains(group)) return std::nullopt;
+            seen.set(group);
             if (state.noteGroups[group].noteClass != selector) { group = state.noteGroups[group].next; continue; }
             const auto next = StopAndReclaimGroup(state,life,group,part,false,load,store);
             if (!next) return std::nullopt;
@@ -1098,11 +1099,11 @@ std::optional<bool> RetireRepeatedNote(VoiceAllocator& allocator,
             if (key == note) return false;
         }
     const auto visit = [&](auto& state,auto& life,auto&& load,auto&& store) -> std::optional<bool> {
-        uint32_t seen = 0;
+        VoiceSet seen;
         for (auto group = state.partHead[part]; group < 128; group = state.noteGroups[group].next)
         {
-            if (group >= 24 || (seen&(1u<<group))) return std::nullopt;
-            seen |= 1u<<group;
+            if (group >= 24 || seen.contains(group)) return std::nullopt;
+            seen.set(group);
             if (state.noteGroups[group].key != note || (mode == 1 && state.noteGroups[group].noteClass != selector)) continue;
             if (mode == 1)
             {

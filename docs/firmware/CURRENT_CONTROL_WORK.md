@@ -14,6 +14,28 @@
 
 ## 現在の製品構造
 
+### 可変polyphonyの実装着手（未完了）
+
+要求はC++版24..128ボイス／4刻み、H8は24固定。ユーザー配置のsliderVoicesを使う。
+高速PCMへの切替や、複数の24音源へMIDIを振り分ける実装では代用しない。
+最初の変更は128bitの論理VoiceSetと、stop/reclaim・rhythm exclusive・repeated-note
+探索の重複検出への接続。PCMの28bit物理key maskと暗黙変換しない。
+MSVCで使えない__int128は使わず4本のuint32_tで保持。範囲外入力は拒否。
+voice-set試験（31/32、63/64、95/96、127/128境界を含む）と既存native-only試験PASS。
+24音時の既存checksum3b54320560580fd3は維持。Xcode/Logicの再確認は未実施。
+
+**まだ可変ボイス数は製品に接続していない。** 配列／割当／起動maskは24固定のまま。
+後続に必要な変更：
+- VoiceAllocator／VoiceControlRuntime／VoiceInstallationState等の保管容量と実行上限を分離。
+  0x80はlist終端判定、0xffは無効ID。128個の有効indexは0..127。
+- VoiceKeyMask・prepared/changed/pendingBoundary等をVoiceSetへ接続し、32bit切捨てを除去。
+- 従来整数PCMのvoice状態をeffect行28..31から分離。wave pitch sourceも現在5bitであり、
+  mode低5bitだけに128個の論理voice IDを詰めない。typed voice API経由で接続する。
+- voice loopの拡張でPCM clockが変わらないようにする（現行nativeは1frame625cycles）。
+  effects returnはslot位置で挿入しているため、voice増加で重複加算しない。
+- sliderの制約・OFF時disable・音声外の再初期化・2X時の上限の扱いを接続。
+- 24音互換、全27設定値の上限、満杯時steal、mono/drum、reserve、resetを検証。
+
 比較スイッチOFFのPCM方式を修正。以前はEmulatorコンストラクタが高速PCMを
 既定有効にしており、「両方式で同じPCM」という以前の説明は誤りだった。
 H8側の初期化でPCM_UseSimulation(false)／use_float_effects=falseを明示し、
