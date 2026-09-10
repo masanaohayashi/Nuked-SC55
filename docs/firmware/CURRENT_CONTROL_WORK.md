@@ -14,6 +14,15 @@
 
 ## 現在の製品構造
 
+終了時にメーターが瞬時に消える挙動への追加修正：`NativeMeterDecay`を
+message-threadのLCD描画に接続。上昇は即時、下降は1段40msでゼロまで減衰する。
+これはUI表示用の時定数で、実機計測値ではない。steady_clockの経過時間を使い、
+音声サンプルの進行や描画回数には依存しない。2Xは合算後に一度だけ適用。
+PCM/EG/発音所有とraw snapshotは変更なし。ROM不要の`meter-decay`試験で
+段階的消去・最終ゼロ・再発音・各パート独立・描画周期非依存を確認。
+Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED
+(`/tmp/sc55-meter-decay-release.log`)。Logicでの見た目は未確認。Resaveなし。
+
 演奏終了後のメーター残留を修正：PCMのkey bit／gain値は発音ボイス返却後も残る。
 `voiceLevels()`がPCM bitだけでactiveと判定していたため、発音0でも表示が残った。
 実Note On/Offでvoices=0／meters=1／pcm_keys=800000を再現し、

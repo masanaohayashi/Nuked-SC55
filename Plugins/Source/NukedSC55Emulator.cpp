@@ -3,12 +3,14 @@
 #include "SC55Lcd.h"
 #include "SC55Debug.h"
 #include "NativeSoundDataCache.h"
+#include "NativeMeterDecay.h"
 #include "sc55_synth.h"
 #include "sc55_display.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -267,13 +269,18 @@ public:
             const auto text = display.text.compose (normal);
             std::copy (text.begin(), text.end(), next.data.begin() + 3);
         }
+        std::array<uint16_t, 16> meterTargets {};
+        for (unsigned p = 0; p < 16; ++p)
+            meterTargets[p] = state.parts[gsPart (p)].envelopeLevel;
+        const auto meterBars = nativeMeters.update (meterTargets,
+            std::chrono::duration<double> (std::chrono::steady_clock::now().time_since_epoch()).count());
         for (unsigned matrix = 0; matrix < 2; ++matrix)
         {
             for (unsigned group = 0; group < 4; ++group)
                 next.data[20 + matrix * 40 + group] = uint8_t (matrix * 4 + group);
             for (unsigned p = 0; p < 16; ++p)
             {
-                const unsigned bars = std::min (16u, (unsigned (state.parts[gsPart (p)].envelopeLevel) + 4095) / 4096);
+                const unsigned bars = meterBars[p];
                 for (unsigned row = 0; row < 8; ++row)
                     if (bars >= (1 - matrix) * 8 + 8 - row)
                         next.cg[(matrix * 4 + p / 5) * 8 + row] |= uint8_t (1u << (4 - p % 5));
@@ -622,6 +629,7 @@ private:
     const lcd_t* lcd = nullptr;
     Snapshot snapshot;
     sc55::DisplayPresentation nativeDisplay; // Message-thread only.
+    NativeMeterDecay nativeMeters; // Message-thread only, after 2X level merging.
 };
 
 NukedSC55Emulator::NukedSC55Emulator()

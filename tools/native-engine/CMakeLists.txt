@@ -27,6 +27,10 @@ target_include_directories(sc55-native-engine-check PRIVATE "${ROOT}/src/common"
 target_link_libraries(sc55-native-engine-check PRIVATE sc55-native-engine)
 
 set(SC55_ROM_DIRECTORY "" CACHE PATH "Optional local SC-55 v1.21 ROM directory for the native-only check")
+enable_testing()
+add_executable(sc55-meter-decay-check meter_decay_test.cpp)
+target_compile_features(sc55-meter-decay-check PRIVATE cxx_std_20)
+add_test(NAME meter-decay COMMAND sc55-meter-decay-check)
 if(SC55_ROM_DIRECTORY)
     enable_testing()
     add_test(NAME native-without-h8
