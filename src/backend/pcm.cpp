@@ -233,7 +233,11 @@ void PCM_SetVoicePitch(pcm_t& pcm,unsigned channel,uint16_t increment) noexcept
     pcm.voiceRam2(channel)[0]=increment;
     pcm.select_channel=uint8_t(channel);
     pcm.write_latch=(pcm.write_latch&0xf0000u)|increment;
-    PCM_UpdatePitchConsumers(pcm,channel);
+    // Native integer voices read their logical pitch bank directly during
+    // rendering. They must not index the hardware's 32-slot pitch bank (or
+    // invalidate the effects occupying hardware slots 28..31).
+    if(!pcm.native_voice_count || pcm.use_simulation || pcm.native_signal)
+        PCM_UpdatePitchConsumers(pcm,channel);
 }
 
 void PCM_ApplyVoiceUpdate(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderUpdate& update)
@@ -254,7 +258,8 @@ void PCM_ApplyVoiceUpdate(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderUpd
         pcm.native_signal->updateVoice(channel,update);
         return;
     }
-    PCM_UpdatePitchConsumers(pcm,channel);
+    if(!pcm.native_voice_count || pcm.use_simulation || pcm.native_signal)
+        PCM_UpdatePitchConsumers(pcm,channel);
     if(pcm.use_simulation) {
         auto& voices=pcm.native_signal ? pcm.native_signal->voices : pcm.sim;
         PCMSim_ApplyVoiceUpdate(voices,channel,update);

@@ -1,5 +1,6 @@
 #include "sc55_synth.h"
 #include "rom_loader.h"
+#include "MidiFilePlayer.h"
 #include <cstdio>
 
 #if defined(SC55_CONTROL_TIMING_ORACLE) || defined(SC55_NATIVE_IO_AUDIT)
@@ -22,6 +23,108 @@ int main(int argc,char** argv)
         const auto& rom1=rom[size_t(RomLocation::ROM1)];
         const auto& rom2=rom[size_t(RomLocation::ROM2)];
         const auto encoded=sc55::ImportSoundData(rom1,rom2);
+        if(argc==4 && std::string_view(argv[2])=="song-release") {
+            MidiFileData song;std::string error;
+            if(!song.load(argv[3],error,false)) throw std::runtime_error(error);
+            sc55::NativeSynth synth(encoded,rom1,rom2,
+                rom[size_t(RomLocation::WAVEROM1)],rom[size_t(RomLocation::WAVEROM2)],
+                rom[size_t(RomLocation::WAVEROM3)],sc55::NativeSynth::VoiceRendering::referenceChip,128);
+            std::array<AudioFrame<int32_t>,257> audio{};
+            uint64_t frame=0;unsigned maximum=0;
+            auto renderUntil=[&](uint64_t until) {
+                while(frame<until) {
+                    const auto count=std::min<uint64_t>(audio.size(),until-frame);
+                    synth.render(std::span(audio.data(),count)); frame+=count;
+                    if(synth.failed()) throw std::runtime_error("Song engine failed");
+                    unsigned voices=0;for(auto& part:synth.state().parts) voices+=part.voices;
+                    maximum=std::max(maximum,voices);
+                    if(voices>128) throw std::runtime_error("Voice ownership exceeds capacity");
+                }
+            };
+            for(auto& event:song.events) {
+                renderUntil(uint64_t(event.seconds*32000));
+                if(synth.push(event.bytes)!=event.bytes.size()) throw std::runtime_error("Song MIDI queue overflow");
+            }
+            for(unsigned ch=0;ch<16;++ch) {
+                const uint8_t off[]{uint8_t(0xb0|ch),64,0,66,0,123,0};synth.push(off);
+            }
+            renderUntil(frame+32000*20);
+            unsigned voices=0;for(auto& part:synth.state().parts) voices+=part.voices;
+            std::printf("song maximum=%u remaining=%u\n",maximum,voices);
+            if(voices) throw std::runtime_error("Song leaves stuck voices after pedal and note release");
+            return 0;
+        }
+        if(argc>=3 && std::string_view(argv[2])=="slot-audio") {
+            const unsigned occupied=argc==4 ? unsigned(std::stoul(argv[3])) : 127;
+            auto make=[&](unsigned limit) { return std::make_unique<sc55::NativeSynth>(encoded,rom1,rom2,
+                rom[size_t(RomLocation::WAVEROM1)],rom[size_t(RomLocation::WAVEROM2)],
+                rom[size_t(RomLocation::WAVEROM3)],sc55::NativeSynth::VoiceRendering::referenceChip,limit); };
+            for(unsigned program=0;program<128;++program) {
+            auto baseline=make(24),expanded=make(128);
+            std::array<AudioFrame<int32_t>,257> a{},b{};
+            auto render=[&] { baseline->render(a);expanded->render(b); };
+            for(unsigned ch=1;ch<=8;++ch) {
+                const uint8_t setup[]{uint8_t(0xc0|ch),16,uint8_t(0xb0|ch),7,0,91,0,93,0};
+                expanded->push(setup);
+            }
+            for(unsigned i=0;i<32;++i) render();
+            for(unsigned i=0;i<occupied;++i) {
+                const uint8_t note[]{uint8_t(0x91+i/16),uint8_t(48+i%16),70};
+                expanded->push(note);for(unsigned j=0;j<4;++j) render();
+            }
+            unsigned voices=0;for(auto& part:expanded->state().parts) voices+=part.voices;
+            std::printf("occupied=%u actual=%u\n",occupied,voices);
+            if(voices!=occupied) throw std::runtime_error("Silent fillers lost ownership");
+            const uint8_t target[]{0xc0,uint8_t(program),0xb0,91,0,93,0,0x90,60,100};
+            baseline->push(target);expanded->push(target);
+            for(unsigned block=0;block<100;++block) {
+                if(block==20 || block==40) {
+                    const uint8_t bend[]{0xe0,0,uint8_t(block==20?80:64),0xb0,1,64};
+                    baseline->push(bend);expanded->push(bend);
+                }
+                if(block==60) {
+                    const uint8_t off[]{0x80,60,0};baseline->push(off);expanded->push(off);
+                }
+                render();
+                for(unsigned i=0;i<a.size();++i)
+                    if(a[i].left!=b[i].left || a[i].right!=b[i].right) {
+                        std::fprintf(stderr,"slot audio mismatch program=%u occupied=%u block=%u sample=%u: %d,%d vs %d,%d\n",
+                            program,occupied,block,i,a[i].left,a[i].right,b[i].left,b[i].right);
+                        return 1;
+                    }
+            }
+            }
+            std::puts("PASS: relocated voice audio identical");return 0;
+        }
+        if(argc>=3 && std::string_view(argv[2])=="capacity-audio") {
+            auto make=[&](unsigned limit) { return std::make_unique<sc55::NativeSynth>(encoded,rom1,rom2,
+                rom[size_t(RomLocation::WAVEROM1)],rom[size_t(RomLocation::WAVEROM2)],
+                rom[size_t(RomLocation::WAVEROM3)],sc55::NativeSynth::VoiceRendering::referenceChip,limit); };
+            auto baseline=make(24), expanded=make(128);
+            std::array<AudioFrame<int32_t>,257> a{},b{};
+            for(unsigned program=0;program<128;++program) {
+                const uint8_t reset[]{0xf0,0x7e,0x7f,0x09,0x01,0xf7};
+                baseline->push(reset); expanded->push(reset);
+                for(unsigned block=0;block<100;++block) {
+                    if(block==32) {
+                        const uint8_t midi[]{0xc0,uint8_t(program),0x90,60,100,64,100,67,100};
+                        baseline->push(midi); expanded->push(midi);
+                    }
+                    if(block==64) {
+                        const uint8_t off[]{0xb0,123,0};baseline->push(off);expanded->push(off);
+                    }
+                    baseline->render(a);expanded->render(b);
+                    for(unsigned i=0;i<a.size();++i)
+                        if(a[i].left!=b[i].left || a[i].right!=b[i].right) {
+                            std::fprintf(stderr,"capacity audio mismatch program=%u block=%u sample=%u: %d,%d vs %d,%d\n",
+                                program,block,i,a[i].left,a[i].right,b[i].left,b[i].right);
+                            return 1;
+                        }
+                }
+            }
+            std::puts("PASS: all programs have identical audio at 24 and 128 capacity below voice stealing");
+            return 0;
+        }
         if(argc>=3 && std::string_view(argv[2])=="polyphony") {
             sc55::SoundData soundData;
             if(!soundData.loadEncoded(encoded)) throw std::runtime_error("Invalid test sound data");

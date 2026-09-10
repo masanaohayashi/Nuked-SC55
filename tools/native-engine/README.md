@@ -47,3 +47,28 @@ and disable the slider.
 limit, single-/two-partial allocation, stealing, release and reset. The 128-voice
 case additionally checks mono ownership and drums stealing from a full pool.
 With `SC55_ROM_DIRECTORY` configured, this is the `native-polyphony` CTest.
+
+## Expanded-voice diagnostics
+
+- `sc55-pcm-voice-bank-check` checks all 128 logical pitch banks and their
+  isolation from the hardware effect banks. Include `-fsanitize=bounds` in
+  diagnostic builds: ASan alone misses out-of-range subarrays inside `pcm_t`.
+- `sc55-native-engine-check ROM_DIRECTORY capacity-audio` compares exact audio
+  at capacities 24/128 for all 128 melodic programs, without voice stealing.
+- `sc55-native-engine-check ROM_DIRECTORY song-release MIDI_OR_RCP_FILE` replays
+  a local song at capacity 128, releases notes and pedals, and checks that no
+  allocated voices remain after 20 seconds. This is not a pitch-fidelity test.
+- `sc55-native-engine-check ROM_DIRECTORY slot-audio OCCUPIED` is an exploratory
+  comparison using silent organ voices to relocate a test voice. It includes
+  bend, modulation and release. At 127 occupied slots, voice stealing changes
+  the scenario; exact differences are observations, not a fidelity verdict.
+  Program 76 exhibited a difference in this scenario during investigation.
+
+The September 2026 expanded-pitch regression was reproduced by replaying
+GATCHA55 with `-fsanitize=address,bounds,shift-exponent` and
+`UBSAN_OPTIONS=halt_on_error=1`: the old pitch-consumer helper indexed
+`ram2[127]` even though the hardware bank has only 32 slots. Native integer
+voices now bypass that simulation/effects helper and read their logical pitch
+banks directly. Host-reported sustained pitch corruption still requires a
+matching playback reproduction; removing this invalid read alone does not
+prove that every reported audible symptom is resolved.

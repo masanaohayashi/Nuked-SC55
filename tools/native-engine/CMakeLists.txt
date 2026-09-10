@@ -19,15 +19,21 @@ target_include_directories(sc55-native-engine PUBLIC "${BACKEND}")
 # Filesystem/file hashing/ROM decoding belong to this setup-time consumer, not the
 # sound library. Reuse the product's ROM loader and wave unscrambler.
 add_executable(sc55-native-engine-check main.cpp
+    ${ROOT}/Plugins/Source/MidiFilePlayer.cpp
+    ${ROOT}/Plugins/Source/RcpFilePlayer.cpp
+    ${ROOT}/Plugins/Source/WrdFilePlayer.cpp
     ${ROOT}/src/common/rom_loader.cpp
     ${BACKEND}/rom.cpp ${BACKEND}/rom_io.cpp ${BACKEND}/standard_romsets.cpp
     ${BACKEND}/file_io.cpp ${BACKEND}/file_hashing.cpp
     ${BACKEND}/diagnostics.cpp)
-target_include_directories(sc55-native-engine-check PRIVATE "${ROOT}/src/common")
+target_include_directories(sc55-native-engine-check PRIVATE "${ROOT}/src/common" "${ROOT}/Plugins/Source")
 target_link_libraries(sc55-native-engine-check PRIVATE sc55-native-engine)
 
 set(SC55_ROM_DIRECTORY "" CACHE PATH "Optional local SC-55 v1.21 ROM directory for the native-only check")
 enable_testing()
+add_executable(sc55-pcm-voice-bank-check pcm_voice_bank_test.cpp)
+target_link_libraries(sc55-pcm-voice-bank-check PRIVATE sc55-native-engine)
+add_test(NAME pcm-voice-bank COMMAND sc55-pcm-voice-bank-check)
 add_executable(sc55-meter-decay-check meter_decay_test.cpp)
 target_compile_features(sc55-meter-decay-check PRIVATE cxx_std_20)
 add_test(NAME meter-decay COMMAND sc55-meter-decay-check)
