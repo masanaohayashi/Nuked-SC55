@@ -2,6 +2,7 @@
 #include "rom_loader.h"
 #include "native-synth.h"
 #include "song-allocation.h"
+#include "native-adapter-load.h"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -27,6 +28,9 @@ int main(int argc,char** argv)
         common::LoadRomsetResult roms;
         if(common::LoadRomset(argv[1],{},common::RomLoader::Hashing,{},roms)!=common::LoadRomsetError{}
             || roms.picked_name!="mk1-v1.21") return 3;
+        if(argc==3 && std::strcmp(argv[2],"adapter-load")==0) {
+            MeasureNativeAdapterLoad(argv[1],roms.romset_info);return 0;
+        }
         Emulator reference;
         if(!reference.Init({}) || !reference.LoadRoms(roms.romset,roms.romset_info)) return 4;
         reference.Reset();reference.GetMCU().native_v121_enabled=false;

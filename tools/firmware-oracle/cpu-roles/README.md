@@ -219,6 +219,18 @@ proof that a field is unused. Do not use this profiling build for H8 CPU-cost
 comparisons; the hook adds overhead. Normal product builds contain no hook.
 # Normal product control runtime
 
+`sc55-native-product-check ROMDIR adapter-load` measures the normal sound core
+against `NukedSC55Emulator::render` including the real FIFO/resampler/MIDI path.
+Set `SC55_TEST_CACHE` to an existing cache; leave H8/alternative PCM switches off.
+Both sides render one audio second per measurement, with five repetitions and
+alternating measurement order after warmup. The adapter uses48kHz/128 frames;
+the core uses32kHz/128 frames. Reports median/range in milliseconds per audio
+second for idle and a sustained program80 chord, checking0/24 allocated voices.
+Divide milliseconds by10 for an offline average percentage. This is not a
+Logic meter, callback maximum, full `AudioProcessor::processBlock`, GUI workload
+or 2X benchmark. ROM import and initialization are outside measurement. No
+performance threshold is asserted; scheduling/power state can change timings.
+
 `sc55-native-product-check` is an explicitly built target without
 `SC55_CONTROL_TIMING_ORACLE`. A compile-time check rejects any instruction-time
 API in its VoiceControlRuntime. It reuses the existing synth and song checks;

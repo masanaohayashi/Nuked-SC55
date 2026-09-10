@@ -11,6 +11,24 @@
 
 ## 現在の製品構造
 
+2026-09-10 通常製品アダプターの負荷を分離計測：`adapter-load`は同じ既定PCMで
+NativeSynth直接とNukedSC55Emulator::renderのFIFO／リサンプル／MIDI経路を比較する。
+H8／代替PCM指定は拒否し、ROM setupは計測外。1秒warmup後、音声1秒を5回、
+測定順を交互に実行。adapter48kHz/128frames、core32kHz/128frames。
+無音0voiceとprogram80の持続24voiceを状態で確認する。演奏ベンチを減衰済みpianoにしない。
+
+今回の中央値はidle core5.630ms／adapter6.400ms、24voice30.844ms／31.461ms
+（いずれも音声1秒あたり）。idleの追加コストは0.770ms＝約0.077 percentage point。
+範囲はidle core5.498〜5.727／adapter6.202〜6.430、
+24voice core30.691〜30.963／adapter31.319〜31.556ms。
+ログ `/tmp/sc55-adapter-load.log`。通常target build成功。
+代替PCM指定の誤比較防止guard追加後の再実行も成功：idle5.744／6.490ms、
+24voice31.959／33.098ms (`/tmp/sc55-adapter-load-final.log`)。
+これはoffline平均であり、Logicの最大CPU2.6%を再現した結果ではない。
+processBlock全体、GUI、2X、実時間threadの待ち・電源状態は未計測。
+adapterを主要原因として変更する根拠は得られなかったため、製品コードは変更しない。
+Xcode／Logic再確認なし。H8制御の未対応機能が減ったという主張でもない。
+
 2026-09-10 H8／JUCEをリンクしない音源コアのbuildを追加：`tools/native-engine`の
 `sc55-native-engine`は既存NativeSynthのC++20 headersとPCM／patch decoder／SHAだけを
 公開するSTATIC target。別の音源実装やPCM差替え、製品の既定経路変更ではない。
