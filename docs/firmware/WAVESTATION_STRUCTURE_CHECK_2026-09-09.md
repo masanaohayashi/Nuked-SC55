@@ -77,6 +77,14 @@ no H8 instruction execution is required on that path. The inactive reference-PCM
 optimization is aligned with the reference's active-voice traversal, with extra
 SC-55 state preservation established by differential tests.
 
+Independent link evidence (2026-09-10): `tools/native-engine` builds the existing
+NativeSynth/control headers with PCM, patch decoder and SHA, without Emulator,
+MCU, sub-MCU, LCD, JUCE or host adapter sources. Its setup-time ROM-loader
+consumer built and ran on macOS arm64, producing the normal product fixture's
+checksum `3b54320560580fd3` from MIDI Note On/Off and zero/257-frame render calls.
+The executable links only libc++/libSystem dynamically. This verifies core
+independence, not complete firmware behavior or other platforms/host formats.
+
 Historical observation, not a requirement to replace PCM: NativeMelodicPlayer
 still owns a pcm_t reference, directly reads cycles/key mask/envelope RAM/IRQ,
 and calls PCM_Update. Lifecycle helpers still expose raw control-word caches and

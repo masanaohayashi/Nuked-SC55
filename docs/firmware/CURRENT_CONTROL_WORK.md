@@ -11,6 +11,21 @@
 
 ## 現在の製品構造
 
+2026-09-10 H8／JUCEをリンクしない音源コアのbuildを追加：`tools/native-engine`の
+`sc55-native-engine`は既存NativeSynthのC++20 headersとPCM／patch decoder／SHAだけを
+公開するSTATIC target。別の音源実装やPCM差替え、製品の既定経路変更ではない。
+setup側のcheck consumerが既存ROM loaderを使い、ROM読込み・波形decode・data importを
+音声処理の前に実行する。ROM／cache／音声ファイルを生成・コミットしない。
+
+Release arm64でconfigure/build/`native-without-h8`がPASS（0.37秒）。
+実際の`NativeSynth::push/render/state`のうち今回実行したのはconstruct/push/render：
+既存製品fixtureと同じNote On/Offと0/257frame renderでchecksum3b54320560580fd3、
+nonzero16442を確認。バイナリのsymbolにMCU／Emulator／JUCEはなく、動的リンクは
+libc++とlibSystemだけ。H8実装がリンクに存在しなくても通常制御とPCMで発音できる。
+ログ `/tmp/sc55-native-only-{configure,build,test}.log`、再現手順はtool README。
+macOS arm64のみ実行。Windows/Linuxや全制御機能、実曲全体の一致までは主張しない。
+製品ソースは変更していないためXcode再build／Logic確認なし。
+
 2026-09-10 55KTIZKEの残るpoly差とmono識別を確認：GS part3/4/8/12を
 同じ60秒入力で比較。poly part3は入力325/native325、part4は219/219、part12は17/17。
 part3の入力23.434917/key62はH8 slot12/group12へ23.448687秒に確定した後、
