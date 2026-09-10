@@ -16,7 +16,7 @@
 | stealing・partial reserve | `ensureCapacity`と`VoiceCapacityPolicy` | 実曲の満杯状態まで通るが、H8とのsurvivor／key-on数の差は残る。同一サンプル時刻の一致を目的に待ちを追加しない |
 | PCM完了・停止・再利用 | `receivePcmBoundary/servicePcmBoundaries/serviceActivation/serviceRetirements` | 既存PCMを使用。mono欠落とdrum attackの回帰条件を保持。単なるactive bitで所有・発音・解放を同一視しない |
 | GS/GM reset | `resetVoices`＋controller側の設定復元 | EOX、sustain、24slot使用、連続reset、後続MIDI保持をnative-player試験で確認 |
-| 共通周期のEG/LFO/pitch/filter/level | `ControlTaskClock` → `serviceControl(...pass)` | 1tick=20032 cycles、voice period=8tick。通常側はC++演算を直接実行。H8命令時間の再現は診断targetだけ |
+| 共通周期のEG/LFO/pitch/filter/level | `NativeVoiceEngine::updateControl` → `serviceControl(...pass)` | 1tick=20032 cycles、voice period=8tick。音源側がeffects先行・elapsed保持・voice pass再開を所有。通常側はC++演算を直接実行。H8命令時間の再現は診断targetだけ |
 | effect制御 | `SystemSettings`、`EffectsControl`、`serviceEffects` | パラメータ要求／PCM readback・rampとサンプル演算を分離。既存PCM DSPの置換は要求外 |
 | GS設定・bulk受信 | `PartSettings`、`SystemSettings`、`RhythmSettings`、bulk decoder | 型付き設定へ反映。設定保持の比較は、その全組合せの音声一致の証明ではない |
 | device受信設定 | `MidiInputSettings`、`NativeMidiInputState` | Device ID、Rx Inst/GS Reset/SysExとchecksum設定を接続。物理H8比較、512 codec/handoff比較あり。checksum切替の物理操作比較は未確認 |

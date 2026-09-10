@@ -11,6 +11,23 @@
 
 ## 現在の製品構造
 
+2026-09-10 共通音源制御イベントをvoice ownerへ集約：`NativeVoiceEngine::updateControl`
+がeventのelapsed保持、effects→voice passの順序、待ちからの再開と完了を所有する。
+受信側の`effectPassClock_`を削除し、周期eventの内部状態を直接操作しない。
+effects updaterは同一音声スレッド内の同期呼出しであり、UI callbackではない。
+リセット時にも保持中eventを従来同様に残す。command優先、受信を起こす条件、
+PCM key-latch／reuse待ち、共通周期、H8参照は変更しない。
+新規H8機能の対応や負荷削減ではなく、共通制御の所有を音源に集約する実装変更。
+
+製品と同じ入口の追加試験で、linked voiceの待ちを跨ぐeffects先行、
+同一voice pass再開時のeffects非再実行、後続2周期の保持、effects無効を確認。
+`voice-control-pcm`と`native-player`がPASS (`/tmp/sc55-periodic-owner-test.log`)。
+通常製品targetでもchecksum3b54320560580fd3、0/1/127/129/257frame分割一致、
+GATCHA55初期化後mute→part16第8音、55KTIZKEの13kickの先頭gainを維持。
+ログ `/tmp/sc55-periodic-owner-{synth,part16,kick}.log`。
+Release arm64 Standalone＋内蔵AUv3もBUILD SUCCEEDED
+(`/tmp/sc55-periodic-owner-release.log`)。Resave・登録・インストールなし、Logic実操作は未確認。
+
 2026-09-10 55KTIZKE GS part7の229/235差を発音前再割当に分類：
 ミュートなし60秒の入力235 Note Onに対しnative PCM開始は235、H8は229。
 同音キーの直前入力への対応付けだけでは判定せず、差6件を含む33.18〜38.60秒で

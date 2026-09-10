@@ -848,6 +848,47 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         std::puts("Scheduled control continuation: per-call ownership publication and pending tick preservation PASS");
     }
     {
+        // Exercise the same complete common-event entry as the product:
+        // effects run once before voices, even when a linked group must wait.
+        sc55::NativeVoiceEngine engine;
+        engine.runtime=runtime; engine.notes.allocator=fixtureAllocator;
+        engine.notes.allocator.pcmLinks={}; engine.installation=fixtureInstallation;
+        for(unsigned slot=0;slot<24;++slot) engine.lifecycle[slot]=runtime.voices[slot]->lifecycle;
+        for(unsigned slot=0;slot<22;++slot) engine.runtime.voices[slot].reset();
+        sc55::PreparedNormalVoiceBatch prepared;prepared.count=1;
+        prepared.voices[0]=sc55::PreparedNormalVoice{*runtime.voices[21],runtime.inputs[21],runtime.firstInputs[21],{},{}};
+        const uint8_t destination[]{21};
+        require(engine.runtime.beginPreparedStart(destination,prepared,engine.lifecycle,engine.mask));
+        engine.notes.allocator.pcmLinks.second[22]=21;
+        unsigned effects=0;
+        const auto update=[&](bool enabled=true) {
+            return engine.updateControl(fixtureControllers,data,conversion,waves,read,write,enabled,[&] {
+                require(!engine.runtime.controlPending() && engine.controlEventCaptured());
+                ++effects; return true;
+            });
+        };
+        using Status=sc55::VoiceControlRuntime::ScheduledStatus;
+        const auto period=engine.clock.untilNextExpiration();
+        engine.clock.advance(uint64_t(period)*3);
+        auto result=update();
+        require(result.status==Status::deferred && result.elapsed==3 && effects==1
+            && result.updatedMask==(1u<<23) && engine.periodicWorkPending() && !engine.clock.ready());
+        engine.clock.advance(uint64_t(period)*2);
+        engine.notes.allocator.pcmLinks.second[22]=255;
+        result=update();
+        require(result.status==Status::updated && result.elapsed==3 && effects==1
+            && result.updatedMask==(1u<<22) && !engine.periodicWorkPending());
+        auto pending=engine.clock;require(pending.consume()==2);
+        result=update();
+        require(result.status==Status::updated && result.elapsed==2 && effects==2
+            && !engine.clock.ready() && !engine.periodicWorkPending());
+        engine.clock.advance(period);
+        result=update(false);
+        require(result.status==Status::updated && result.elapsed==1 && effects==2
+            && !engine.clock.ready() && !engine.periodicWorkPending());
+        std::puts("Common sound-control owner: effects-before-voices, deferred group, later ticks and effects-disabled PASS");
+    }
+    {
         using Stop = sc55::VoiceControlRuntime::StopTaskStatus;
         for(bool restart:{false,true}) {
             sc55::NativeVoiceEngine engine;engine.runtime=runtime;

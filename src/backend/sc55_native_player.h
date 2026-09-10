@@ -413,7 +413,7 @@ public:
     bool beginControlGroupsAudit(uint8_t elapsed) noexcept
     {
         if(!externalControlClockAudit_ || failed()
-            || engine_.runtime.controlPending() || tasksPending() || effectPassClock_) return false;
+            || engine_.periodicWorkPending() || tasksPending()) return false;
         if(effectsTables_ && !serviceEffects()) return false;
         return engine_.runtime.beginControlPass(elapsed);
     }
@@ -462,7 +462,7 @@ public:
     bool protectedCalculationAudit() const noexcept {return engine_.runtime.calculationPending();}
     auto controlReadbackAudit(unsigned slot) const noexcept
     {return std::pair(engine_.runtime.readbackCounts.at(slot),engine_.runtime.readbackStages.at(slot));}
-    bool controlPassPendingAudit() const noexcept {return engine_.runtime.controlPending() || effectPassClock_.has_value();}
+    bool controlPassPendingAudit() const noexcept {return engine_.periodicWorkPending();}
     const PartControllerState& controllerSettingsAudit() const noexcept { return controllers_; }
     const VoiceControlState* voiceControlAudit(unsigned slot) const noexcept
     { return slot<24 && engine_.runtime.voices[slot] ? &*engine_.runtime.voices[slot] : nullptr; }
@@ -1424,8 +1424,8 @@ private:
         // 5710..573c: after a failed reuse poll, task2 waits for its
         // one-kernel-tick event. Other voice groups may still advance on
         // their own control event; that must not repoll the preparing voice.
-        if(engine_.activationWaiting(elapsedCycles_) && !engine_.clock.ready() && !engine_.runtime.controlPending()
-            && !effectPassClock_) { serviceRequested_=false; return; }
+        if(engine_.activationWaiting(elapsedCycles_) && !engine_.clock.ready() && !engine_.periodicWorkPending())
+            { serviceRequested_=false; return; }
         // Settled voices need no CPU-side work between shared control ticks.
         // Only incoming MIDI, PCM completion or an unfinished transition wakes
         // the controller. PCM itself continues rendering every sample.
@@ -1433,7 +1433,7 @@ private:
             && !PCM_HasVoiceBoundary(pcm_) && !engine_.pcmBoundaryPending()) return;
         serviceWork();
         serviceRequested_=!engine_.activationWaiting(elapsedCycles_) && (engine_.runtime.startupPending() || tasksPending()
-            || effectPassClock_.has_value() || resetPending()
+            || engine_.controlEventCaptured() || resetPending()
             || (!bulkReply_.active() && !parameterReplyWaiting_ && (queuedEvents()!=0 || panelCount_!=0))
             || engine_.pcmBoundaryPending() || engine_.partStopsPending() || standbyStopPending_);
     }
@@ -1466,23 +1466,11 @@ private:
             && !holdAdmissionsAudit_
 #endif
             ) return;
-        if (effectsTables_ && !engine_.runtime.startupAwaitingKeyLatch() && engine_.periodicOwnersReady())
-        {
-            if (!effectPassClock_ && engine_.clock.ready())
-            {
-                // Capture the event before FX readback; new expirations accrue
-                // separately while PCM keeps running, as in task8's counter.
-                effectPassClock_=engine_.clock;
-                (void)engine_.clock.consume();
-            }
-            if (effectPassClock_ && !engine_.runtime.controlPending() && !serviceEffects()) return;
-        }
         // Run the semantic control update on its common event. H8 instruction
         // budgets are diagnostic data, not delays in the native sound engine.
         // Actual PCM activation/reuse waits remain owned by serviceActivation.
-        const auto control = engine_.serviceControl(controllers_,data_,conversion_,waves_,load,store,
-            effectPassClock_ ? &*effectPassClock_ : nullptr,VoiceControlRuntime::ControlSlice::pass);
-        if (control.status==VoiceControlRuntime::ScheduledStatus::updated) effectPassClock_.reset();
+        const auto control = engine_.updateControl(controllers_,data_,conversion_,waves_,load,store,
+            effectsTables_.has_value(),[&] { return serviceEffects(); });
         if (control.status == VoiceControlRuntime::ScheduledStatus::failed) { failed_ = true; return; }
         if (resetPending()) { serviceReset(); return; }
     }
@@ -1575,7 +1563,6 @@ private:
     std::optional<SystemDefaults> defaults_;
     std::optional<EffectsTables> effectsTables_;
     EffectsControl effects_;
-    std::optional<ControlTaskClock> effectPassClock_;
     std::optional<RhythmPresetTable> rhythm_;
     std::optional<MelodicPresetTable> melodic_;
     std::array<std::optional<uint16_t>,16> selectedTone_{};

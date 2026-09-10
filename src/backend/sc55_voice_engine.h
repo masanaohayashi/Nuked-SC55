@@ -12,7 +12,8 @@ namespace sc55
 // Serialized native voice-engine state. Not the host adapter or GS router.
 // Public state supports explicit boot/import policy; once processing starts,
 // only the serialized owner may mutate it. Sound-data/PCM remain caller-owned.
-// No implicit reset, MIDI defaults, clock epoch or scheduling priority here.
+// Owns voice commands and common sound-control events. MIDI routing/defaults
+// and the outer command-versus-control scheduling priority stay with the receiver.
 class NativeVoiceEngine
 {
 public:
@@ -616,6 +617,7 @@ public:
         // ramps before discarding the old owners. Preserve receive-time work,
         // the shared clock, key mask and cross-note pitch history.
         const auto retainedClock=clock;
+        const auto retainedPeriodicClock=periodicClock_;
         const auto enabled=mask.enabled;
         const auto retainedKeys=preparation.partKeys;
         const auto reference=preparation.reference;
@@ -624,6 +626,7 @@ public:
         *this=NativeVoiceEngine{};
         commands=receivedCommands; admission=receivedAdmission;
         clock=retainedClock; mask.enabled=enabled;
+        periodicClock_=retainedPeriodicClock;
         preparation.partKeys=retainedKeys; preparation.reference=reference;
         if(!notes.allocator.initializeTables()) return ResetProgress::failed;
         for(unsigned slot=0;slot<24;++slot)
@@ -761,6 +764,34 @@ public:
         return true;
     }
 
+    bool periodicWorkPending() const noexcept
+    { return runtime.controlPending() || periodicClock_.has_value(); }
+    bool controlEventCaptured() const noexcept { return periodicClock_.has_value(); }
+
+    // One common sound-control event: effects first, then the voice pass.
+    // The effect updater is synchronous and audio-owned, not a UI callback.
+    // Capture elapsed time before effects; expirations during a deferred voice
+    // pass accumulate in clock for the next event, never in this event's copy.
+    template<class Read,class Write,class UpdateEffects>
+    VoiceControlRuntime::ScheduledResult updateControl(const PartControllerState& parts,
+        const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
+        Read&& read,Write&& write,bool effectsEnabled,UpdateEffects&& updateEffects)
+    {
+        using Status=VoiceControlRuntime::ScheduledStatus;
+        if(failed()) return {Status::failed};
+        if(effectsEnabled && !runtime.startupAwaitingKeyLatch() && periodicOwnersReady()) {
+            if(!periodicClock_ && clock.ready()) {
+                periodicClock_=clock;
+                (void)clock.consume();
+            }
+            if(periodicClock_ && !runtime.controlPending() && !updateEffects()) return {Status::failed};
+        }
+        const auto result=serviceControl(parts,data,conversion,waves,read,write,
+            periodicClock_ ? &*periodicClock_ : nullptr,VoiceControlRuntime::ControlSlice::pass);
+        if(result.status==Status::updated) periodicClock_.reset();
+        return result;
+    }
+
     template<class Read,class Write>
     VoiceControlRuntime::ControlStep resumeControl(const PartControllerState& parts,
         const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
@@ -793,6 +824,7 @@ public:
         return result;
     }
 private:
+    std::optional<ControlTaskClock> periodicClock_;
     std::optional<PendingAdmission> admission;
     void applyMaster(const Configuration& config,VoiceControlInputs& input) const noexcept
     {
