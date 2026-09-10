@@ -109,6 +109,15 @@ unmuted notes. The part16 regression's physical H8 buttons and immediate native
 commands do not have equal UI latency. Do not add artificial audio delays to
 make their key-on counts match. This trace is diagnostic-only, not a benchmark.
 
+To distinguish allocation from actual PCM start, add
+`SC55_SONG_TRACE_WINDOW=33.18,38.60` (start,end in song seconds). Within that
+window, `IDENTITY_OWNER` records changed slot/group/key, allocation/release state,
+and PCM key/latch bits at PCM sample callbacks. It reports slots entering or
+leaving the selected part as well. A group-key change alone is **not** a new
+audible note: the slot can still contain the previous PCM voice. Match it with
+`IDENTITY_START` before concluding that the new owner sounded. This observer
+does not see every intervening H8 instruction and never changes H8 state.
+
 Pass start/end replay observations use the actual instruction-entry hook, not
 the pre-Step PC (interrupt dispatch can otherwise duplicate an opportunity).
 After this correction, `end` and `end-clock-start` still pass; `end-unit` and

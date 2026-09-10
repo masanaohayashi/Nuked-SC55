@@ -1,5 +1,6 @@
 #pragma once
 #include "MidiFilePlayer.h"
+#include <cmath>
 #include <map>
 #include <tuple>
 
@@ -65,6 +66,39 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         std::array<std::array<unsigned,3>,16> partModes{}; // poly, mono, rhythm
         unsigned unknownIdentity=0;
         int tracePart=-1;
+        double traceFrom=0,traceUntil=0;
+        using Ownership=std::array<unsigned,8>; // part, group, key, status, release, command, key, latch
+        std::array<Ownership,24> ownership{};
+        bool ownershipObserved=false;
+        void recordOwnership() {
+            const double seconds=(pcm->cycles-base)/20000000.0;
+            if(tracePart<0 || seconds<traceFrom || seconds>=traceUntil) return;
+            for(unsigned slot=0;slot<24;++slot) {
+                Ownership state{};
+                if(cpu) {
+                    state[0]=MCU_Read(*cpu,0xa318+slot);
+                    state[1]=MCU_Read(*cpu,0xa330+slot);
+                    state[2]=state[1]<24 ? MCU_Read(*cpu,0xa2e8+state[1]) : 255;
+                    state[3]=MCU_Read(*cpu,0xa348+slot);
+                    state[4]=MCU_Read(*cpu,0xa360+slot);
+                    state[5]=MCU_Read(*cpu,0xa3e0+slot);
+                } else if(player) {
+                    const auto& allocator=player->allocatorAudit();
+                    const auto& allocation=allocator.allocations[slot];
+                    state={allocation.part,allocation.noteGroup,
+                        allocation.noteGroup<24 ? unsigned(allocator.noteGroups[allocation.noteGroup].key) : 255u,
+                        allocation.status,allocation.releaseRequested,allocation.releaseCommand,0,0};
+                } else return;
+                state[6]=((pcm->voice_mask&pcm->voice_mask_pending)>>slot)&1;
+                state[7]=(pcm->ram2[slot][7]>>5)&1;
+                if((!ownershipObserved || state!=ownership[slot])
+                    && (int(state[0])==tracePart || (ownershipObserved && int(ownership[slot][0])==tracePart)))
+                    std::printf("IDENTITY_OWNER %s t=%.6f slot=%u gs_part=%u group=%u key=%u status=%x release=%u command=%u pcm_key=%u latch=%u\n",
+                        name,seconds,slot,state[0],state[1],state[2],state[3],state[4],state[5],state[6],state[7]);
+                ownership[slot]=state;
+            }
+            ownershipObserved=true;
+        }
         void recordIdentity(unsigned slot,uint32_t sample) {
             if(!cpu && !player) return;
             unsigned part=255,group=255,key=255;
@@ -94,6 +128,9 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
 #endif
         static void sample(void* context,const AudioFrame<int32_t>&) {
             auto& self=*static_cast<Attacks*>(context); const auto& p=*self.pcm;
+#if defined(SC55_NATIVE_IO_AUDIT)
+            self.recordOwnership();
+#endif
             const auto active=p.voice_mask&p.voice_mask_pending;
             for(unsigned slot=0;slot<24;++slot) {
                 auto& voice=self.voices[slot];
@@ -149,6 +186,14 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
             if(end==value || *end || part<0 || part>=16)
                 throw std::runtime_error("SC55_SONG_TRACE_PART must be a GS part index 0..15");
             h8Attacks.tracePart=nativeAttacks.tracePart=int(part);
+            if(const auto* window=std::getenv("SC55_SONG_TRACE_WINDOW")) {
+                double from=0,until=0; char extra=0;
+                if(std::sscanf(window,"%lf,%lf%c",&from,&until,&extra)!=2
+                    || !std::isfinite(from) || !std::isfinite(until) || from<0 || until<=from)
+                    throw std::runtime_error("SC55_SONG_TRACE_WINDOW must be start,end seconds with 0 <= start < end");
+                h8Attacks.traceFrom=nativeAttacks.traceFrom=from;
+                h8Attacks.traceUntil=nativeAttacks.traceUntil=until;
+            }
         }
     }
 #endif

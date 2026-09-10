@@ -48,6 +48,13 @@
    part16ではない。55KTIZKEのdrum part0は853/853、mono part2は195/195。
    part2は総数が同じでも起動時の所属key分布が異なる。part8もmonoで109/112。
    polyの差はpart3=324/325、4=218/219、7=229/235、12=14/17。
+   追加のslot所有traceによりpart7の差6件はH8側の発音前再割当と確認した。
+   入力33.190997/key52、36.117821/key50、37.113754/key59、37.947086/key55、
+   38.312939/key55、38.556841/key55はいずれもH8でslotを確保した後、
+   新たなPCM key-on前に後続key67または66へ置換される。nativeは6件ともPCM開始。
+   `/tmp/sc55-ktizke-owner-part7-all.log`。詳細時刻とslot/groupはCURRENT_CONTROL_WORK参照。
+   この6件もnative欠音とは扱わず、開始数一致のための人工待ちを入れない。
+   他partの差やsurvivor／reserve全体の正しさはこの分類では証明していない。
    未識別PCM起動は両方0。これは「全MIDIノートが正しい」の証明ではないが、
    以前の総数差をdrum／part16欠落の根拠にするのは誤り。
    次に実曲差を追う際はこのpart/modeの区別を使う。ログは
