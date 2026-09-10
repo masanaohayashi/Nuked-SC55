@@ -55,6 +55,14 @@
    `/tmp/sc55-ktizke-owner-part7-all.log`。詳細時刻とslot/groupはCURRENT_CONTROL_WORK参照。
    この6件もnative欠音とは扱わず、開始数一致のための人工待ちを入れない。
    他partの差やsurvivor／reserve全体の正しさはこの分類では証明していない。
+   続くtraceでpoly part3の1件とpart12の3件もH8の開始前・他partへの再割当に分類。
+   part4の1件は入力59.999892秒が60秒の観測終端に当たったもの。60.08秒まで
+   続けるとH8は60.003406秒に開始し219/219となる。これでpoly差11件は分類済み。
+   mono part8は再利用group keyでなく開始時のheld keyで入力と対応付けると
+   native112開始は112入力に各1回対応。H8側に開始対応のない3入力は
+   35.142213/key74、37.093429/key81、48.800725/key78。省略原因は未確定。
+   held keyは実際のPCM音高の証明ではないが、古いgroup keyによる見かけの
+   native欠音と区別する。詳細とログはCURRENT_CONTROL_WORKの最新記録を参照。
    未識別PCM起動は両方0。これは「全MIDIノートが正しい」の証明ではないが、
    以前の総数差をdrum／part16欠落の根拠にするのは誤り。
    次に実曲差を追う際はこのpart/modeの区別を使う。ログは

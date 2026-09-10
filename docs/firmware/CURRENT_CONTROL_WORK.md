@@ -11,6 +11,34 @@
 
 ## 現在の製品構造
 
+2026-09-10 55KTIZKEの残るpoly差とmono識別を確認：GS part3/4/8/12を
+同じ60秒入力で比較。poly part3は入力325/native325、part4は219/219、part12は17/17。
+part3の入力23.434917/key62はH8 slot12/group12へ23.448687秒に確定した後、
+開始前の23.457937秒にpart7/key67へ置換される。
+part12の3件も開始前に別partへ割当が移る：
+
+| 入力秒／key | H8 slot/group | 対象の割当確認秒（status=0） | 他partへの変更確認秒／part/key |
+|---|---|---|---|
+| 41.971469 / 100 | 17 / 10 | 41.979062 | 41.984500 / 6 / 68 |
+| 47.825117 / 95 | 21 / 17 | 47.832094 | 47.836156 / 3 / 66 |
+| 48.800725 / 96 | 6 / 16 | 48.807469 | 48.812188 / 3 / 64 |
+
+各対象keyの期間に新たなPCM開始なし。ログ `/tmp/sc55-ktizke-owner-part{3,12}.log`。
+part4の入力59.999892/key81は60秒の終了境界に当たり、60.08秒へ延長すると
+H8も60.003406秒に開始、part4は219/219になる (`/tmp/sc55-ktizke-end-part4.log`)。
+前回のpart7も合わせ、polyの開始数差11件はH8の開始前再割当10件＋試験終了境界1件。
+元の60秒の観測と既存regression assertionは変更しない。
+
+mono part8はgroup keyの再利用ラベルが新しい要求keyと違う。例：入力24.166623/key71で
+native開始24.172438のgroup keyは74だが、mono held keyは71、PCM pitchは312d。
+H8開始24.179031はgroup key71、held key71、pitch312e。raw pitchの一致は要求しない。
+開始時のheld keyと同音の直前入力を対応付けると、native112開始は112入力に各1回対応し、
+H8との差は35.142213/key74、37.093429/key81、48.800725/key78の3件だけになる。
+保持keyはPCMへの最終反映を証明する値ではないため、全ノートの音高／EG一致とは呼ばない。
+この3件のH8側開始省略の原因までは未確定。従来のgroup key集計だけでnativeが
+key71等を鳴らし損ねたと判定しない。ログ `/tmp/sc55-ktizke-mono-part8.log`。
+診断target build成功。製品コード変更なし、Xcode再build／Logic確認なし。
+
 2026-09-10 共通音源制御イベントをvoice ownerへ集約：`NativeVoiceEngine::updateControl`
 がeventのelapsed保持、effects→voice passの順序、待ちからの再開と完了を所有する。
 受信側の`effectPassClock_`を削除し、周期eventの内部状態を直接操作しない。

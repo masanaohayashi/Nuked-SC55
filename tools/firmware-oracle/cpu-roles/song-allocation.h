@@ -118,10 +118,13 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
                 const auto flags=cpu ? MCU_Read(*cpu,0x804d+0x70*part)
                                      : player->partSettings().routing[part].noteFlags;
                 ++partModes[part][(flags&0x10) ? 2 : (flags&0x80) ? 0 : 1];
-                if(int(part)==tracePart)
-                    std::printf("IDENTITY_START %s t=%.6f gs_part=%u key=%u slot=%u sample=%x mode=%x gain=%u,%u\n",
+                if(int(part)==tracePart) {
+                    const unsigned monoKey=(flags&0x90) ? 255u
+                        : cpu ? MCU_Read(*cpu,0xa070+part) : player->currentMonoKey(part).value_or(255);
+                    std::printf("IDENTITY_START %s t=%.6f gs_part=%u key=%u slot=%u sample=%x mode=%x gain=%u,%u mono_held_key=%u pitch=%x\n",
                         name,voices[slot].begin/20000000.0,part,key,slot,sample,flags,
-                        pcm->ram2[slot][9],pcm->ram2[slot][10]);
+                        pcm->ram2[slot][9],pcm->ram2[slot][10],monoKey,pcm->ram2[slot][0]);
+                }
             }
             else ++unknownIdentity;
         }
@@ -208,7 +211,17 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
     std::array<unsigned,16> monoChecks{},monoDifferences{};
     unsigned traceMuteState=~0u;
 #endif
-    const auto limit=uint64_t(std::min(song.totalSeconds(),firstKick&&!allKicks?kickTime+0.15:part16Only?18.0:60.0)*32000);
+    double replaySeconds=firstKick&&!allKicks?kickTime+0.15:part16Only?18.0:60.0;
+#if defined(SC55_NATIVE_IO_AUDIT)
+    // Exploratory allocation only: never shorten the part16/kick regressions.
+    if(!firstKick && !part16Only) if(const auto* value=std::getenv("SC55_SONG_SECONDS")) {
+        char* end=nullptr;const auto seconds=std::strtod(value,&end);
+        if(end==value || *end || !std::isfinite(seconds) || seconds<=0)
+            throw std::runtime_error("SC55_SONG_SECONDS must be a positive finite number");
+        replaySeconds=seconds;
+    }
+#endif
+    const auto limit=uint64_t(std::min(song.totalSeconds(),replaySeconds)*32000);
     std::printf("SONG %s events=%zu duration=%.3f replay=%.3f\n",path,song.events.size(),song.totalSeconds(),limit/32000.0);
     for(uint64_t frame=0;frame<limit;) {
         // Drive the firmware's actual panel buttons after song initialization.

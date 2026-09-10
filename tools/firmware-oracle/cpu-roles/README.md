@@ -118,6 +118,18 @@ audible note: the slot can still contain the previous PCM voice. Match it with
 `IDENTITY_START` before concluding that the new owner sounded. This observer
 does not see every intervening H8 instruction and never changes H8 state.
 
+`IDENTITY_START` also includes `mono_held_key` (255 outside mono mode) and the
+raw PCM `pitch` word. A reused mono group's `key` may remain an earlier key;
+neither that group label nor the current held key alone proves the audible
+pitch. Use the held-key/input sequence to investigate identity differences,
+and actual pitch/EG behavior when judging sound. Do not compare raw pitch words
+as constants across different LFO/control phases.
+
+For the exploratory `--song-allocation` mode only, `SC55_SONG_SECONDS=60.08`
+changes the replay duration (positive finite seconds, capped by song length).
+This separates a note cut off by the diagnostic endpoint from a missing start.
+It does not shorten or alter the part16/kick regression windows or assertions.
+
 Pass start/end replay observations use the actual instruction-entry hook, not
 the pre-Step PC (interrupt dispatch can otherwise duplicate an opportunity).
 After this correction, `end` and `end-clock-start` still pass; `end-unit` and
