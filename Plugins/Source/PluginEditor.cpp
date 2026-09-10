@@ -1580,6 +1580,7 @@ void NukedSC55AudioProcessorEditor::refreshRomChoices()
 
     const auto uiStatus = audioProcessor.getUiStatus();
     settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
+    settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
     const auto selectedRomName = uiStatus.romDirectory.isEmpty()
                                ? juce::String()
                                : juce::File (uiStatus.romDirectory).getFileName();
@@ -1640,6 +1641,8 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
                                    ? juce::String()
                                    : juce::File (uiStatus.romDirectory).getFileName();
         settingsComponent->setSelectedRomName (selectedRomName);
+        settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
+        settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
     }
     syncPlaybackControls();
 }

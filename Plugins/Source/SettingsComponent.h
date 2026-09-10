@@ -100,6 +100,8 @@ public:
     { onOptimizationChanged = std::move (callback); }
     void setOptimizationEnabled (bool enabled)
     { toggleOptimization->setToggleState (enabled, juce::dontSendNotification); }
+    void setOptimizationAvailable (bool available)
+    { toggleOptimization->setEnabled (available); }
 
     void setRomChoices (const juce::StringArray& names,
                        const juce::String& selectedName);

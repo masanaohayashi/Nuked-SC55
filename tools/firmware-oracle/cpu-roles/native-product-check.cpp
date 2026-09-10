@@ -25,6 +25,12 @@ int main(int argc,char** argv)
 {
     try {
         if(argc<3 || argc>4) return 2;
+        if(argc==3 && std::strcmp(argv[2],"rom-optimization")==0) {
+            bool supported=true;
+            if(!NukedSC55Emulator::hasRomSet(argv[1],&supported)) return 3;
+            std::printf("optimization=%s\n",supported?"available":"disabled");
+            return 0;
+        }
         common::LoadRomsetResult roms;
         if(common::LoadRomset(argv[1],{},common::RomLoader::Hashing,{},roms)!=common::LoadRomsetError{}
             || roms.picked_name!="mk1-v1.21") return 3;

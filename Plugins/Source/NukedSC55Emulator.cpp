@@ -648,8 +648,10 @@ void NukedSC55Emulator::setError (const std::string& message)
     error = message;
 }
 
-bool NukedSC55Emulator::hasRomSet (const std::string& romDirectory)
+bool NukedSC55Emulator::hasRomSet (const std::string& romDirectory, bool* supportsNative)
 {
+    if (supportsNative != nullptr)
+        *supportsNative = false;
     installBackendDiagnostics();
 
     std::error_code filesystemError;
@@ -665,6 +667,12 @@ bool NukedSC55Emulator::hasRomSet (const std::string& romDirectory)
     if (loadError != common::LoadRomsetError {})
         return false;
 
+    if (supportsNative != nullptr)
+    {
+        const auto& data = result.romset_info.rom_data;
+        *supportsNative = sc55::CanImportSoundData (data[static_cast<size_t> (RomLocation::ROM1)],
+                                                  data[static_cast<size_t> (RomLocation::ROM2)]);
+    }
     return true;
 }
 

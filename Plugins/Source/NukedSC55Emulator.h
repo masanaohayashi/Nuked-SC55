@@ -105,7 +105,7 @@ public:
     void clearPendingMidi() noexcept;
 
     /** Returns true when the directory contains a supported SC-55 ROM set. */
-    static bool hasRomSet (const std::string& romDirectory);
+    static bool hasRomSet (const std::string& romDirectory, bool* supportsNative = nullptr);
 
     /** Writes detailed ROM detection diagnostics in Debug builds. */
     static void logRomSetDiagnostics (const std::string& romDirectory);

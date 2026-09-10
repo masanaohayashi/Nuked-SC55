@@ -14,6 +14,15 @@
 
 ## 現在の製品構造
 
+最適化toggleのROM対応判定を追加。ROM選択時の既存hash読込みで
+`CanImportSoundData`を使い、C++音源と同じROM1/ROM2の対応条件を取得。
+非対応／未選択はOFF表示・disabled、非対応ROMはH8経路で初期化する。
+対応ROMへ戻すと再enableし、ユーザーの最適化ON/OFF希望は保持する。
+processor側も非対応ROMでのON要求を拒否。判定はprocessBlockでは行わない。
+headless `rom-optimization`でv1.21=available、mk2/SC-155 rev1=disabledを確認。
+Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED
+(`/tmp/sc55-rom-optimization-release.log`)。Logic上の操作確認は未実施。
+
 設定の`toggleOptimization`を比較用のインスタンス単位切替へ接続。
 ON=C++、OFF=H8。初期値のみ既存NUKED_SC55_USE_H8環境変数を参照し、
 UI操作は環境変数を変更しない。今回の選択はprocessor寿命内だけ保持し、

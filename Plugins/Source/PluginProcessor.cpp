@@ -689,6 +689,11 @@ bool NukedSC55AudioProcessor::selectStoredRom (const juce::String& name)
 bool NukedSC55AudioProcessor::setOptimizationEnabled (bool enabled)
 {
     jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    if (enabled && ! optimizationAvailable)
+    {
+        uiError = "Optimization requires SC-55 v1.21 ROMs";
+        return false;
+    }
     if (optimizationEnabled == enabled)
         return true;
 
@@ -1352,7 +1357,9 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
     const auto isStoredDirectory = isStoredRomDirectoryForProcessor (directory);
     const auto directoryIsValid = directory.isDirectory()
                                && (isStoredDirectory || canUseExternalRomDirectoryForProcessor());
-    const auto hasRomSet = directoryIsValid && containsRomSet (directory);
+    bool supportsNative = false;
+    const auto hasRomSet = directoryIsValid && NukedSC55Emulator::hasRomSet (
+        directory.getFullPathName().toStdString(), &supportsNative);
     DBG ("[DEBUG-SC55] initialiseRomDirectory path=\"" + directory.getFullPathName()
          + "\" isDirectory=" + juce::String (directoryIsValid ? 1 : 0)
          + " inAppGroup=" + juce::String (isStoredDirectory ? 1 : 0)
@@ -1367,6 +1374,7 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
     }
 
     selectedRomDirectory = directory;
+    optimizationAvailable = supportsNative;
     const auto sampleRate = currentSampleRate.load (std::memory_order_acquire);
     if (sampleRate <= 0.0)
     {
@@ -1386,7 +1394,7 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
         ~Suspension() { processor.suspendProcessing (previous); }
     } suspension (*this);
     audioReady.store (false, std::memory_order_release);
-    const auto mode = optimizationEnabled ? NukedSC55Emulator::EngineMode::native
+    const auto mode = isOptimizationEnabled() ? NukedSC55Emulator::EngineMode::native
                                           : NukedSC55Emulator::EngineMode::h8;
     const auto settingsDirectory = getUserSettingsDirectory();
     const auto nativeCacheDirectory = settingsDirectory.isDirectory()

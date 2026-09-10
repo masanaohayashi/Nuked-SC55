@@ -106,7 +106,8 @@ public:
 
     // Message-thread comparison switch; per instance, not a host parameter.
     bool setOptimizationEnabled (bool enabled);
-    bool isOptimizationEnabled() const noexcept { return optimizationEnabled; }
+    bool isOptimizationEnabled() const noexcept { return optimizationAvailable && optimizationEnabled; }
+    bool isOptimizationAvailable() const noexcept { return optimizationAvailable; }
 
     /** Returns the persistent user data directory (App Group on Apple platforms). */
     static juce::File getUserSettingsDirectory();
@@ -180,6 +181,7 @@ private:
     std::array<NukedSC55Emulator, 2> emulators;
     bool optimizationEnabled = NukedSC55Emulator::usesNativeEngine (
         NukedSC55Emulator::EngineMode::environment);
+    bool optimizationAvailable = false; // Updated only when selecting/loading ROMs.
     juce::AudioBuffer<float> secondaryRenderBuffer;
     std::atomic<bool> audioReady { false };
     std::atomic<bool> twoXEnabled { false };
