@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.0
+  Created with Projucer version: 9.0.2
 
   ------------------------------------------------------------------------------
 
@@ -49,10 +49,11 @@ SettingsComponent::SettingsComponent ()
     labelCurrentRomCaption->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
     labelCurrentRomCaption->setJustificationType (juce::Justification::centredLeft);
     labelCurrentRomCaption->setEditable (false, false, false);
+    labelCurrentRomCaption->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
     labelCurrentRomCaption->setColour (juce::TextEditor::textColourId, juce::Colours::black);
     labelCurrentRomCaption->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
 
-    labelCurrentRomCaption->setBounds (120, 24, 208, 24);
+    labelCurrentRomCaption->setBounds (120, 40, 208, 24);
 
     comboRoms.reset (new ImportAwareComboBox (juce::String()));
     contentComponent.addAndMakeVisible (comboRoms.get());
@@ -62,7 +63,7 @@ SettingsComponent::SettingsComponent ()
     comboRoms->setTextWhenNoChoicesAvailable (TRANS ("(no choices)"));
     comboRoms->addListener (this);
 
-    comboRoms->setBounds (120, 48, 208, 24);
+    comboRoms->setBounds (120, 64, 208, 24);
 
     juce__label.reset (new juce::Label ("new label",
                                         TRANS ("CLOSE")));
@@ -70,16 +71,39 @@ SettingsComponent::SettingsComponent ()
     juce__label->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
     juce__label->setJustificationType (juce::Justification::centred);
     juce__label->setEditable (false, false, false);
+    juce__label->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
     juce__label->setColour (juce::TextEditor::textColourId, juce::Colours::black);
     juce__label->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
 
-    juce__label->setBounds (24, 0, 72, 24);
+    juce__label->setBounds (24, 48, 72, 24);
 
     viewport.reset (new juce::Viewport ("viewport"));
     contentComponent.addAndMakeVisible (viewport.get());
 
-    viewport->setBounds (384, 0, 640, 200);
+    viewport->setBounds (384, 24, 616, 176);
 
+    labelVoices.reset (new juce::Label (juce::String(),
+                                        TRANS ("VOICES")));
+    contentComponent.addAndMakeVisible (labelVoices.get());
+    labelVoices->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
+    labelVoices->setJustificationType (juce::Justification::centredLeft);
+    labelVoices->setEditable (false, false, false);
+    labelVoices->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
+    labelVoices->setColour (juce::TextEditor::textColourId, juce::Colours::black);
+    labelVoices->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+
+    labelVoices->setBounds (120, 104, 208, 24);
+
+    sliderVoices.reset (new juce::Slider (juce::String()));
+    contentComponent.addAndMakeVisible (sliderVoices.get());
+    sliderVoices->setRange (24, 128, 8);
+    sliderVoices->setSliderStyle (juce::Slider::LinearHorizontal);
+    sliderVoices->setTextBoxStyle (juce::Slider::TextBoxRight, false, 80, 20);
+    sliderVoices->addListener (this);
+
+    sliderVoices->setBounds (120, 128, 208, 24);
+
+    cachedImage_BinaryData_BackPanel_png_1 = juce::ImageCache::getFromMemory (BinaryData::BackPanel_png, BinaryData::BackPanel_pngSize);
 
     //[UserPreSize]
     //[/UserPreSize]
@@ -105,6 +129,8 @@ SettingsComponent::~SettingsComponent()
     comboRoms = nullptr;
     juce__label = nullptr;
     viewport = nullptr;
+    labelVoices = nullptr;
+    sliderVoices = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -126,6 +152,17 @@ void SettingsComponent::paint (juce::Graphics& g)
                                      (getHeight() - 200 * scale) * 0.5f));
 
     g.fillAll (juce::Colour (0xff323e44));
+
+    {
+        int x = 0, y = 0, width = 1024, height = 200;
+        //[UserPaintCustomArguments] Customize the painting arguments here..
+        //[/UserPaintCustomArguments]
+        g.setColour (juce::Colours::black);
+        g.drawImageWithin (cachedImage_BinaryData_BackPanel_png_1,
+                           x, y, width, height,
+                           juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize,
+                           false);
+    }
 
     //[UserPaint] Add your own custom painting code here..
     //[/UserPaint]
@@ -195,6 +232,21 @@ void SettingsComponent::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
 
     //[UsercomboBoxChanged_Post]
     //[/UsercomboBoxChanged_Post]
+}
+
+void SettingsComponent::sliderValueChanged (juce::Slider* sliderThatWasMoved)
+{
+    //[UsersliderValueChanged_Pre]
+    //[/UsersliderValueChanged_Pre]
+
+    if (sliderThatWasMoved == sliderVoices.get())
+    {
+        //[UserSliderCode_sliderVoices] -- add your slider handling code here..
+        //[/UserSliderCode_sliderVoices]
+    }
+
+    //[UsersliderValueChanged_Post]
+    //[/UsersliderValueChanged_Post]
 }
 
 
@@ -284,7 +336,10 @@ BEGIN_JUCER_METADATA
                  scaleOnResize="1" scaleMode="keepAspect" snapPixels="8" snapActive="1"
                  snapShown="1" overlayOpacity="0.330" fixedSize="1" initialWidth="1024"
                  initialHeight="200">
-  <BACKGROUND backgroundColour="ff323e44"/>
+  <BACKGROUND backgroundColour="ff323e44">
+    <IMAGE pos="0 0 1024 200" resource="BinaryData::BackPanel_png" opacity="1.0"
+           mode="2"/>
+  </BACKGROUND>
   <IMAGEBUTTON name="" id="44ae4a19ee6707ae" memberName="buttonClose" virtualName=""
                explicitFocusOrder="0" pos="24 24 72 20" buttonText="" connectedEdges="0"
                needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::PowerButton_normal_png"
@@ -292,22 +347,32 @@ BEGIN_JUCER_METADATA
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::PowerButton_down_png"
                opacityDown="1.0" colourDown="0"/>
   <LABEL name="" id="22d6c36a912254f9" memberName="labelCurrentRomCaption"
-         virtualName="" explicitFocusOrder="0" pos="120 24 208 24" edTextCol="ff000000"
-         edBkgCol="0" labelText="ROM" editableSingleClick="0" editableDoubleClick="0"
-         focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
-         kerning="0.0" bold="0" italic="0" justification="33"/>
+         virtualName="" explicitFocusOrder="0" pos="120 40 208 24" textCol="80ffffff"
+         edTextCol="ff000000" edBkgCol="0" labelText="ROM" editableSingleClick="0"
+         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
+         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
   <COMBOBOX name="" id="fc40b79ca6ae887" memberName="comboRoms" virtualName="ImportAwareComboBox"
-            explicitFocusOrder="0" pos="120 48 208 24" editable="0" layout="33"
+            explicitFocusOrder="0" pos="120 64 208 24" editable="0" layout="33"
             items="" textWhenNonSelected="" textWhenNoItems="(no choices)"/>
   <LABEL name="new label" id="9df59162551224f7" memberName="juce__label"
-         virtualName="" explicitFocusOrder="0" pos="24 0 72 24" edTextCol="ff000000"
-         edBkgCol="0" labelText="CLOSE" editableSingleClick="0" editableDoubleClick="0"
-         focusDiscardsChanges="0" fontname="Default font" fontsize="15.0"
-         kerning="0.0" bold="0" italic="0" justification="36"/>
+         virtualName="" explicitFocusOrder="0" pos="24 48 72 24" textCol="80ffffff"
+         edTextCol="ff000000" edBkgCol="0" labelText="CLOSE" editableSingleClick="0"
+         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
+         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="36"/>
   <VIEWPORT name="viewport" id="2e02ecad0806a8a3" memberName="viewport" virtualName=""
-            explicitFocusOrder="0" pos="384 0 640 200" vscroll="1" hscroll="1"
+            explicitFocusOrder="0" pos="384 24 616 176" vscroll="1" hscroll="1"
             scrollbarThickness="8" contentType="0" jucerFile="" contentClass=""
             constructorParams=""/>
+  <LABEL name="" id="99e6f1a5834abd67" memberName="labelVoices" virtualName=""
+         explicitFocusOrder="0" pos="120 104 208 24" textCol="80ffffff"
+         edTextCol="ff000000" edBkgCol="0" labelText="VOICES" editableSingleClick="0"
+         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
+         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
+  <SLIDER name="" id="6ae5429c6a975756" memberName="sliderVoices" virtualName=""
+          explicitFocusOrder="0" pos="120 128 208 24" min="24.0" max="128.0"
+          int="8.0" style="LinearHorizontal" textBoxPos="TextBoxRight"
+          textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
+          needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA

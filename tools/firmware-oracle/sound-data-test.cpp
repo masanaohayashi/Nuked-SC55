@@ -817,8 +817,8 @@ int main(int argc, char** argv)
                             const auto& allocated = admission.allocation();
                             require(allocated && allocated->selection && allocated->selection->tone == tone && allocated->group);
                             const auto group = allocated->group->group;
-                            require(allocator.groupFieldA2D0[group] == 7 && allocator.groupFieldA300[group] == 0x90
-                                && allocator.groupValue[group] == key && allocator.freeCount == 24-actual.candidates.count);
+                            require(allocator.noteGroups[group].noteClass == 7 && allocator.noteGroups[group].releaseFlags == 0x90
+                                && allocator.noteGroups[group].key == key && allocator.freeCount == 24-actual.candidates.count);
                             const auto dispatch = sc55::PlanPartialVoiceDispatch(patch,actual.candidates.flags,
                                 {allocated->group->voices[0],allocated->group->voices[1]});
                             require(bool(dispatch));

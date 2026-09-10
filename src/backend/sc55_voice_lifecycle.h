@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_render_update.h"
 #include "sc55_voice_allocator.h"
 #include "sc55_envelope_pcm.h"
 #include "sc55_voice_setup.h"
@@ -494,6 +495,19 @@ bool SynchronizeVoicePcm(uint8_t channel,EnvelopeRunner& amplitude,
     if (channel >= 24) return false;
     const auto stage = amplitude.state().segment.stage;
     if (stage == EnvelopeStage::delay || stage >= EnvelopeStage::finished) return true;
+    if constexpr(requires { write.synchronizeEnvelopes(channel,
+        std::array<uint16_t,3>{},std::array<uint16_t,3>{}); })
+    {
+        const auto current=write.synchronizeEnvelopes(channel,
+            {levels.command16,amplitude.state().pcmWord,levels.command1a},
+            {levels.level32,amplitude.state().level,levels.level36});
+        levels.level32=current[0];
+        amplitude.synchronizePcmLevel(current[1]);
+        levels.level36=current[2];
+        const auto activity=uint8_t(current[1]>>8);
+        release.activity=activity==255 ? 254 : activity;
+        return true;
+    }
     write(uint8_t(0x3e),channel);
     levels.level32 = SynchronizePcmRamp(levels.command16,levels.level32,0x16,0x32,read,write);
     SynchronizeEnvelopePcm(amplitude,read,write);
@@ -672,28 +686,31 @@ inline std::optional<EnvelopeRunner> ContinueVoiceAmplitude(const VoiceStopState
 
 // 57c5..5809, after channel selection and preceding PCM setup. Caller must
 // have passed the readiness gate. No key-mask update or sample setup here.
-template<class Write>
-void ActivatePreparedVoice(VoiceStopState& state,Write&& write)
+inline std::array<uint16_t,2> ActivateVoiceState(VoiceStopState& state) noexcept
 {
-    const auto word = [&](uint8_t address,uint16_t value) {
-        write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
-    };
     if (state.flagMinus3B & 128)
     {
         uint16_t command = state.cached18, value10 = state.pcm10;
         if (state.delayAccumulator == 0)
         { state.progress = 0; command = 0xb6; value10 = 0; }
         state.stages.fill(state.delayAccumulator == 0 ? 0 : 2);
-        word(0x18,command);
         state.cached18 = command;
-        word(0x10,value10);
+        return {command,value10};
     }
     else
     {
-        word(0x18,state.cached18); word(0x10,state.pcm10);
         state.stages[0] = state.savedStage;
         state.savedStage = 0;
+        return {state.cached18,state.pcm10};
     }
+}
+
+template<class Write>
+void ActivatePreparedVoice(VoiceStopState& state,Write&& write)
+{
+    const auto initial=ActivateVoiceState(state);
+    write(uint8_t(0x18),uint8_t(initial[0]>>8)); write(uint8_t(0x19),uint8_t(initial[0]));
+    write(uint8_t(0x10),uint8_t(initial[1]>>8)); write(uint8_t(0x11),uint8_t(initial[1]));
 }
 
 // Prepared values, not ROM pointers. Register names deliberately avoid assigning
@@ -715,6 +732,14 @@ VoicePcmUpdateResult UpdateVoicePcm(uint8_t channel,const VoiceStopState& voice,
 {
     if (channel >= 24) return VoicePcmUpdateResult::invalidChannel;
     if (voice.stages[0] == 0 || voice.stages[0] >= 14) return VoicePcmUpdateResult::idle;
+    const VoiceRenderUpdate update{voice.pcm10,{voice.cached16,voice.cached18,cached1a},
+        int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12&255),
+        int8_t(prepared.pcm14>>8),int8_t(prepared.pcm14&255),
+        uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)};
+    if constexpr(requires { write.updateVoice(channel,update); }) {
+        write.updateVoice(channel,update);
+        return VoicePcmUpdateResult::written;
+    }
     const auto word = [&](uint8_t address,uint16_t value) {
         write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
     };
@@ -770,6 +795,31 @@ struct VoicePostEnable
     uint16_t command = 0; // voice +26, restored to PCM1a
 };
 
+// 2c18..2c52, non-restarted normal sample preparation. Freeze the current
+// levels for the later sample-address/key-latch transaction; do not restart
+// any envelope or clear its progress. Repeating while stage24 preserves the
+// original saved stage. The serialized caller synchronizes these command
+// caches with its live amplitude/TVA/second-envelope owners before activation.
+template<class Write>
+bool PrepareReusedVoicePcm(unsigned channel,VoiceStopState& voice,
+    uint16_t amplitudeLevel,SecondEnvelopePcmState& second,
+    PreparedVoicePcm& prepared,VoicePostEnable& post,Write&& write)
+{
+    if (channel>=24 || (voice.flagMinus3B&128)) return false;
+    if constexpr(requires { write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,uint16_t(0)); })
+        write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,0xb4);
+    else { write(0x3e,uint8_t(channel)); write(0x16,uint8_t(0)); write(0x17,uint8_t(0xb4)); }
+    voice.cached16=0x00b4;
+    voice.cached18=uint16_t((amplitudeLevel&0xff00)|0xaf);
+    second.command=uint16_t((second.level&0xff00)|0xaf);
+    post.level=second.level; post.command=second.command;
+    prepared.pcm1a=second.command;
+    if (voice.stages[0]!=24) {
+        voice.savedStage=voice.stages[0]; voice.stages[0]=24;
+    }
+    return true;
+}
+
 // 57b1..57be / 5821..582b: activation uses -18/-16, whereas the
 // post-enable command uses +26. Keep the already advanced periodic level
 // intact. field65 and other PCM/sample preparation belong to their callers.
@@ -805,6 +855,8 @@ std::optional<bool> PollVoicePostEnable(unsigned channel,const VoicePostEnable& 
 {
     if (channel >= 24) return std::nullopt;
     if (state.field65 != 0) return true;
+    if constexpr(requires { write.completeVoiceEnable(uint8_t(channel),state.level,state.command); })
+        return write.completeVoiceEnable(uint8_t(channel),state.level,state.command);
     write(0x3e,uint8_t(channel));
     (void)read(0x1e);
     const auto hi = read(0x3a); const auto lo = read(0x3b);
@@ -825,6 +877,11 @@ bool RemovePreparedVoiceKeys(VoiceKeyMask& mask,const VoiceStopState& voice,
 {
     if (voice.fieldCAF4 != 0) return false;
     mask.enabled &= ~mask.prepared;
+    if constexpr(requires { write.commitVoiceKeys(mask.enabled); })
+    {
+        write.commitVoiceKeys(mask.enabled);
+        return true;
+    }
     for (unsigned i = 0; i < 4; ++i)
         write(uint8_t(i),uint8_t(mask.enabled >> (24-8*i)));
     (void)read(0);
@@ -837,6 +894,12 @@ template<class Read,class Write>
 void EnablePreparedVoiceKeys(VoiceKeyMask& mask,Read&& read,Write&& write)
 {
     mask.enabled |= mask.prepared;
+    if constexpr(requires { write.commitVoiceKeys(mask.enabled); })
+    {
+        write.commitVoiceKeys(mask.enabled);
+        mask.prepared=0;
+        return;
+    }
     for (unsigned i = 0; i < 4; ++i)
         write(uint8_t(i),uint8_t(mask.enabled >> (24-8*i)));
     (void)read(0);
@@ -854,6 +917,17 @@ bool CommitPreparedVoice(unsigned channel,VoiceStopState& state,
         write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
     };
     state.fieldC8B3 = state.fieldCB30 = 0;
+    if constexpr(requires { write.installVoice(uint8_t(channel),VoiceRenderStart{}); })
+    {
+        const auto initial=ActivateVoiceState(state);
+        write.installVoice(uint8_t(channel),VoiceRenderStart{
+            prepared.sample.start,prepared.sample.loop,prepared.sample.end,prepared.sample.mode,
+            {initial[1],{state.cached16,initial[0],prepared.pcm1a},
+                int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12),
+                int8_t(prepared.pcm14>>8),int8_t(prepared.pcm14),
+                uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)}});
+        return true;
+    }
     write(0x3e,uint8_t(channel));
     WriteSampleAddressSetup(prepared.sample,write);
     word(0x12,prepared.pcm12); word(0x14,prepared.pcm14);
@@ -944,7 +1018,7 @@ std::optional<uint8_t> StopAndReclaimGroup(VoiceAllocator& allocator,
     bool prepend, Read&& read, Write&& write)
 {
     if (group >= 24 || part >= 16) return std::nullopt;
-    const auto successor = allocator.groupNext[group];
+    const auto successor = allocator.noteGroups[group].next;
     auto checked = allocator;
     std::array<uint8_t,24> order{};
     unsigned count = 0;
@@ -990,7 +1064,7 @@ std::optional<unsigned> StopRhythmExclusiveGroups(VoiceAllocator& allocator,
         {
             if (group >= 24 || (seen&(1u<<group))) return std::nullopt;
             seen |= 1u<<group;
-            if (state.groupFieldA2D0[group] != selector) { group = state.groupNext[group]; continue; }
+            if (state.noteGroups[group].noteClass != selector) { group = state.noteGroups[group].next; continue; }
             const auto next = StopAndReclaimGroup(state,life,group,part,false,load,store);
             if (!next) return std::nullopt;
             ++count; group = *next;
@@ -1023,15 +1097,14 @@ std::optional<bool> RetireRepeatedNote(VoiceAllocator& allocator,
         }
     const auto visit = [&](auto& state,auto& life,auto&& load,auto&& store) -> std::optional<bool> {
         uint32_t seen = 0;
-        for (auto group = state.partHead[part]; group < 128; group = state.groupNext[group])
+        for (auto group = state.partHead[part]; group < 128; group = state.noteGroups[group].next)
         {
             if (group >= 24 || (seen&(1u<<group))) return std::nullopt;
             seen |= 1u<<group;
-            if (state.groupValue[group] != note || (mode == 1 && state.groupFieldA2D0[group] != selector)) continue;
+            if (state.noteGroups[group].key != note || (mode == 1 && state.noteGroups[group].noteClass != selector)) continue;
             if (mode == 1)
             {
-                const bool marked = (state.groupFieldA288[group]&4) != 0;
-                state.groupFieldA288[group] |= 4;
+                const bool marked = state.noteGroups[group].markRepeated();
                 if (!marked) continue;
             }
             if (!StopAndReclaimGroup(state,life,group,part,mode == 0,load,store)) return std::nullopt;
@@ -1083,7 +1156,7 @@ std::optional<bool> EnsureVoiceCapacity(VoiceAllocator& allocator,
                         VoiceAllocator::CandidatePass(pass),allocator.activity);
                     if (!candidate) return std::nullopt;
                     if (candidate->voice == 255) break;
-                    group = allocator.voiceGroup[candidate->voice];
+                    group = allocator.allocations[candidate->voice].noteGroup;
                 }
                 if (group >= 128) break;
                 if (group >= 24 || !StopAndReclaimGroup(allocator,voices,group,part,false,read,write)) return std::nullopt;

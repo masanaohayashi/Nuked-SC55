@@ -27,7 +27,7 @@ inline void verifyMelodicAllocation(const sc55::SoundData& data)
                     require(bool(selected));
                     sc55::VoiceAllocator actual; require(actual.initializeTables(capacity == 0 ? 1 : capacity));
                     if (capacity == 0) require(bool(actual.takeFreeVoice()));
-                    actual.activity.fill(17); actual.fieldA3E0.fill(23);
+                    actual.activity.fill(17); for(auto& voice:actual.allocations) voice.releaseCommand=23;
                     const auto before = actual; auto expected = actual;
                     const uint8_t part = uint8_t(program%16);
                     const auto result = sc55::AllocateMelodicNote(event,channels.channel(0),

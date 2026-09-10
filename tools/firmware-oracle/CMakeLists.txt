@@ -24,6 +24,9 @@ add_test(NAME patch-layout COMMAND sc55-patch-layout-test)
 add_executable(sc55-midi-decoder-test midi-decoder-test.cpp)
 target_include_directories(sc55-midi-decoder-test PRIVATE "${BACKEND}")
 add_test(NAME midi-decoder COMMAND sc55-midi-decoder-test)
+add_executable(sc55-sysex-test sysex-test.cpp)
+target_include_directories(sc55-sysex-test PRIVATE "${BACKEND}")
+add_test(NAME sysex COMMAND sc55-sysex-test)
 add_executable(sc55-sample-zone-test sample-zone-test.cpp)
 target_include_directories(sc55-sample-zone-test PRIVATE "${BACKEND}")
 add_test(NAME sample-zone COMMAND sc55-sample-zone-test)
@@ -58,4 +61,10 @@ if(SC55_WAVE_TEST_DIRECTORY)
         --native-wave-output-test "${SC55_SOUND_DATA_TEST_ASSET}" "${SC55_WAVE_TEST_DIRECTORY}")
     add_test(NAME native-player COMMAND sc55-firmware-oracle
         --native-player-test "${SC55_SOUND_DATA_TEST_ASSET}" "${SC55_WAVE_TEST_DIRECTORY}")
+    add_test(NAME native-pcm-boundary COMMAND sc55-firmware-oracle
+        --native-pcm-boundary-test "${SC55_WAVE_TEST_DIRECTORY}")
+    add_test(NAME native-gs-modes COMMAND sc55-firmware-oracle
+        --compare-native-modes "${SC55_SOUND_DATA_TEST_ASSET}" "${SC55_WAVE_TEST_DIRECTORY}")
+    add_test(NAME native-rhythm-bulk COMMAND sc55-firmware-oracle
+        --compare-native-rhythm-bulk "${SC55_SOUND_DATA_TEST_ASSET}" "${SC55_WAVE_TEST_DIRECTORY}")
 endif()

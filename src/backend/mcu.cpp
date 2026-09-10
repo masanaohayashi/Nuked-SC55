@@ -1230,8 +1230,32 @@ void MCU_Step(mcu_t& mcu)
                 native = mcu_native::TryStepFilterModulation(mcu);
                 break;
             }
-            if (mcu.pc >= 0x4858 && mcu.pc <= 0x4923) {
+            if (mcu.pc >= 0x4858 && mcu.pc <= 0x49aa) {
                 native = mcu_native::TryStepVoiceBaseValue(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x49ad && mcu.pc <= 0x4a4d) {
+                native = mcu_native::TryStepVoiceBaseDifference(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x4a4e && mcu.pc <= 0x4ad7) {
+                native = mcu_native::TryStepVoicePatchScale(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x4ada && mcu.pc <= 0x4c50) {
+                native = mcu_native::TryStepVoicePatchApply(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x4c53 && mcu.pc <= 0x4cb7) {
+                native = mcu_native::TryStepVoicePcmCorrection(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x4cbb && mcu.pc <= 0x4d21) {
+                native = mcu_native::TryStepVoiceCurve(mcu);
+                break;
+            }
+            if (mcu.pc >= 0x4d26 && mcu.pc <= 0x4d87) {
+                native = mcu_native::TryStepSecondVoiceCurve(mcu);
                 break;
             }
             if (mcu.cp == 0 && ((mcu.pc >= 0x318c && mcu.pc <= 0x3210)
@@ -1448,5 +1472,7 @@ void MCU_SetRomset(mcu_t& mcu, Romset romset)
         break;
     }
 
+    mcu.pcm->is_mk1 = mcu.is_mk1;
+    mcu.pcm->is_jv880 = mcu.is_jv880;
     TIMER_NotifyRomsetChange(*mcu.timer);
 }

@@ -37,6 +37,10 @@
 #include "mcu.h"
 #include "mcu_timer.h"
 #include "pcm.h"
+#include "pcm_effects.h"
+#include "mcu_interrupt.h"
+#include <cstdio>
+#include <string>
 #include "sha256.h"
 #include "submcu.h"
 #include <bit>
@@ -44,6 +48,48 @@
 #include <fstream>
 #include <span>
 #include <vector>
+
+void PCM_Init(pcm_t& pcm, mcu_t& mcu)
+{
+    pcm.mcu = &mcu;
+    pcm.is_mk1 = mcu.is_mk1;
+    pcm.is_jv880 = mcu.is_jv880;
+    pcm.output_context = &mcu;
+    pcm.output_sample = [](void* context, const AudioFrame<int32_t>& frame) {
+        MCU_PostSample(*static_cast<mcu_t*>(context), frame);
+    };
+    pcm.irq_context = &mcu;
+    pcm.output_irq = [](void* context, bool asserted) {
+        auto& cpu = *static_cast<mcu_t*>(context);
+        if (cpu.is_jv880) MCU_GA_SetGAInt(cpu, 5, asserted);
+        else MCU_Interrupt_SetRequest(cpu, INTERRUPT_SOURCE_IRQ0, asserted);
+    };
+
+    // The simulated voice engine is the default. An environment variable is no
+    // use inside a plug-in -- a host does not pass one -- so the way back to the
+    // emulated path is a file the user can drop in their home directory, plus
+    // the variable for command line tools.
+    bool simulate = true;
+
+    if (const char* home = std::getenv("HOME"))
+    {
+        std::string flag(home);
+        flag += "/.sc55_no_sim";
+        if (FILE* f = std::fopen(flag.c_str(), "rb")) { std::fclose(f); simulate = false; }
+    }
+
+    if (const char* enable = std::getenv("SC55_SIM"))
+        simulate = enable[0] != '0';
+
+    PCM_UseSimulation(pcm, simulate);
+
+    // エフェクトの浮動小数版。突き合わせのあいだは環境変数で切り替える。
+    if (const char* fx = std::getenv("SC55_FXSIM"))
+        pcm.use_float_effects = fx[0] != '0';
+    if (pcm.use_float_effects && pcm.effects == nullptr)
+        pcm.effects = new PCMEffects();
+    pcm.effects_dirty=true;
+}
 
 Emulator::~Emulator()
 {

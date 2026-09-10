@@ -1,6 +1,10 @@
 #pragma once
 #include "sc55_sound_data.h"
 #include "sc55_voice_setup.h"
+#include "sc55_rhythm_presets.h"
+#include "sc55_preset.h"
+#include "sc55_system_defaults.h"
+#include "sc55_effects_control.h"
 #include "sha256.h"
 #include <set>
 #include <stdexcept>
@@ -24,6 +28,61 @@ inline bool CanImportSoundData(const std::vector<uint8_t>& rom1, const std::vect
         && SoundDataDigest(rom1) == SHA256_ToDigest("7e1bacd1d7c62ed66e465ba05597dcd60dfc13fc23de0287fdbce6cf906c6544")
         && SoundDataDigest(rom2) == SHA256_ToDigest("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1");
 }
+
+// Setup-only extraction of 03:8000 /8080 /d168. Separate owned configuration
+// for now; no cache-format change and no recovered data embedded in the source.
+inline RhythmPresetTable ImportRhythmPresets(const std::vector<uint8_t>& rom1,
+    const std::vector<uint8_t>& rom2)
+{
+    if (!CanImportSoundData(rom1,rom2))
+        throw std::runtime_error("Rhythm import requires verified SC-55 v1.21 ROMs");
+    RhythmPresetTable result;
+    std::copy_n(rom2.begin()+0x38000,128,result.programs.begin());
+    for (unsigned i = 0; i < result.records.size(); ++i)
+        std::copy_n(rom2.begin()+0x38080+i*0x48c,0x48c,result.records[i].begin());
+    std::copy_n(rom2.begin()+0x3d168,128,result.program127Accumulators.begin());
+    return result;
+}
+inline SystemDefaults ImportSystemDefaults(const std::vector<uint8_t>& rom1,
+    const std::vector<uint8_t>& rom2)
+{
+    if (!CanImportSoundData(rom1,rom2))
+        throw std::runtime_error("System defaults import requires verified SC-55 v1.21 ROMs");
+    SystemDefaults result;
+    std::copy_n(rom2.begin()+0x3ca00,result.bytes.size(),result.bytes.begin());
+    std::copy_n(rom2.begin()+0x3d148,result.identity.size(),result.identity.begin());
+    return result;
+}
+
+inline EffectsTables ImportEffectsTables(const std::vector<uint8_t>& rom1,
+    const std::vector<uint8_t>& rom2)
+{
+    if (!CanImportSoundData(rom1,rom2))
+        throw std::runtime_error("Effects import requires verified SC-55 v1.21 ROMs");
+    EffectsTables result;
+    for (unsigned i=0;i<8;++i) {
+        std::copy_n(rom2.begin()+0x10+6*i,6,result.reverbMacros[i].begin());
+        std::copy_n(rom2.begin()+0x40+7*i,7,result.chorusMacros[i].begin());
+        result.reverbLpf[i]=uint16_t((rom2[0x88+2*i]<<8)|rom2[0x89+2*i]);
+        result.chorusLpf[i]=uint16_t((rom2[0x98+2*i]<<8)|rom2[0x99+2*i]);
+        const unsigned address=(rom2[0x78+2*i]<<8)|rom2[0x79+2*i];
+        for (unsigned j=0;j<26;++j)
+            result.reverbPrograms[i][j]=uint16_t((rom2[address+2*j]<<8)|rom2[address+2*j+1]);
+    }
+    return result;
+}
+
+inline MelodicPresetTable ImportMelodicPresets(const std::vector<uint8_t>& rom1,
+    const std::vector<uint8_t>& rom2)
+{
+    if (!CanImportSoundData(rom1,rom2))
+        throw std::runtime_error("Melodic preset import requires verified SC-55 v1.21 ROMs");
+    MelodicPresetTable result;
+    for (unsigned i = 0; i < result.tones.size(); ++i)
+        result.tones[i] = uint16_t((rom2[0x30000+2*i]<<8)|rom2[0x30001+2*i]);
+    return result;
+}
+
 // This versioned cache is deterministic for the ROM pair above. A full digest
 // rejects corruption as well as stale/incomplete formats; no ROM data is embedded.
 inline bool IsCurrentSoundData(std::span<const uint8_t> bytes)

@@ -63,6 +63,12 @@
 #include "native-second-filter-controller-scale-test.h"
 #include "native-filter-setup-test.h"
 #include "native-voice-base-value-test.h"
+#include "native-voice-base-difference-test.h"
+#include "native-voice-patch-scale-test.h"
+#include "native-voice-patch-apply-test.h"
+#include "native-voice-pcm-correction-test.h"
+#include "native-voice-curve-test.h"
+#include "native-second-voice-curve-test.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -249,6 +255,12 @@ inline int verifyNativeTva (const std::filesystem::path& directory)
     verifyNativeSecondFilterControllerScale(cpu);
     verifyNativeFilterSetup(cpu);
     verifyNativeVoiceBaseValue(cpu);
+    verifyNativeVoiceBaseDifference(cpu);
+    verifyNativeVoicePatchScale(cpu);
+    verifyNativeVoicePatchApply(cpu);
+    verifyNativeVoicePcmCorrection(cpu);
+    verifyNativeVoiceCurve(cpu);
+    verifyNativeSecondVoiceCurve(cpu);
 
     // Real boot/MIDI/PCM path, not a direct helper invocation.
     std::array<std::vector<int32_t>, 2> audio;

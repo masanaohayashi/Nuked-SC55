@@ -11,7 +11,7 @@ namespace sc55
 class MidiDecoder
 {
 public:
-    enum class Kind { message, realtime, sysexBegin, sysexData, sysexEnd, sysexAbort };
+    enum class Kind { message, realtime, sysexBegin, sysexData, sysexEnd, sysexAbort, receiveRecovery };
     struct Event
     {
         Kind kind;

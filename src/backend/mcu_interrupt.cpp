@@ -82,6 +82,10 @@ void MCU_Interrupt_StartVector(mcu_t& mcu, uint32_t vector, int32_t mask)
     MCU_Interrupt_Start(mcu, mask);
     mcu.cp = (uint8_t)(address >> 16);
     mcu.pc = (uint16_t)address;
+#if defined(SC55_ORACLE_H8_INTERRUPTS)
+    extern void Oracle_H8InterruptEntered(const mcu_t&, uint32_t, int32_t);
+    Oracle_H8InterruptEntered(mcu, vector, mask);
+#endif
 }
 
 static void MCU_Interrupt_GetVL(const mcu_t& mcu, uint32_t source, int32_t& vector, int32_t& level)

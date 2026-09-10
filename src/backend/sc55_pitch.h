@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_control_random.h"
 #include "sc55_voice_setup.h"
 #include "sc55_tables.h"
 #include "sc55_envelope.h"
@@ -355,6 +356,12 @@ PartPitchPreparation PreparePartPitch(uint32_t pitch,uint8_t fine,uint8_t depth,
     Read&& read,Write&& write)
 {
     pitch = ApplyPartPitchFine(pitch,fine);
+    if constexpr(requires { write.randomWord(); }) {
+        const auto random=uint8_t(write.randomWord()>>8);
+        const auto cached=uint8_t(write.randomWord()>>8);
+        return {ApplyPartPitchRandom(pitch,random,depth),cached};
+    }
+    else {
     write(0x3e,30);
     (void)read(0x34);
     const uint8_t random = read(0x3a);
@@ -363,6 +370,7 @@ PartPitchPreparation PreparePartPitch(uint32_t pitch,uint8_t fine,uint8_t depth,
     const uint8_t cached = read(0x3a);
     (void)read(0x3b);
     return {ApplyPartPitchRandom(pitch,random,depth),cached};
+    }
 }
 
 // Construct on the preparation thread. No ROM data, lazy initialization or

@@ -8,6 +8,7 @@
 //
 // 詳しい導出と、途中で外した 2 箇所は FIRMWARE_STRUCTURE.md を参照。
 #pragma once
+#include "sc55_control_random.h"
 
 #include <cstdint>
 #include <array>
@@ -223,9 +224,7 @@ struct SpatialState
         uint8_t position;
         if (random)
         {
-            write(uint8_t(0x3e),uint8_t(30)); (void)read(uint8_t(0x34));
-            const auto high = read(uint8_t(0x3a)); (void)read(uint8_t(0x3b));
-            position = uint8_t(high>>1);
+            position = uint8_t(ReadControlRandom(read,write)>>9);
         }
         else
         {

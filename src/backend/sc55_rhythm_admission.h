@@ -37,8 +37,8 @@ public:
         // Once processing begins a failure is terminal: an earlier phase may
         // have stopped hardware or marked groups. Never silently replay it.
         status_ = Status::failed;
-        if (!StopRhythmExclusiveGroups(allocator,lifecycle,request_.part,request_.fieldA3D1,read,write)) return status_;
-        if (!RetireRepeatedNote(allocator,lifecycle,request_.part,request_.value,request_.fieldA3D1,
+        if (!StopRhythmExclusiveGroups(allocator,lifecycle,request_.part,request_.noteClass,read,write)) return status_;
+        if (!RetireRepeatedNote(allocator,lifecycle,request_.part,request_.value,request_.noteClass,
             partNoteFlags_,retained_,read,write)) return status_;
         const auto capacity = EnsureVoiceCapacity(allocator,lifecycle,request_.part,request_.voiceCount,policy_,read,write);
         if (!capacity) return status_;

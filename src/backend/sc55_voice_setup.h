@@ -212,6 +212,20 @@ inline uint8_t TransposePartialKey(uint8_t key, uint8_t coarse) noexcept
     return detail::ClippedKeySubtract(uint8_t(key + coarse), 64);
 }
 
+// 00:1dd0..1dd6 / 1df7..1dfd: CC84's per-partial glide origin.
+// Unlike the destination pitch, this path discards the fractional result and
+// does not apply scale tuning. The tracking reference is the note preparation's
+// A1B4 key, not necessarily the controller's source note.
+inline std::optional<uint8_t> PreparePortamentoSourceKey(
+    uint8_t transposedSource, uint8_t trackingReference,
+    uint8_t partialCoarse, uint8_t partialTracking) noexcept
+{
+    const auto key=TrackPartialKey(TransposePartialKey(transposedSource,partialCoarse),
+        trackingReference,partialTracking);
+    if (!key) return std::nullopt;
+    return key->key;
+}
+
 // Composed v1.21 00:132b..1334 pitch stage. Inputs belong to native note/part
 // state; no emulated register or memory access is required by this operation.
 // sourceKey and originalNote are deliberately separate: scale tuning uses

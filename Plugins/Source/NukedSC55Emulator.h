@@ -6,13 +6,14 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include "NativeSynthStateExchange.h"
 
 template <typename SampleType>
 struct AudioFrame;
 
 struct Emulator;
 class LcdCaptureBackend;
-namespace sc55 { class SoundData; class NativeMelodicPlayer; }
+namespace sc55 { class NativeSynth; }
 
 namespace common
 {
@@ -33,6 +34,7 @@ public:
 
     struct DebugState
     {
+        bool nativeEngine = false;
         bool ready = false;
         bool backendRunning = false;
         RomFamily romFamily = RomFamily::unknown;
@@ -99,6 +101,10 @@ public:
     void pressFrontPanelButton (FrontPanelButton button);
     void render (float* left, float* right, int numSamples);
 
+    // Message-thread only. Returns the latest complete native sound state;
+    // requests a refresh on the next audio render. No access to the live synth.
+    bool getNativeState (sc55::SynthState& destination) const noexcept;
+
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
     bool copyLcdDisplay (uint8_t* destination, size_t destinationStride) const;
 
@@ -129,7 +135,9 @@ private:
     void setError (const std::string& message);
 
     void driveCoreUntilSourceFrames (uint32_t minimumFrames) noexcept;
+    void renderSegment (float* left, float* right, int numSamples);
     void drainMidi();
+    void drainNativePanel() noexcept;
     void updateFrontPanelButtons() noexcept;
     void clearFrontPanelButtons() noexcept;
     void publishDebugState() noexcept;
@@ -204,8 +212,13 @@ private:
     std::mutex coreMutex;
     std::unique_ptr<LcdCaptureBackend> lcdBackend;
     std::unique_ptr<Emulator> core;
-    std::unique_ptr<sc55::SoundData> nativeData;
-    std::unique_ptr<sc55::NativeMelodicPlayer> nativePlayer;
+    std::unique_ptr<sc55::NativeSynth> nativePlayer;
+    mutable NativeSynthStateExchange nativeStateExchange;
+    mutable std::atomic<bool> nativeStateRequested { false };
+    std::atomic<bool> nativeEngineActive { false };
+    static constexpr unsigned nativePanelCapacity = 64;
+    std::array<FrontPanelButton,nativePanelCapacity> nativePanelQueue {};
+    std::atomic<unsigned> nativePanelRead { 0 }, nativePanelWrite { 0 };
     std::unique_ptr<common::LoadRomsetResult> loadedRoms;
 
     std::string error;

@@ -1,6 +1,8 @@
 #pragma once
 #include "sc55_voice_runtime.h"
 #include "sc55_note_fanout.h"
+#include "sc55_rhythm_admission.h"
+#include "sc55_voice_commands.h"
 
 namespace sc55
 {
@@ -18,7 +20,135 @@ public:
     VoiceKeyMask mask;
     ControlTaskClock clock;
     NoteOnFanout noteOn;
-    bool failed() const noexcept { return runtime.failed() || noteOn.status() == NoteOnFanout::Status::failed; }
+    struct MonoPart
+    {
+        MonoHeldKeys held;
+        uint8_t current=60,velocity=0,glideRate=0,source=255;
+        bool portamento=false;
+        std::optional<uint16_t> tone;
+    };
+    std::array<MonoPart,16> mono{};
+    struct PreparationHistory
+    {
+        std::array<std::array<uint8_t,2>,16> partKeys{};
+        uint8_t reference=0;
+        std::array<PreparedPartPitch,24> previousPitch{};
+        std::array<uint8_t,24> drumMap,drumKey{};
+        PreparationHistory() noexcept { drumMap.fill(255); }
+    };
+    PreparationHistory preparation;
+    // An admitted note retains its receive-time identity across capacity and
+    // device waits. A replacement/held-key return starts with fresh progress.
+    struct PendingAdmission
+    {
+        enum class Origin { midi, heldKeyReturn };
+        enum class SourceReuse { search, fresh };
+        NoteRequest request;
+        Origin origin=Origin::midi;
+        SourceReuse sourceReuse=SourceReuse::search;
+        bool repeatedRetired=false;
+        bool isHeldReturn() const noexcept { return origin==Origin::heldKeyReturn; }
+        MidiDecoder::Event event() const noexcept
+        { return {MidiDecoder::Kind::message,0x90,request.key,request.velocity,2}; }
+    };
+    VoiceCommands commands;
+    std::optional<PendingAdmission> admission;
+
+    // Retirement belongs to the admission, not to each attempt to allocate.
+    // The original receive key matters for high-note mapped tones as well.
+    template<class Read,class Write>
+    bool retireAdmission(uint8_t selector,uint8_t noteFlags,Read&& read,Write&& write)
+    {
+        if(!admission || failed() || runtime.startupPending()) return false;
+        if(admission->repeatedRetired) return true;
+        const auto& note=admission->request;
+        if(!retireRepeatedNote(note.part,note.key,selector,noteFlags,read,write)) return false;
+        admission->repeatedRetired=true;
+        return true;
+    }
+
+    // Determine fresh-note eligibility before retiring a repeated note. After
+    // retirement, recompute against the actual allocator. The preview never
+    // allocates a physical owner; sample validation still precedes the commit.
+    template<class Read,class Write>
+    std::optional<MelodicAllocationResult> previewMelodicAdmission(const MidiDecoder::Event& event,
+        const ChannelControls::Channel& channel,const MelodicAllocationInputs& input,uint8_t noteFlags,
+        const SoundData& data,Read&& read,Write&& write)
+    {
+        if(!admission || admission->request.part!=input.part || failed() || runtime.startupPending())
+            return std::nullopt;
+        auto probe=notes.allocator;
+        auto selected=AllocateMelodicNote(event,channel,input,data,probe);
+        using Status=MelodicAllocationResult::Status;
+        if(!admission->repeatedRetired && (selected.status==Status::allocated || selected.status==Status::needsCapacity)) {
+            if(!retireAdmission(input.groupFlags,noteFlags,read,write)) return std::nullopt;
+            probe=notes.allocator;
+            selected=AllocateMelodicNote(event,channel,input,data,probe);
+        }
+        return selected;
+    }
+
+    // One commit for melodic, mono/source and rhythm preparation. Rejected
+    // or deferred admissions must not advance portamento or voice provenance.
+    bool rememberPreparedNote(unsigned part,const VoiceControlRuntime::MelodicStartResult& result,
+        uint8_t reference,uint8_t drumMap=255,uint8_t drumKey=0) noexcept
+    {
+        using Status=VoiceControlRuntime::MelodicStartResult::Status;
+        if (part>=16 || (result.status!=Status::started && result.status!=Status::preparedOnly)
+            || !result.requests || result.requests->count>2) return false;
+        for(unsigned i=0;i<result.requests->count;++i)
+            if(result.requests->entries[i].slot>=24 || !result.prepared || !result.prepared->voices[i]) return false;
+        preparation.reference=reference;
+        result.pitchHistory.apply(preparation.partKeys[part],preparation.reference);
+        for(unsigned i=0;i<result.requests->count;++i) {
+            const auto slot=result.requests->entries[i].slot;
+            preparation.previousPitch[slot]=result.prepared->voices[i]->partPitch;
+            preparation.drumMap[slot]=drumMap;
+            // Melodic reuse invalidates the map, but retains the old key byte.
+            if(drumMap!=255) preparation.drumKey[slot]=drumKey;
+        }
+        return true;
+    }
+
+    // EG restart is a voice-owner decision, not a player interpretation of
+    // cached firmware flags. Held-key return and explicit source reuse retain
+    // their distinct restart policy.
+    std::optional<uint8_t> monoReuseFlags(unsigned part,uint8_t group,bool heldReturn,bool sourceReuse) const noexcept
+    {
+        if (part>=16) return std::nullopt;
+        const auto& state=mono[part];
+        const auto source=heldReturn ? uint8_t(255) : state.source;
+        if (group>=24 || (!state.portamento && source>=128)) return uint8_t(0xff);
+        const auto plan=notes.allocator.prepareGroupReuse(group,{0xff,{255,255}});
+        if (!plan) return std::nullopt;
+        auto flags=plan->flags;
+        if (!heldReturn && !sourceReuse) {
+            bool restart=!state.held.highest().has_value();
+            for (const auto slot:plan->voices)
+                if (slot<24 && runtime.voices[slot])
+                    restart|=(runtime.voices[slot]->lifecycle.fieldC8B3&128)!=0;
+            flags=uint8_t((flags&0x7f)|(restart ? 0x80 : 0));
+        }
+        return flags;
+    }
+
+    std::optional<MonoHeldKeys::ReleaseDecision> releaseMonoNote(unsigned part,uint8_t key) noexcept
+    {
+        if (failed() || runtime.preparationPending() || part>=16) return std::nullopt;
+        auto& state=mono[part];
+        const auto decision=state.held.release(key,state.current);
+        if (!decision) return std::nullopt;
+        if (decision->action==MonoHeldKeys::ReleaseDecision::Action::releaseGroup
+            && notes.allocator.partHead[part]<24 && !notes.allocator.releaseMonoGroup(part)) return std::nullopt;
+        if (!runtime.publishNoteReleases(notes.allocator)) return std::nullopt;
+        return decision;
+    }
+    bool failed() const noexcept { return rhythmFailed_ || runtime.failed() || noteOn.status() == NoteOnFanout::Status::failed; }
+
+    // Completion outranks queued voice commands, including a resumed admission.
+    // This is separate from parsing MIDI: commands may already be buffered.
+    bool serviceVoiceCompletion() noexcept
+    { return !failed() && runtime.consumeVoiceCompletion(notes.allocator); }
 
     bool beginNoteOn(const MidiDecoder::Event& event,std::span<const PartMidiReceive,16> routing,NoteReceiveMode mode)
     { return !failed() && !runtime.startupPending() && noteOn.begin(event,routing,mode); }
@@ -35,6 +165,7 @@ public:
     MidiDispatchResult serviceMidi(MidiEventQueue<Capacity>& queue,uint64_t now,Sink&& sink)
     {
         if (failed()) return MidiDispatchResult::failed;
+        if (!serviceVoiceCompletion()) return MidiDispatchResult::failed;
         if (noteOn.pending()) return MidiDispatchResult::deferred;
         return runtime.serviceMidi(queue,now,sink);
     }
@@ -89,6 +220,136 @@ public:
 
     enum class StopRequest { invalidInput, deferred, queued, failed };
 
+    // Admission owns reclamation and the lifecycle handoff. Callers retain
+    // their pending note across PCM waits, but never copy EG owners themselves.
+    template<class Read,class Write>
+    bool retireRepeatedNote(unsigned part,uint8_t note,uint8_t selector,uint8_t noteFlags,
+        Read&& read,Write&& write)
+    {
+        if (failed() || runtime.preparationPending() || part>=16) return false;
+        auto current=admissionLifecycle();
+        const auto result=RetireRepeatedNote(notes.allocator,current,part,note,selector,
+            noteFlags,notes.part(part)->retainedKeys,read,write);
+        lifecycle=current;
+        return result.has_value();
+    }
+
+    template<class Read,class Write>
+    std::optional<bool> ensureCapacity(unsigned part,unsigned count,const VoiceCapacityPolicy& policy,
+        Read&& read,Write&& write)
+    {
+        if (failed() || runtime.preparationPending()) return std::nullopt;
+        auto current=admissionLifecycle();
+        const auto result=EnsureVoiceCapacity(notes.allocator,current,part,count,policy,read,write);
+        lifecycle=current;
+        return result;
+    }
+
+    template<class Read,class Write>
+    bool stopGroup(unsigned part,uint8_t group,Read&& read,Write&& write)
+    {
+        if (failed() || runtime.preparationPending()) return false;
+        auto current=admissionLifecycle();
+        const auto result=StopAndReclaimGroup(notes.allocator,current,group,part,false,read,write);
+        lifecycle=current;
+        return result.has_value();
+    }
+
+    template<class Read,class Write>
+    bool stopPartGroups(unsigned part,Read&& read,Write&& write)
+    {
+        if (failed() || part>=16) return false;
+        for (unsigned n=0;notes.allocator.partHead[part]<128 && n<24;++n)
+            if (!stopGroup(part,notes.allocator.partHead[part],read,write)) return false;
+        return notes.allocator.partHead[part]>=128;
+    }
+
+    template<class Read,class Write>
+    VoiceControlRuntime::MelodicStartResult startReusedMelodicNote(const MelodicNoteVelocity& selection,
+        unsigned part,const std::array<PartialSampleInstallInputs,2>& samples,
+        const std::array<NormalPartialDspInputs,2>& dsp,const PartControllerState& parts,
+        const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
+        Read&& read,Write&& write,uint8_t group=255)
+    {
+        if (failed()) return {VoiceControlRuntime::MelodicStartResult::Status::failed,{},{}};
+        return runtime.startReusedMelodicNote(selection,part,samples,dsp,notes.allocator,
+            installation,lifecycle,mask,parts,data,conversion,waves,read,write,group);
+    }
+
+    struct RhythmStartResult
+    {
+        enum class Status { invalidInput, deferred, absent, velocityRejected, capacityRejected, started, failed };
+        Status status;
+        std::optional<MelodicAllocationResult> allocation;
+        std::optional<VoiceControlRuntime::MelodicStartResult> start;
+    };
+
+    // One already-routed/velocity-adjusted rhythm note. Map/default ownership
+    // stays with the GS layer. Admission (including chokes) commits only once;
+    // started consumes the event and pollStart resumes PCM activation.
+    // After admission begins a failure is terminal, never a retryable defer.
+    template<class Read,class Write>
+    RhythmStartResult startRoutedRhythmNote(const RhythmNoteVelocity& selection,unsigned part,
+        uint8_t noteFlags,const RhythmKeyMap& map,uint8_t shift,uint8_t offset,
+        const std::array<uint8_t,12>& scale,const std::array<uint8_t,2>& sampleModes,
+        const std::array<uint8_t,2>& preparationFlags,const VoiceCapacityPolicy& policy,
+        const std::array<NormalPartialDspInputs,2>& dsp,const PartControllerState& controllers,
+        const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
+        Read&& read,Write&& write)
+    {
+        using Status = RhythmStartResult::Status;
+        if (failed()) return {Status::failed,{},{}};
+        if (part >= 16 || !(noteFlags&0x10) || selection.mapping.key >= 128
+            || map.tones[selection.mapping.key] != selection.mapping.tone)
+            return {Status::invalidInput,{},{}};
+        if (runtime.startupPending() || mask.prepared) return {Status::deferred,{},{}};
+        for (const auto& state : lifecycle)
+            if (state.fieldCAF4) return {Status::deferred,{},{}};
+        // Admission stops must use current periodic DSP progress, not the
+        // installation snapshot. Preserve owners until their task4 is serviced.
+        lifecycle=admissionLifecycle();
+        RhythmNoteAdmission admission(selection,part,noteFlags,notes.part(part)->retainedKeys,policy);
+        const auto admitted = admission.run(data,notes.allocator,lifecycle,read,write);
+        using Admission = RhythmNoteAdmission::Status;
+        if (admitted == Admission::invalidInput) return {Status::invalidInput,{},{}};
+        if (admitted == Admission::absent) return {Status::absent,{},{}};
+        if (admitted == Admission::velocityRejected) return {Status::velocityRejected,{},{}};
+        const auto fail = [&]() -> RhythmStartResult {
+            rhythmFailed_ = true; return {Status::failed,{},{}};
+        };
+        if (admitted != Admission::allocated && admitted != Admission::capacityRejected) return fail();
+        // Choked slots can differ from this note's new destinations. Publish
+        // every stop before installing task2, otherwise task4 could outrank it.
+        for (unsigned count = 0; count < 24; ++count)
+        {
+            const auto stopped = serviceStopTask();
+            if (stopped.status == VoiceControlRuntime::StopTaskStatus::idle) break;
+            if (stopped.status != VoiceControlRuntime::StopTaskStatus::completed) return fail();
+        }
+        if (admitted == Admission::capacityRejected) return {Status::capacityRejected,{},{}};
+        const auto& allocation = *admission.allocation();
+        const auto inputs = PrepareRhythmSampleInputs(allocation,map,shift,offset,scale,sampleModes,preparationFlags);
+        if (!inputs) return fail();
+        const auto started = runtime.beginAllocatedNote(allocation,part,*inputs,dsp,
+            notes.allocator,installation,lifecycle,mask,controllers,data,conversion,waves,read,write);
+        if (started.status != VoiceControlRuntime::MelodicStartResult::Status::started
+            && started.status != VoiceControlRuntime::MelodicStartResult::Status::preparedOnly) return fail();
+        return {Status::started,allocation,started};
+    }
+
+    // Channel/reset command boundary. Publish once after validated note-state
+    // changes. This does not advance PCM time or destroy live DSP owners.
+    bool releasePart(unsigned part,bool rhythm,bool resetPedals,bool allNotes) noexcept
+    {
+        if (part >= 16 || failed() || runtime.startupPending() || noteOn.pending()) return false;
+        auto updated = notes;
+        if ((resetPedals && !updated.resetPedals(part))
+            || (allNotes && !updated.allNotesOff(part,rhythm))
+            || !runtime.publishNoteReleases(updated.allocator)) return false;
+        notes = updated;
+        return true;
+    }
+
     // One committed choke operation, before rhythm allocation. An accepted
     // caller must advance its admission phase, never replay this on a PCM wait.
     // Keep current DSP owners until task4 and the physical stop are serviced.
@@ -141,25 +402,123 @@ public:
     VoiceControlRuntime::StartStatus pollStart(Read&& read,Write&& write)
     { return failed() ? VoiceControlRuntime::StartStatus::cancelled : runtime.pollPreparedStart(lifecycle,mask,read,write); }
 
+    // Gain decay yields to the next common kernel tick. Key-latch protection
+    // is a separate device-pass wait and must still be polled each PCM pass.
+    // The deadline belongs to the activation, not the host/player scheduler.
+    bool activationWaiting(uint64_t now) const noexcept
+    { return activationWake_ && now<*activationWake_; }
+    std::optional<uint32_t> activationDeadline(uint64_t now) const noexcept
+    {
+        if(!activationWaiting(now)) return std::nullopt;
+        return uint32_t(*activationWake_-now);
+    }
+    template<class Read,class Write>
+    VoiceControlRuntime::StartStatus serviceActivation(uint64_t now,Read&& read,Write&& write)
+    {
+        using Status=VoiceControlRuntime::StartStatus;
+        if(failed()) return Status::cancelled;
+        if(activationWaiting(now)) return Status::waitingForReuse;
+        activationWake_.reset();
+        const auto result=pollStart(read,write);
+        if(result==Status::waitingForReuse) activationWake_=now+clock.untilNextKernelTick();
+        return result;
+    }
+
+    // The PCM device supplies an acknowledged waveform-boundary event. The
+    // voice engine owns the pitch/lifecycle response and both LFO stage views.
+    // Do not consume such events during activation; the device retains them.
+    template<class Read,class Write>
+    bool handlePcmBoundary(unsigned slot,const PitchConversion& conversion,Read&& read,Write&& write)
+    {
+        if(failed() || runtime.startupPending() || slot>=24) return false;
+        auto& voice=runtime.voices[slot];
+        if(!voice) return true;
+        if(!HandleVoicePcmBoundary(slot,*voice,runtime.inputs[slot],notes.allocator.pcmLinks,
+            conversion,read,write)) return false;
+        lifecycle[slot]=voice->lifecycle;
+        runtime.first[slot].firstStage=runtime.second[slot].firstStage=voice->lifecycle.stages[0];
+        return true;
+    }
+
+    bool periodicOwnersReady() const noexcept
+    {
+        if(runtime.preparationPending()) return false;
+        for(unsigned slot=0;slot<24;++slot) {
+            const auto& voice=lifecycle[slot];
+            if(!voice.fieldCAF4) continue;
+            if(voice.fieldCAF4==4) {
+                // A physical stop has already published stage18/20 (53e6).
+                if(!runtime.voices[slot] || (voice.stages[0]!=18 && voice.stages[0]!=20)) return false;
+            } else if(voice.fieldCAF4==2) {
+                // 113a publishes identity/request before DSP preparation.
+                // A restart has a stopped stage; a continuation retains its
+                // old EG/LFO owner but uses the newly installed part/key.
+                // No previous DSP owner is a different handoff: retain the
+                // conservative wait rather than inventing one for a link.
+                if(!runtime.voices[slot] || voice.stages[0]>24 || (voice.stages[0]&1)) return false;
+            } else return false;
+        }
+        return true;
+    }
+
+    template<class Read,class Write>
+    VoiceControlRuntime::ControlStep resumeControl(const PartControllerState& parts,
+        const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
+        Read&& read,Write&& write,VoiceControlRuntime::ControlSlice slice=VoiceControlRuntime::ControlSlice::pass)
+    {
+        using Progress=VoiceControlRuntime::ControlProgress;
+        if(failed()) return {Progress::failed};
+        if(!importPendingVoiceOperations()) return {Progress::deferred};
+        const auto result=slice==VoiceControlRuntime::ControlSlice::phase
+            ? runtime.resumeControlPhase(installation,parts,notes.allocator,data,conversion,waves,read,write)
+            : runtime.resumeControlPass(installation,parts,notes.allocator,data,conversion,waves,read,write);
+        if(result.status!=Progress::failed) exportControlChanges(result.changedMask);
+        return result;
+    }
+
     template<class Read,class Write>
     VoiceControlRuntime::ScheduledResult serviceControl(const PartControllerState& parts,
         const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
-        Read&& read,Write&& write)
+        Read&& read,Write&& write,ControlTaskClock* capturedClock = nullptr,
+        VoiceControlRuntime::ControlSlice slice=VoiceControlRuntime::ControlSlice::pass)
     {
         using Status = VoiceControlRuntime::ScheduledStatus;
         if (failed()) return {Status::failed};
-        // Do not run stale DSP over a queued physical stop/preparation. Preserve
-        // the clock event until the owner services its pending tasks. This is
-        // an intermediate serialization boundary, not H8 task-latency fidelity.
-        for (const auto& voice : lifecycle)
-            if (voice.fieldCAF4 != 0) return {Status::deferred};
-        const auto result = runtime.serviceControl(clock,installation,parts,notes.allocator,
-            data,conversion,waves,read,write);
-        if (result.status == Status::updated)
-            for (unsigned slot = 0; slot < 24; ++slot)
-                if ((result.updatedMask&(1u<<slot)) && runtime.voices[slot])
-                    lifecycle[slot] = runtime.voices[slot]->lifecycle;
+        if(!importPendingVoiceOperations()) return {Status::deferred};
+        const auto result = runtime.serviceControl(capturedClock ? *capturedClock : clock,installation,parts,notes.allocator,
+            data,conversion,waves,read,write,slice);
+        if (result.status != Status::failed) exportControlChanges(result.updatedMask);
         return result;
     }
+private:
+    std::optional<uint64_t> activationWake_;
+    bool importPendingVoiceOperations() noexcept
+    {
+        if(!periodicOwnersReady()) return false;
+        // Admission and periodic control see the same published lifecycle.
+        // Preserve requests for their consumer: no early stop completion,
+        // preparation, key-on or reconstruction of an uninstalled DSP owner.
+        for(unsigned slot=0;slot<24;++slot) if(lifecycle[slot].fieldCAF4 && runtime.voices[slot]) {
+            runtime.voices[slot]->lifecycle=lifecycle[slot];
+            runtime.first[slot].firstStage=runtime.second[slot].firstStage=lifecycle[slot].stages[0];
+        }
+        return true;
+    }
+    void exportControlChanges(uint32_t changed) noexcept
+    {
+        for (unsigned slot=0;slot<24;++slot)
+            if((changed&(1u<<slot)) && runtime.voices[slot]) lifecycle[slot]=runtime.voices[slot]->lifecycle;
+    }
+    std::array<VoiceStopState,24> admissionLifecycle() const noexcept
+    {
+        // Pending installation/stop owns the handoff until its consumer runs.
+        // Otherwise the live EG owner supersedes the installation snapshot.
+        auto current=lifecycle;
+        for (unsigned slot=0;slot<24;++slot)
+            if (runtime.voices[slot] && !lifecycle[slot].fieldCAF4)
+                current[slot]=runtime.voices[slot]->lifecycle;
+        return current;
+    }
+    bool rhythmFailed_ = false;
 };
 }

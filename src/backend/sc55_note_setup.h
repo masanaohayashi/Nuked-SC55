@@ -74,15 +74,18 @@ struct PreparedNormalPitch
 // tables. The caller supplies keys explicitly: envelopeKey is not necessarily
 // partKey, and partTune is the tracked fractional pitch, not master tuning.
 // Previous per-voice pitch/glide state belongs to the caller; never replace
-// it with zero merely because another note is starting. This is the normal
-// initialization branch, not the re-entry/voice-reuse branch at 4f51.
+// it with zero merely because another note is starting. A continuing runner
+// selects 4f51's re-entry branch and supplies LIVE progress/glide/cache state;
+// nullptr selects the normal initialization branch. The caller chooses this
+// from the installed voice's restart flag, not MIDI mono mode alone.
 // Inputs/table availability are checked before the PCM random transaction.
 // No allocation, CPU, control ROM, key-on write, or clock advancement here.
 template<class Read,class Write>
 std::optional<PreparedNormalPitch> PrepareNormalVoicePitch(
     const SC55Patch& patch,unsigned partialIndex,const PartialSamplePlan& plan,
     const NormalPitchStartInputs& input,const PreparedPartPitch& previous,
-    const SoundData& data,const PitchConversion& conversion,Read&& read,Write&& write)
+    const SoundData& data,const PitchConversion& conversion,Read&& read,Write&& write,
+    const VoicePitchRunner* continuing = nullptr,uint16_t elapsed = 1)
 {
     if (!data.samples() || !data.pitchTiming() || !data.pitchEnvelope()
         || !data.keys() || !data.times() || !data.glideRates() || input.glideRate >= 128)
@@ -94,14 +97,21 @@ std::optional<PreparedNormalPitch> PrepareNormalVoicePitch(
     const auto timing = PreparePitchEnvelopeTiming(partial.raw,input.envelopeKey,input.velocity,
         *data.pitchTiming(),data.keys()->multipliers,*data.times());
     if (!timing) return std::nullopt;
-    PreparedNormalPitch result{previous,{}};
+    if (continuing && (continuing->envelope.stage>22 || (continuing->envelope.stage&1)))
+        return std::nullopt;
+    PreparedNormalPitch result{previous,continuing ? *continuing : VoicePitchRunner{}};
+    if (continuing) result.part.glide=continuing->glide;
     if (!result.part.prepare(*partInput,data.pitchKeys(),read,write)) return std::nullopt;
     const auto targets = PreparePitchEnvelopeTargets(result.part.values.pitch,partial.raw,input.velocity,
         result.part.cachedRandom,data.pitchEnvelope()->depth,data.pitchEnvelope()->curve);
     result.runner.glide = result.part.glide;
     result.runner.installEnvelope(result.part.values.pitch,targets,*timing);
-    if (result.runner.initialize(input.modulation,input.glideRate,*data.glideRates(),
-        result.part.values.reference,input.correctionSource,conversion) != VoicePitchRunner::Result::updated)
+    const auto state=continuing
+        ? result.runner.advance(elapsed,true,input.modulation,input.glideRate,*data.glideRates(),
+            result.part.values.reference,input.correctionSource,conversion)
+        : result.runner.initialize(input.modulation,input.glideRate,*data.glideRates(),
+            result.part.values.reference,input.correctionSource,conversion);
+    if (state == VoicePitchRunner::Result::invalidInput)
         return std::nullopt;
     return result;
 }

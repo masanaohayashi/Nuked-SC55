@@ -1,6 +1,7 @@
 #pragma once
 
 #include "math_util.h"
+#include "audio_frame.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -9,15 +10,6 @@ enum class AudioFormat
     S16,
     S32,
     F32,
-};
-
-template <typename T>
-struct AudioFrame
-{
-    T left;
-    T right;
-
-    static constexpr size_t channel_count = 2;
 };
 
 inline void Normalize(const AudioFrame<int32_t>& in, AudioFrame<int16_t>& out)

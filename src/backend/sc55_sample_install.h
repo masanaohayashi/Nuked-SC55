@@ -49,12 +49,124 @@ struct InstalledPartialSample
 };
 using InstalledPartialSamples = std::array<std::optional<InstalledPartialSample>,2>;
 
+// History writes occur before the physical-slot test (124e/12cf). Keep
+// them separate from the final DSP owners: a later partial can overwrite a
+// slot, or a prepared partial can have no physical destination at all.
+struct PartialPitchHistoryUpdate
+{
+    uint8_t prepared = 0;
+    std::array<std::optional<uint8_t>,2> adjusted{};
+    void apply(std::array<uint8_t,2>& history,uint8_t initialKey) const noexcept
+    {
+        for(unsigned partial=0;partial<2;++partial)
+            if(prepared&(1u<<partial)) history[partial]=adjusted[partial].value_or(initialKey);
+    }
+};
+
+inline PartialPitchHistoryUpdate CapturePartialPitchHistory(const InstalledPartialSamples& samples) noexcept
+{
+    PartialPitchHistoryUpdate result;
+    for(unsigned partial=0;partial<2;++partial) if(samples[partial]) {
+        result.prepared|=uint8_t(1u<<partial);
+        result.adjusted[partial]=samples[partial]->sample.key.storedAdjustedKey;
+    }
+    return result;
+}
+
 // Sample selection and 125d/12e5 ->53e6/113a for an allocated melodic note.
 // The caller resolves keys/mode/scale and owns prior-key caches; no GS defaults
 // or mono semantics are inferred. Preserve partial order and slot fallback.
 // Validate both sample plans and installation transactions before PCM I/O.
 // No key-on, readiness wait, task dispatch or DSP preparation is performed.
 // After I/O starts, callbacks must not throw/reenter/mutate these owners.
+class MelodicSampleInstallation
+{
+public:
+    enum class Progress { advanced, complete, failed };
+    static std::optional<MelodicSampleInstallation> prepare(
+        const MelodicAllocationResult& allocation,unsigned part,
+        const std::array<PartialSampleInstallInputs,2>& inputs,const SoundData& data,
+        const VoiceAllocator& allocator,const VoiceInstallationState& installation)
+    {
+        if (allocation.status != MelodicAllocationResult::Status::allocated || !allocation.selection
+            || !allocation.group || allocation.group->group >= 24 || part >= 16 || !data.samples())
+            return std::nullopt;
+        const auto& selection = *allocation.selection;
+        const auto* patch = data.patch(selection.tone);
+        if (!patch) return std::nullopt;
+        const auto dispatch = PlanPartialVoiceDispatch(*patch,selection.partials.candidates.flags,
+            {allocation.group->voices[0],allocation.group->voices[1]});
+        if (!dispatch) return std::nullopt;
+        MelodicSampleInstallation plan;
+        auto& result=plan.samples_;
+        auto& requests=plan.requests_;
+        for(unsigned i=0;i<2;++i) plan.flags_[i]=inputs[i].flags;
+        auto checkedAllocator = allocator;
+        auto checkedInstallation = installation;
+        for (unsigned partial = 0; partial < 2; ++partial)
+        {
+            const auto destination = (*dispatch)[partial];
+            if (destination.prepare != allocation.dispatch[partial].prepare
+                || destination.voice != allocation.dispatch[partial].voice) return std::nullopt;
+            if (!destination.prepare) continue;
+            const auto& input = inputs[partial];
+            if (input.initialKey >= 128 || input.sourceKey >= 128 || input.originalNote >= 128
+                || input.remappedNote >= 128) return std::nullopt;
+            // minimumKey is a byte with a high-bit "no minimum" sentinel, not MIDI.
+            const auto sample = PreparePartialSample(patch->partial[partial],*data.samples(),input.initialKey,
+                input.sourceKey,input.originalNote,input.scale,input.minimumKey,input.mode,input.remappedNote);
+            if (!sample) return std::nullopt;
+            const auto slot = destination.voice;
+            result[partial] = InstalledPartialSample{slot,*sample,{}};
+            if (slot >= 128) continue;
+            if (slot >= 24 || allocator.allocations[slot].part != part
+                || allocator.allocations[slot].noteGroup != allocation.group->group) return std::nullopt;
+            requests[partial] = {selection.tone,sample->sampleId,uint8_t(partial),uint8_t(part),
+                sample->key.storedOriginalNote.value_or(input.originalNote),
+                sample->key.storedAdjustedKey.value_or(input.initialKey),selection.velocity,
+                input.sampleMode,sample->key.lookupKey,(input.flags&128) != 0};
+            auto flags = input.flags;
+            if (!checkedInstallation.install(slot,requests[partial],flags,checkedAllocator)) return std::nullopt;
+        }
+        return plan;
+    }
+
+    // The owner reserves the allocated destinations through completion. Other
+    // MIDI/control work may run between steps, but must not reclaim these slots.
+    // Retain the continuation on a PCM/time yield; never repeat an installed
+    // partial. No borrowed ROM/input references or invented delay are retained.
+    template<class Read,class Write>
+    Progress resume(VoiceAllocator& allocator,VoiceInstallationState& installation,
+        std::array<VoiceStopState,24>& lifecycle,Read&& read,Write&& write)
+    {
+        if(failed_) return Progress::failed;
+        if(next_==2) return Progress::complete;
+        const auto partial=next_;
+        auto& sample=samples_[partial];
+        if(sample && sample->slot<128) {
+            const auto slot=sample->slot;
+            auto flags=flags_[partial];
+            if(!RestartAndInstallVoice(slot,requests_[partial],flags,allocator,installation,lifecycle[slot],read,write)) {
+                failed_=true; return Progress::failed;
+            }
+            if(!(sample->sample.sampleId&0x8000)) sample->installed=installation.voices[slot];
+        }
+        ++next_;
+        return next_==2 ? Progress::complete : Progress::advanced;
+    }
+    const InstalledPartialSamples* result() const noexcept
+    { return !failed_ && next_==2 ? &samples_ : nullptr; }
+private:
+    MelodicSampleInstallation()=default;
+    InstalledPartialSamples samples_{};
+    std::array<VoiceInstallationInput,2> requests_{};
+    std::array<uint8_t,2> flags_{};
+    unsigned next_=0;
+    bool failed_=false;
+};
+
+// Normal synchronous entry drains the same owned continuation. Scheduling
+// may later separate these semantic steps without creating a second installer.
 template<class Read,class Write>
 std::optional<InstalledPartialSamples> PrepareAndInstallMelodicSamples(
     const MelodicAllocationResult& allocation,unsigned part,
@@ -62,53 +174,12 @@ std::optional<InstalledPartialSamples> PrepareAndInstallMelodicSamples(
     VoiceAllocator& allocator,VoiceInstallationState& installation,
     std::array<VoiceStopState,24>& lifecycle,Read&& read,Write&& write)
 {
-    if (allocation.status != MelodicAllocationResult::Status::allocated || !allocation.selection
-        || !allocation.group || allocation.group->group >= 24 || part >= 16 || !data.samples())
-        return std::nullopt;
-    const auto& selection = *allocation.selection;
-    const auto* patch = data.patch(selection.tone);
-    if (!patch) return std::nullopt;
-    const auto dispatch = PlanPartialVoiceDispatch(*patch,selection.partials.candidates.flags,
-        {allocation.group->voices[0],allocation.group->voices[1]});
-    if (!dispatch) return std::nullopt;
-    InstalledPartialSamples result{};
-    std::array<VoiceInstallationInput,2> requests{};
-    auto checkedAllocator = allocator;
-    auto checkedInstallation = installation;
-    for (unsigned partial = 0; partial < 2; ++partial)
-    {
-        const auto destination = (*dispatch)[partial];
-        if (destination.prepare != allocation.dispatch[partial].prepare
-            || destination.voice != allocation.dispatch[partial].voice) return std::nullopt;
-        if (!destination.prepare) continue;
-        const auto& input = inputs[partial];
-        if (input.initialKey >= 128 || input.sourceKey >= 128 || input.originalNote >= 128
-            || input.remappedNote >= 128) return std::nullopt;
-        // minimumKey is a byte with a high-bit "no minimum" sentinel, not MIDI.
-        const auto sample = PreparePartialSample(patch->partial[partial],*data.samples(),input.initialKey,
-            input.sourceKey,input.originalNote,input.scale,input.minimumKey,input.mode,input.remappedNote);
-        if (!sample) return std::nullopt;
-        const auto slot = destination.voice;
-        result[partial] = InstalledPartialSample{slot,*sample,{}};
-        if (slot >= 128) continue;
-        if (slot >= 24 || allocator.voicePart[slot] != part
-            || allocator.voiceGroup[slot] != allocation.group->group) return std::nullopt;
-        requests[partial] = {selection.tone,sample->sampleId,uint8_t(partial),uint8_t(part),
-            sample->key.storedOriginalNote.value_or(input.originalNote),
-            sample->key.storedAdjustedKey.value_or(input.initialKey),selection.velocity,
-            input.sampleMode,sample->key.lookupKey,(input.flags&128) != 0};
-        auto flags = input.flags;
-        if (!checkedInstallation.install(slot,requests[partial],flags,checkedAllocator)) return std::nullopt;
-    }
-    for (unsigned partial = 0; partial < 2; ++partial)
-    {
-        if (!result[partial] || result[partial]->slot >= 128) continue;
-        const auto slot = result[partial]->slot;
-        auto flags = inputs[partial].flags;
-        if (!RestartAndInstallVoice(slot,requests[partial],flags,allocator,installation,lifecycle[slot],read,write))
-            return std::nullopt; // Prevalidated; only an invalid callback can invalidate this transaction.
-        if (!(result[partial]->sample.sampleId&0x8000)) result[partial]->installed = installation.voices[slot];
-    }
-    return result;
+    auto plan=MelodicSampleInstallation::prepare(allocation,part,inputs,data,allocator,installation);
+    if(!plan) return std::nullopt;
+    for(unsigned partial=0;partial<2;++partial)
+        if(plan->resume(allocator,installation,lifecycle,read,write)==MelodicSampleInstallation::Progress::failed)
+            return std::nullopt;
+    if(const auto* result=plan->result()) return *result;
+    return std::nullopt;
 }
 }

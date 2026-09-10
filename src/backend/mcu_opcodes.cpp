@@ -272,6 +272,10 @@ void MCU_Jump_JSR(mcu_t& mcu, uint8_t operand)
 void MCU_Jump_RTE(mcu_t& mcu, uint8_t operand)
 {
     (void)operand;
+#if defined(SC55_ORACLE_H8_INTERRUPTS)
+    extern void Oracle_H8InterruptReturn(const mcu_t&, unsigned);
+    Oracle_H8InterruptReturn(mcu, 0);
+#endif
     mcu.sr = MCU_PopStack(mcu);
     mcu.cp = (uint8_t)MCU_PopStack(mcu);
     mcu.pc = MCU_PopStack(mcu);
@@ -395,6 +399,11 @@ void MCU_Jump_JMP(mcu_t& mcu, uint8_t operand)
         uint8_t opcode_l = opcode & 0x07;
         if (opcode == 0x19)
         {
+#if defined(SC55_ORACLE_H8_INTERRUPTS)
+            // v1.21 timer IRQ restores SR explicitly, then returns with PRTS.
+            extern void Oracle_H8InterruptReturn(const mcu_t&, unsigned);
+            Oracle_H8InterruptReturn(mcu, 2);
+#endif
             mcu.cp = (uint8_t)MCU_PopStack(mcu);
             mcu.pc = MCU_PopStack(mcu);
         }

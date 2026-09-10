@@ -39,6 +39,8 @@ public:
         juce::String romDirectory;
         juce::String error;
         NukedSC55Emulator::DebugState emulator;
+        bool hasNativeState = false;
+        sc55::SynthState nativeState;
     };
 
     /**

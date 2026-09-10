@@ -22,6 +22,18 @@ public:
     std::size_t size() const noexcept { return count_; }
     bool failed() const noexcept { return failed_; }
 
+    bool pushReceiveRecovery(uint64_t cycle) noexcept
+    {
+        if (failed_ || cycle<lastCycle_ || count_==Capacity) return false;
+        events_[(head_+count_)%Capacity]={{MidiDecoder::Kind::receiveRecovery},cycle};
+        ++count_; lastCycle_=cycle;
+        return true;
+    }
+    // Call after dispatchOne returns, never from its sink. Communication-error
+    // recovery discards pending RX bytes and both partial/running messages.
+    void discardReceived() noexcept
+    { head_=count_=0; decoder_.reset(); }
+
     // Full returns the exact accepted byte prefix. The caller must retain and
     // retry the suffix at its original timestamp before supplying later bytes.
     // Neither decoder state nor any events from the rejected byte are committed.

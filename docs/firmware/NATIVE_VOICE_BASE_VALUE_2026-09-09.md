@@ -65,4 +65,41 @@ voice[40]/[60]へ保存し、EP=voice[153]、R5=voice[158]を準備する。
 - 同じ再生のH8 fallbackは2,851,213→2,850,965。
 - Mac Release Shared Codeビルド成功（署名なし）。
 
-今回のCPU改善量は未測定。4927以降は未置換。
+今回のCPU改善量は未測定。
+
+## パッチbyte11による補正
+
+4927..4952の18命令を追加、合計90命令。
+パッチbyte11と64との差を10倍し、voice[40]/[60]へ桁上げ・桁借り付きで
+加減算する。減算後の上位byteが負なら上下位をゼロに制限する。
+byte演算の上位保持、MULXU.Bのword結果、ADDXの累積Zを維持。
+この段階では4955以降の周辺機器アクセスは既存H8経路に残した。
+
+- 全90命令×384＝34,560境界でPC/SR/全レジスタ/DP/EP/ex_ignore/SRAM一致。
+- 379,676ステレオフレームがビット一致。
+- 同じ再生のH8 fallbackは2,850,965→2,850,715。
+- Mac Release Shared Codeビルド成功（署名なし）。
+
+検証ログ: /tmp/sc55-voice-base-patch-test.log、/tmp/sc55-voice-base-patch-xcode.log。
+今回のCPU改善量とLogicでの動作は未測定。
+
+## PCM値からの補正
+
+4955..49aaの34命令を追加、合計124命令。
+BR=e0でPCMチャネル30を選択し、34レジスタでラッチして3a/3bから読む。
+二度の読み出しの間にも元の命令境界があり、PCM更新をまとめて省略しない。
+PCM値の一部をvoice[-60]へ保存し、符号付き値をパッチbyte12で乗算する。
+128を加えてバイト交換、下位byteを10倍し、基準値へ加減算する。
+負側のゼロ制限後、voice[40]/[60]とvoice[110]/[120]へ保存する。
+
+PCMアクセスはMCU_Read/MCU_Read16/MCU_Writeを使用し、BRがe0以外なら
+元のH8経路へ戻す。テストはPCM状態（eramより前）とsim_dirtyも復元・比較する。
+単命令ごとの割り込み・周辺機器更新を維持し、RT経路の動的確保やロックは追加しない。
+
+- 全124命令×384＝47,616境界でCPU/SRAM/PCM状態が一致。
+- 379,676ステレオフレームがビット一致。
+- 同じ再生のH8 fallbackは2,850,715→2,850,090。
+- Mac Release Shared Codeビルド成功（署名なし）。
+
+検証ログ: /tmp/sc55-voice-base-pcm-test.log、/tmp/sc55-voice-base-pcm-xcode.log。
+今回のCPU改善量とLogicでの動作は未測定。49ad以降は未置換。

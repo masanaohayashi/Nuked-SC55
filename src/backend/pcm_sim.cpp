@@ -1,19 +1,41 @@
 #include "pcm_sim.h"
 
-#include "mcu.h"
-#include "pcm.h"
+#include "pcm_interpolation.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+
+void PCMSim_SetWaveform(PCMSimVoices& voices,unsigned slot,const PCMSimWaveform& waveform)
+{
+    if(slot>=PCM_SIM_MAX_VOICES) return;
+    voices.address_loop[slot]=waveform.loop;
+    voices.address_end[slot]=waveform.end;
+    voices.bank[slot]=waveform.bank;
+    voices.bidi_mask[slot]=waveform.pingPong ? 0xffffffffu : 0;
+    voices.direction[slot]=waveform.storedBackwards ? -1 : 1;
+    voices.rom_base[slot]=waveform.samples; voices.rom_mask[slot]=waveform.sampleMask;
+    voices.block_base[slot]=waveform.exponents; voices.block_mask[slot]=waveform.exponentMask;
+}
+
+void PCMSim_RestartVoice(PCMSimVoices& voices,unsigned slot,uint32_t position,uint16_t phase,bool reverse)
+{
+    if(slot>=PCM_SIM_MAX_VOICES) return;
+    voices.address[slot]=int32_t(position&0xfffff);
+    voices.sub_phase[slot]=phase&0x3fff;
+    voices.reverse_mask[slot]=reverse ? 0xffffffffu : 0;
+    voices.reference[slot]=0;
+    voices.svf_low[slot]=0;
+    voices.svf_band[slot]=0;
+}
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
  #include <arm_neon.h>
  #define PCM_SIM_NEON 1
 #endif
 
-// pcm.cpp owns this.
-extern const int interp_lut[3][128];
+
 
 namespace
 {
@@ -21,20 +43,14 @@ namespace
 // The chip's interpolation weights are Q12; as floats they are plain gains.
 float g_interp[3][128];
 
-// One entry per `speed` byte. The chip picks between an asymptotic approach and
-// a straight ramp, and divides how often it stores a new level; all three fold
-// into two constants plus a blend weight, so the render loop stays branchless.
-float g_env_rate[256];
-float g_env_step[256];
-float g_env_linear[256];
-
 // Scale for the 4 bit block exponent the ROM stores per 16 samples. The chip
 // shifts by (10 - n) & 15, so the exponent wraps: n of 11 or more does not keep
 // growing, it collapses to a fraction. Not a quirk to tidy away -- the wave
 // data relies on it.
 float g_block_scale[16];
 
-bool g_ready = false;
+std::once_flag g_tablesOnce;
+bool g_forceScalar = false;
 
 // The chip carries signals in 20 bit signed registers whose adders saturate.
 // That is not an artefact to drop with the fixed point: it bounds the running
@@ -58,50 +74,16 @@ inline int32_t mask_eq(int32_t a, int32_t b)
     return -static_cast<int32_t>(a == b);
 }
 
-// Stands in for a bank with no ROM behind it, so the read path needs no null
-// check: an unmapped voice reads silence instead of branching.
-const uint8_t g_silent_rom[32] = {};
 
-// A resolved wave ROM window. Mirrors PCM_ReadROM in pcm.cpp, which works out
-// the bank, chases pcm.mcu->is_mk1 and runs a switch on every single byte.
-struct RomWindow
-{
-    const uint8_t* base = nullptr;
-    uint32_t mask = 0;
-};
-
-inline RomWindow ResolveRom(const pcm_t& pcm, uint32_t address)
-{
-    const int bank = (pcm.config_reg_3d & 0x20) ? ((address >> 21) & 7)
-                                                : ((address >> 19) & 7);
-    switch (bank)
-    {
-        case 0:
-            return pcm.mcu->is_mk1 ? RomWindow{pcm.waverom1, 0xfffff}
-                                   : RomWindow{pcm.waverom1, 0x1fffff};
-        case 1:
-            return pcm.mcu->is_jv880 ? RomWindow{pcm.waverom2, 0x1fffff}
-                                     : RomWindow{pcm.waverom2, 0xfffff};
-        case 2:
-            return pcm.mcu->is_jv880 ? RomWindow{pcm.waverom_card, 0x1fffff}
-                                     : RomWindow{pcm.waverom3, 0xfffff};
-        case 3: case 4: case 5: case 6:
-            if (pcm.mcu->is_jv880)
-                return RomWindow{pcm.waverom_exp + (bank - 3) * 0x200000, 0x1fffff};
-            break;
-        default:
-            break;
-    }
-    return RomWindow{g_silent_rom, 0x1f};
-}
 
 } // namespace
 
 void PCMSim_Init()
 {
-    if (g_ready)
-        return;
-
+    // Setup only: concurrent plug-in instances must not write shared tables
+    // while another instance is already rendering from them.
+    std::call_once(g_tablesOnce, [] {
+    g_forceScalar = std::getenv("SC55_SCALAR") != nullptr;
     for (int tap = 0; tap < 3; ++tap)
         for (int i = 0; i < 128; ++i)
             g_interp[tap][i] = static_cast<float>(interp_lut[tap][i]) * (1.0f / 4096.0f);
@@ -109,124 +91,28 @@ void PCMSim_Init()
     for (int n = 0; n < 16; ++n)
         g_block_scale[n] = std::ldexp(1.0f, 10 - ((10 - n) & 15));
 
-    for (int speed = 0; speed < 256; ++speed)
-    {
-        // Same decode as calc_tv, done once here instead of per sample.
-        const bool w1 = (speed & 0xf0) == 0;
-        const bool w2 = w1 || (speed & 0x10) != 0;
-        const bool w3 = (speed & 0x80) == 0
-                     || ((speed & 0x40) == 0 && (!w2 || (speed & 0x20) == 0));
-
-        int type = (w2 ? 1 : 0) | (w3 ? 8 : 0);
-        if (speed & 0x20)
-            type |= 2;
-        if ((speed & 0x80) == 0 || (speed & 0x40) == 0)
-            type |= 4;
-
-        // How often the chip commits a new level. The bits it shifts in below
-        // that rate are dither to buy sub-LSB resolution, which float has for
-        // free, so the divider just scales the rate.
-        float divider = 1.0f;
-        if ((type & 4) == 0)
-        {
-            static const float dividers[4] = {4.0f, 16.0f, 64.0f, 128.0f};
-            divider = dividers[type & 3];
-        }
-
-        if ((type & 8) == 0)
-        {
-            const int shift = (10 - (speed & 15)) & 15;
-            g_env_rate[speed]   = std::ldexp(1.0f, -shift) / divider;
-            g_env_step[speed]   = 0.0f;
-            g_env_linear[speed] = 0.0f;
-        }
-        else
-        {
-            int shift = (speed >> 4) & 14;
-            shift |= w2 ? 1 : 0;
-            shift = (10 - shift) & 15;
-
-            int preshift = (speed & 15) << 9;
-            if (!w1)
-                preshift |= 0x2000;
-
-            g_env_rate[speed]   = 0.0f;
-            g_env_step[speed]   = static_cast<float>(preshift >> shift) / (16.0f * divider);
-            g_env_linear[speed] = 1.0f;
-        }
-    }
-
-    g_ready = true;
+    });
 }
 
-void PCMSim_SyncVoice(PCMSimVoices& voices, const pcm_t& pcm, int slot)
+
+
+void PCMSim_ApplyVoiceUpdate(PCMSimVoices& voices,unsigned slot,const sc55::VoiceRenderUpdate& update)
 {
-    const uint32_t* ram1 = pcm.ram1[slot];
-    const uint16_t* ram2 = pcm.ram2[slot];
-
-    // Loop and end are control: the firmware sets them when it starts a note
-    // and does not touch them again. The read position is ours from then on,
-    // so it is deliberately not pulled in here -- see PCMSim_KeyOn.
-    voices.address_end[slot]  = static_cast<int32_t>(ram1[0] & 0xfffff);
-    voices.address_loop[slot] = static_cast<int32_t>(ram1[2] & 0xfffff);
-
-    // The increment lives in another slot's ram2[0]; ram2[7] bits 0..4 say
-    // which. One whole source sample is 0x4000.
-    voices.phase_step[slot] = pcm.ram2[ram2[7] & 31][0];
-
-    voices.bidi_mask[slot] = (ram2[7] & 0x40) ? 0xffffffffu : 0u;
-    voices.direction[slot] = (ram2[7] & 0x80) ? -1 : 1;
-    voices.bank[slot]      = static_cast<int32_t>(((ram2[7] >> 8) & 15) << 20);
-
-    const uint32_t here = ram1[4] & 0xfffff;
-    const RomWindow samples = ResolveRom(pcm, static_cast<uint32_t>(voices.bank[slot]) | here);
-    const RomWindow blocks  = ResolveRom(pcm, static_cast<uint32_t>(voices.bank[slot]) | (here >> 5));
-    voices.rom_base[slot]   = samples.base;
-    voices.rom_mask[slot]   = samples.mask;
-    voices.block_base[slot] = blocks.base;
-    voices.block_mask[slot] = blocks.mask;
-
-    voices.svf_q[slot]   = static_cast<float>((ram2[6] >> 8) & 127) * (1.0f / 64.0f);
-    voices.svf_tap[slot] = (ram2[6] & 2) ? 1.0f : 0.0f;
-
-    // Pan and the two sends are signed 8 bit gains packed two to a word.
-    voices.pan_l[slot]       = static_cast<float>(static_cast<int8_t>((ram2[1] >> 8) & 255)) * (1.0f / 64.0f);
-    voices.pan_r[slot]       = static_cast<float>(static_cast<int8_t>(ram2[1] & 255)) * (1.0f / 64.0f);
-    voices.send_reverb[slot] = static_cast<float>(static_cast<int8_t>((ram2[2] >> 8) & 255)) * (1.0f / 64.0f);
-    voices.send_chorus[slot] = static_cast<float>(static_cast<int8_t>(ram2[2] & 255)) * (1.0f / 64.0f);
-
-    for (int e = 0; e < 3; ++e)
-    {
-        const uint16_t control = ram2[3 + e];
-        const int speed  = control & 0xff;
-        const int target = (control >> 8) & 0xff;
-
-        voices.env_target[e][slot] = static_cast<float>(target * 128);
-        voices.env_rate[e][slot]   = g_env_rate[speed];
-        voices.env_step[e][slot]   = g_env_step[speed];
-        voices.env_linear[e][slot] = g_env_linear[speed];
-    }
-
-    const bool sounding = ((ram2[7] & 0x20) != 0)
-                       && (((pcm.voice_mask & pcm.voice_mask_pending) >> slot) & 1) != 0;
-    voices.gate[slot] = sounding ? 1.0f : 0.0f;
+    if(slot>=PCM_SIM_MAX_VOICES) return;
+    voices.phase_step[slot]=update.phaseIncrement;
+    for(unsigned i=0;i<3;++i) voices.envelopes[slot].ramps[i].command=update.rampCommands[i];
+    voices.pan_l[slot]=float(update.panLeft)/64.0f;
+    voices.pan_r[slot]=float(update.panRight)/64.0f;
+    voices.send_reverb[slot]=float(update.reverbSend)/64.0f;
+    voices.send_chorus[slot]=float(update.chorusSend)/64.0f;
+    voices.svf_q[slot]=float(update.resonance&127)/64.0f;
+    voices.svf_tap[slot]=(update.filterFlags&2)?1.0f:0.0f;
+    const auto bit=uint32_t(1)<<slot;
+    voices.boundaryEnabled=(voices.boundaryEnabled&~bit)|((update.filterFlags&1)?bit:0);
 }
 
-void PCMSim_KeyOn(PCMSimVoices& voices, const pcm_t& pcm, int slot)
+void PCMSim_RenderFrameScalar(PCMSimVoices& voices, float out[4])
 {
-    voices.address[slot] = static_cast<int32_t>(pcm.ram1[slot][4] & 0xfffff);
-    voices.reverse_mask[slot] = (pcm.ram2[slot][8] & 0x8000) ? 0xffffffffu : 0u;
-    voices.sub_phase[slot] = pcm.ram2[slot][8] & 0x3fff;
-    voices.reference[slot] = 0.0f;
-    voices.svf_low[slot] = 0.0f;
-    voices.svf_band[slot] = 0.0f;
-    for (int e = 0; e < 3; ++e)
-        voices.env_level[e][slot] = 0.0f;
-}
-
-void PCMSim_RenderFrameScalar(PCMSimVoices& voices, const pcm_t& pcm, float out[4])
-{
-    (void) pcm;
     float dry_l = 0.0f, dry_r = 0.0f, send_rev = 0.0f, send_cho = 0.0f;
 
     for (int slot = 0; slot < voices.voice_count; ++slot)
@@ -329,32 +215,8 @@ void PCMSim_RenderFrameScalar(PCMSimVoices& voices, const pcm_t& pcm, float out[
                                   + g_interp[1][ratio] * delta[1]
                                   + g_interp[2][ratio] * delta[2]);
 
-        // ---- envelopes -----------------------------------------------------
-        // Both forms are evaluated and blended, so no branch. The ramp is
-        // clamped by moving no further than the remaining distance.
-        float gain[2] = {0.0f, 0.0f};
-        float cutoff = 0.0f;
-        for (int e = 0; e < 3; ++e)
-        {
-            const float level  = voices.env_level[e][slot];
-            const float target = voices.env_target[e][slot];
-            const float error  = target - level;
-
-            const float exponential = error * voices.env_rate[e][slot];
-            const float ramp = std::copysign(
-                std::fmin(voices.env_step[e][slot], std::fabs(error)), error);
-
-            const float moved = level + exponential
-                              + (ramp - exponential) * voices.env_linear[e][slot];
-
-            voices.env_level[e][slot] = moved;
-
-            if (e < 2) gain[e] = moved * (1.0f / 16384.0f);
-            else       cutoff = moved;
-        }
-
         // ---- state variable filter ------------------------------------------
-        const float f = cutoff * (1.0f / 16384.0f);
+        const float f = voices.cutoff[slot] * (1.0f / 16384.0f);
         const float band = voices.svf_band[slot];
         const float low = clip20(voices.svf_low[slot] + f * band);
         const float damped = clip20(low + voices.svf_q[slot] * band);
@@ -368,7 +230,7 @@ void PCMSim_RenderFrameScalar(PCMSimVoices& voices, const pcm_t& pcm, float out[
         // ---- output ----------------------------------------------------------
         // The two envelope gains are separate stages on the chip and each one
         // saturates, so a voice sitting on the rail cannot be multiplied past it.
-        const float voiced = clip20(clip20(filtered * gain[0]) * gain[1]);
+        const float voiced = clip20(clip20(filtered * voices.gain_a[slot]) * voices.gain_b[slot]);
 
         // Saturating per voice, not once at the end: the chip clips as it
         // accumulates, which makes the result order dependent.
@@ -473,6 +335,13 @@ void RenderFrameNeon(PCMSimVoices& voices, float out[4])
         for (int lane = 0; lane < 4; ++lane)
         {
             const int slot = base + lane;
+            // A newly constructed independent renderer need not install a
+            // waveform for silent lanes that share a quad with a live voice.
+            // Do not read their ROM pointers (or spend gathers on them).
+            if(voices.gate[slot]==0.0f) {
+                for(int step=0;step<4;++step) gathered[step][lane]=0.0f;
+                continue;
+            }
             const uint8_t* const sample_rom = voices.rom_base[slot];
             const uint32_t sample_mask = voices.rom_mask[slot];
             const uint8_t* const block_rom = voices.block_base[slot];
@@ -542,32 +411,9 @@ void RenderFrameNeon(PCMSimVoices& voices, float out[4])
         wave = vfmaq_f32(wave, vld1q_f32(w2), delta[2]);
         wave = clip(wave);
 
-        // ---- envelopes --------------------------------------------------------
-        const uint32x4_t sign_bit = vdupq_n_u32(0x80000000u);
-        float32x4_t gain_a = zero, gain_b = zero, cutoff = zero;
-        for (int e = 0; e < 3; ++e)
-        {
-            const float32x4_t level = vld1q_f32(&voices.env_level[e][base]);
-            const float32x4_t error = vsubq_f32(vld1q_f32(&voices.env_target[e][base]), level);
-
-            const float32x4_t exponential = vmulq_f32(error, vld1q_f32(&voices.env_rate[e][base]));
-
-            const float32x4_t bounded = vminq_f32(vld1q_f32(&voices.env_step[e][base]),
-                                                  vabsq_f32(error));
-            const float32x4_t ramp = vreinterpretq_f32_u32(
-                vorrq_u32(vandq_u32(vreinterpretq_u32_f32(error), sign_bit),
-                          vreinterpretq_u32_f32(bounded)));
-
-            const float32x4_t moved = vfmaq_f32(vaddq_f32(level, exponential),
-                                                vsubq_f32(ramp, exponential),
-                                                vld1q_f32(&voices.env_linear[e][base]));
-
-            vst1q_f32(&voices.env_level[e][base], moved);
-
-            if (e == 0)      gain_a = vmulq_n_f32(moved, 1.0f / 16384.0f);
-            else if (e == 1) gain_b = vmulq_n_f32(moved, 1.0f / 16384.0f);
-            else             cutoff = moved;
-        }
+        const float32x4_t gain_a = vld1q_f32(&voices.gain_a[base]);
+        const float32x4_t gain_b = vld1q_f32(&voices.gain_b[base]);
+        const float32x4_t cutoff = vld1q_f32(&voices.cutoff[base]);
 
         // ---- state variable filter ---------------------------------------------
         const float32x4_t f = vmulq_n_f32(cutoff, 1.0f / 16384.0f);
@@ -613,16 +459,15 @@ void RenderFrameNeon(PCMSimVoices& voices, float out[4])
 } // namespace
 #endif // PCM_SIM_NEON
 
-void PCMSim_RenderFrame(PCMSimVoices& voices, const pcm_t& pcm, float out[4])
+void PCMSim_RenderSignals(PCMSimVoices& voices,float out[4])
 {
 #if PCM_SIM_NEON
     // SC55_SCALAR forces the reference path so the two can be compared.
-    static const bool force_scalar = std::getenv("SC55_SCALAR") != nullptr;
-    if (! force_scalar)
+    if (! g_forceScalar)
     {
         RenderFrameNeon(voices, out);
         return;
     }
 #endif
-    PCMSim_RenderFrameScalar(voices, pcm, out);
+    PCMSim_RenderFrameScalar(voices, out);
 }

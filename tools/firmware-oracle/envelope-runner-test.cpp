@@ -33,17 +33,17 @@ int main()
         activity.fill(255);
         require(state.selectCandidate(0,60,Pass::otherValue,activity)->voice == 255);
         require(!state.selectCandidate(16,60,Pass::otherValue,activity));
-        state.partHead[0] = 0; state.groupNext[0] = 255; state.groupValue[0] = 61;
-        state.groupStatus[0] = 0; state.groups.tail[0] = 1; state.groups.previous[1] = 0;
+        state.partHead[0] = 0; state.noteGroups[0].next = 255; state.noteGroups[0].key = 61;
+        state.noteGroups[0].status = 0; state.groups.tail[0] = 1; state.groups.previous[1] = 0;
         activity[0] = activity[1] = 10;
         require(state.selectCandidate(0,60,Pass::otherValue,activity)->voice == 1);
         require(state.selectCandidate(0,60,Pass::nonzeroStatusOtherValue,activity)->voice == 255);
         require(state.selectCandidate(0,61,Pass::sameValue,activity)->voice == 1);
         activity[0] = 9;
         require(state.selectCandidate(0,60,Pass::otherValue,activity)->voice == 0);
-        state.groupNext[0] = 0;
+        state.noteGroups[0].next = 0;
         require(!state.selectCandidate(0,60,Pass::otherValue,activity));
-        state.groupNext[0] = 255; state.groups.tail[0] = 24;
+        state.noteGroups[0].next = 255; state.groups.tail[0] = 24;
         require(!state.selectCandidate(0,60,Pass::otherValue,activity));
     }
     {
@@ -57,7 +57,7 @@ int main()
             require(group.has_value()); allocated[i] = *group;
             require(group->group == i && group->voices[1] == 23-i*2 && group->voices[0] == 22-i*2);
             // Activation status is set by a different firmware routine.
-            for (unsigned n = 0; n < 2; ++n) boot.status[group->voices[n]] = 0;
+            for (unsigned n = 0; n < 2; ++n) boot.allocations[group->voices[n]].status = 0;
         }
         require(boot.freeCount == 0 && !boot.createGroup({0,60,100,0,1}));
         for (const auto& group : allocated)
@@ -70,19 +70,19 @@ int main()
         sc55::VoiceAllocator state;
         const sc55::VoiceAllocator::GroupRequest request{0,60,90,17,2};
         require(!state.createGroup(request));
-        state.freeGroupHead = 0; state.groupNext[0] = 1;
+        state.freeGroupHead = 0; state.noteGroups[0].next = 1;
         state.partHead.fill(255); state.partTail.fill(255);
         state.partMinimum.fill(127);
         state.freeHead = 0; state.freeTail = 1; state.freeCount = 2;
-        state.freeNext[0] = 255; // missing second voice must roll back first allocation
+        state.allocations[0].nextFree = 255; // missing second voice must roll back first allocation
         require(!state.createGroup(request) && state.freeHead == 0 && state.freeGroupHead == 0 && state.partHead[0] == 255);
-        state.freeNext[0] = 0; // repeated free-list slot also rejected
+        state.allocations[0].nextFree = 0; // repeated free-list slot also rejected
         require(!state.createGroup(request) && state.freeCount == 2);
-        state.freeNext[0] = 1; state.freeNext[1] = 255;
+        state.allocations[0].nextFree = 1; state.allocations[1].nextFree = 255;
         const auto result = state.createGroup(request);
         require(result && result->group == 0 && result->voices[0] == 1 && result->voices[1] == 0
             && result->voices[2] == 255 && state.freeCount == 0 && state.partVoiceCount[0] == 2
-            && state.groupFieldA2D0[0] == 60 && state.groupValue[0] == 90 && state.groupFieldA300[0] == 17
+            && state.noteGroups[0].noteClass == 60 && state.noteGroups[0].key == 90 && state.noteGroups[0].releaseFlags == 17
             && state.groups.head[0] == 0 && state.groups.tail[0] == 1 && state.partMinimum[0] == 90);
         // Retain native state across creation and both returns. Firmware marks
         // voice status elsewhere; this fixture starts with active status zero.
@@ -94,9 +94,9 @@ int main()
         require(!state.createGroup({16,0,0,0,1}) && !state.createGroup({0,0,0,0,0}) && !state.createGroup({0,0,0,0,3}));
     }
     require(!allocator.takeFreeVoice());
-    allocator.freeHead = 0; allocator.freeNext[0] = 24;
+    allocator.freeHead = 0; allocator.allocations[0].nextFree = 24;
     require(!allocator.takeFreeVoice() && allocator.freeHead == 0);
-    allocator.freeNext[0] = 255; allocator.freeCount = 1;
+    allocator.allocations[0].nextFree = 255; allocator.freeCount = 1;
     require(allocator.takeFreeVoice() == 0 && allocator.freeHead == 255 && allocator.freeTail == 255 && allocator.freeCount == 0);
     require(!allocator.attachVoice(24,0,0) && !allocator.attachVoice(0,24,0) && !allocator.attachVoice(0,0,16));
     allocator.pcmLinks.first[0] = 1; allocator.pcmLinks.second[0] = 24;
@@ -107,30 +107,30 @@ int main()
     require(allocator.attachVoice(1,0,0) && allocator.groups.head[0] == 0 && allocator.groups.tail[0] == 1
         && allocator.groups.next[0] == 1 && allocator.groups.previous[1] == 0);
     allocator = sc55::VoiceAllocator{};
-    allocator.status.fill(0x94);
+    for(auto& voice:allocator.allocations) voice.status=0x94;
     require(!allocator.returnVoice(24) && allocator.returnVoice(0));
-    allocator.status[0] = 0;
-    allocator.groupNext.fill(255); allocator.groupPrevious.fill(255);
+    allocator.allocations[0].status = 0;
+    for(auto& group:allocator.noteGroups) group.next=group.previous=255;
     allocator.partHead.fill(255); allocator.partTail.fill(255);
-    allocator.voiceGroup[0] = 0; allocator.voicePart[0] = 0;
+    allocator.allocations[0].noteGroup = 0; allocator.allocations[0].part = 0;
     allocator.groups.head[0] = allocator.groups.tail[0] = 0;
     allocator.partHead[0] = allocator.partTail[0] = 0;
     allocator.partVoiceCount[0] = 1;
-    allocator.partMinimum[0] = allocator.groupValue[0] = 60;
+    allocator.partMinimum[0] = allocator.noteGroups[0].key = 60;
     allocator.freeTail = 24; // invalid, transactional failure
-    require(!allocator.returnVoice(0) && allocator.status[0] == 0 && allocator.groups.head[0] == 0);
+    require(!allocator.returnVoice(0) && allocator.allocations[0].status == 0 && allocator.groups.head[0] == 0);
     allocator.freeTail = 255;
     require(allocator.returnVoice(0) && allocator.freeHead == 0 && allocator.freeTail == 0
         && allocator.freeCount == 1 && allocator.freeGroupHead == 0 && allocator.partVoiceCount[0] == 0
         && allocator.partHead[0] == 255 && allocator.partTail[0] == 255 && allocator.partMinimum[0] == 127);
     require(allocator.returnVoice(0) && allocator.freeCount == 1); // double return is a no-op
     auto cyclic = allocator;
-    cyclic.status[0] = 0; cyclic.freeHead = cyclic.freeTail = 255; cyclic.freeCount = 0;
-    cyclic.partMinimum[0] = cyclic.groupValue[0] = 60;
-    cyclic.groupNext[0] = 1; cyclic.groupNext[1] = 1;
-    cyclic.groupPrevious[0] = 255; cyclic.partHead[0] = 0;
-    require(!cyclic.returnVoice(0) && cyclic.freeCount == 0 && cyclic.status[0] == 0
-        && cyclic.partHead[0] == 0 && cyclic.groupNext[0] == 1);
+    cyclic.allocations[0].status = 0; cyclic.freeHead = cyclic.freeTail = 255; cyclic.freeCount = 0;
+    cyclic.partMinimum[0] = cyclic.noteGroups[0].key = 60;
+    cyclic.noteGroups[0].next = 1; cyclic.noteGroups[1].next = 1;
+    cyclic.noteGroups[0].previous = 255; cyclic.partHead[0] = 0;
+    require(!cyclic.returnVoice(0) && cyclic.freeCount == 0 && cyclic.allocations[0].status == 0
+        && cyclic.partHead[0] == 0 && cyclic.noteGroups[0].next == 1);
     sc55::VoiceGroupLinks groups;
     sc55::VoiceLinks groupPcm;
     require(!groups.detach(24,0,groupPcm) && !groups.detach(0,24,groupPcm));

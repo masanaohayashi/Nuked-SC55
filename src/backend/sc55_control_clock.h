@@ -13,20 +13,18 @@ public:
     static constexpr uint32_t kernelTickCycles = (0x138+1)*32*2;
     static constexpr uint16_t voicePeriodTicks = 8;
 
-    bool reset(uint16_t periodTicks = voicePeriodTicks) noexcept
+    bool reset(uint16_t periodTicks = voicePeriodTicks,uint32_t phaseCycles = 0) noexcept
     {
-        if (periodTicks == 0 || periodTicks > 0x7fff) return false;
+        if (periodTicks == 0 || periodTicks > 0x7fff
+            || phaseCycles>=uint32_t(periodTicks)*kernelTickCycles) return false;
         periodCycles_ = uint32_t(periodTicks)*kernelTickCycles;
-        phase_ = 0; pending_ = 0; ready_ = false;
+        phase_ = phaseCycles; pending_ = 0; ready_ = false;
         return true;
     }
 
     void advance(uint64_t cycles) noexcept
     {
-        // Divide first to avoid overflow for arbitrarily large block spans.
-        const auto remainder = uint32_t(cycles%periodCycles_)+phase_;
-        const uint64_t expirations = cycles/periodCycles_+remainder/periodCycles_;
-        phase_ = remainder%periodCycles_;
+        const auto expirations=advancePhase(cycles);
         if (expirations != 0)
         {
             // 03cd increments a byte; bit7 of the event flags is independent
@@ -44,8 +42,31 @@ public:
         return elapsed;
     }
     uint32_t untilNextExpiration() const noexcept { return periodCycles_-phase_; }
+    uint32_t kernelPhase() const noexcept { return phase_%kernelTickCycles; }
+    uint32_t untilNextKernelTick() const noexcept { return kernelTickCycles-kernelPhase(); }
+    uint64_t kernelTicksIn(uint64_t cycles) const noexcept
+    { return cycles/kernelTickCycles+(cycles%kernelTickCycles+kernelPhase())/kernelTickCycles; }
+    bool ready() const noexcept { return ready_; }
+#if defined(SC55_NATIVE_IO_AUDIT)
+    // Observed control events replace the counter only, never stop device time.
+    void advanceWithoutEventAudit(uint64_t cycles) noexcept { (void)advancePhase(cycles); }
+    bool alignKernelPhaseAudit(uint32_t phase) noexcept
+    {
+        if(phase>=kernelTickCycles) return false;
+        phase_=phase_-kernelPhase()+phase;
+        return true;
+    }
+#endif
 
 private:
+    uint64_t advancePhase(uint64_t cycles) noexcept
+    {
+        // Divide first to avoid overflow for arbitrarily large block spans.
+        const auto remainder=uint32_t(cycles%periodCycles_)+phase_;
+        const auto expirations=cycles/periodCycles_+remainder/periodCycles_;
+        phase_=remainder%periodCycles_;
+        return expirations;
+    }
     uint32_t periodCycles_ = voicePeriodTicks*kernelTickCycles;
     uint32_t phase_ = 0;
     uint8_t pending_ = 0;

@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.0
+  Created with Projucer version: 9.0.2
 
   ------------------------------------------------------------------------------
 
@@ -70,7 +70,8 @@ private:
 */
 class SettingsComponent  : public juce::Component,
                            public juce::Button::Listener,
-                           public juce::ComboBox::Listener
+                           public juce::ComboBox::Listener,
+                           public juce::Slider::Listener
 {
 public:
     //==============================================================================
@@ -107,6 +108,7 @@ public:
     void resized() override;
     void buttonClicked (juce::Button* buttonThatWasClicked) override;
     void comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged) override;
+    void sliderValueChanged (juce::Slider* sliderThatWasMoved) override;
 
 
 
@@ -127,6 +129,9 @@ private:
     std::unique_ptr<ImportAwareComboBox> comboRoms;
     std::unique_ptr<juce::Label> juce__label;
     std::unique_ptr<juce::Viewport> viewport;
+    std::unique_ptr<juce::Label> labelVoices;
+    std::unique_ptr<juce::Slider> sliderVoices;
+    juce::Image cachedImage_BinaryData_BackPanel_png_1;
 
 
     //==============================================================================

@@ -121,6 +121,7 @@
     </GROUP>
     <GROUP id="{2332326A-53B6-108E-8E08-9CEE12B684CC}" name="Images">
       <FILE id="YnkdNZ" name="Background.png" compile="0" resource="1" file="Images/Background.png"/>
+      <FILE id="YsA2g1" name="BackPanel.png" compile="0" resource="1" file="Images/BackPanel.png"/>
       <FILE id="dcM4KA" name="DecButton_down.png" compile="0" resource="1"
             file="Images/DecButton_down.png"/>
       <FILE id="qNU0tY" name="DecButton_normal.png" compile="0" resource="1"
@@ -196,9 +197,8 @@
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX" applicationCategory="public.app-category.music"
-               appSandbox="1" hardenedRuntime="1"
-               iosBluetoothPermissionNeeded="1" smallIcon="mYcW6q" bigIcon="mYcW6q"
-               appSandboxOptions="com.apple.security.files.user-selected.read-write"
+               appSandbox="1" hardenedRuntime="1" iosBluetoothPermissionNeeded="1"
+               smallIcon="mYcW6q" bigIcon="mYcW6q" appSandboxOptions="com.apple.security.files.user-selected.read-write"
                iosAppGroups="1" iosAppGroupsId="group.tokyo.studio-r.sc55" iosDevelopmentTeamID="P5G28RMWUN"
                customPList="&lt;plist&gt;&lt;dict&gt;&lt;key&gt;ITSAppUsesNonExemptEncryption&lt;/key&gt;&lt;false/&gt;&lt;/dict&gt;&lt;/plist&gt;">
       <CONFIGURATIONS>

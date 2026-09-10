@@ -5,6 +5,28 @@
 
 namespace sc55
 {
+// Setup-imported03:0000 table. Values are tone IDs, not emulated pointers.
+struct MelodicPresetTable
+{
+    std::array<uint16_t,128*128> tones{};
+    struct Selection { uint8_t bank; uint16_t tone; };
+    // MIDI program selection04:09c4..0a24. Preserve both the selected bank
+    // and the tone; the requested bank latch is a separate MIDI state.
+    std::optional<Selection> resolve(unsigned bank,unsigned program) const noexcept
+    {
+        if (bank >= 128 || program >= 128) return std::nullopt;
+        if (tones[bank*128+program] == 0xffff)
+        {
+            if (bank >= 64 || program >= 120) return std::nullopt;
+            bank &= 0x78;
+            if (tones[bank*128+program] == 0xffff) bank = 0;
+        }
+        const auto tone = tones[bank*128+program];
+        if (tone&0x8000) return std::nullopt;
+        return Selection{uint8_t(bank),tone};
+    }
+};
+
 // Indices into the corrected, name-first v1.21 patch table. Established by
 // observing the firmware's common-patch pointer during note expansion for all
 // 128 programs at bank MSB 0. These are not waveform addresses or voice presets.
@@ -20,8 +42,8 @@ inline constexpr std::array<uint8_t,128> v121CapitalToneIndices {
     137, 138, 139, 140, 142, 144, 146, 148, 149, 152, 154, 160, 163, 169, 179, 185
 };
 
-// Unsupported selections stay explicit instead of silently using the wrong
-// instrument. Bank fallback rules and rhythm sets need their own implementation.
+// Legacy capital-only entry for callers without imported configuration. Full
+// bank selection uses MelodicPresetTable; rhythm has a separate preset owner.
 inline std::optional<uint8_t> ResolveV121MelodicPreset(unsigned bankMsb, unsigned program) noexcept
 {
     if (bankMsb != 0 || program >= v121CapitalToneIndices.size()) return std::nullopt;

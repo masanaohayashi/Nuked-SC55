@@ -73,6 +73,25 @@ struct PartControllerState
     };
     std::array<Part,16> parts{};
 
+    enum class WriteResult { applied, unsupported, invalidLength };
+    // 40 2p / table03:d982. Scalar records jump from xA to the next x0;
+    // configuration writes do not recompute latched MIDI contributions.
+    WriteResult writeSettings(std::span<const uint8_t> payload) noexcept
+    {
+        if(payload.size()<4) return WriteResult::invalidLength;
+        if(payload[0]!=0x40 || (payload[1]&0xf0)!=0x20) return WriteResult::unsupported;
+        auto& part=parts[payload[1]&15];
+        unsigned address=payload[2];
+        for(auto value:payload.subspan(3)) {
+            const unsigned group=address>>4,column=address&15;
+            if(group>=6 || column>=11) return WriteResult::unsupported;
+            auto& row=group==3 ? part.sensitivity : part.sourceSensitivity[group<3 ? group : group-1];
+            row[column]=column==0 ? uint8_t(std::clamp(unsigned(value),40u,88u)) : value;
+            address=column==10 ? (group+1)*16 : address+1;
+        }
+        return WriteResult::applied;
+    }
+
     // 2390..23f7 and2401/2441/2481: full fourteen-bit bend contribution.
     // Bend depths use reversed polarity; centered sensitivities use normal
     // polarity. Preserve the intermediate byte truncation before coefficient
@@ -256,48 +275,99 @@ inline bool RefreshSelectedVoiceControllers(const VoiceUpdateSelection& selectio
 class PeriodicVoiceUpdatePass
 {
 public:
-    enum class Result { invalidInput, updated, complete };
-    enum class UpdateResult { invalidInput, proceed, skipRemaining };
-    void reset() noexcept { cursor_ = 23; visited_.fill(0); failed_ = complete_ = false; }
+    enum class Result { invalidInput, advanced, updated, complete };
+    enum class UpdateResult { invalidInput, proceed, continueCalculation, skipRemaining };
+    enum class Phase { select, firstModulation, pairedModulation, readback, calculate, publish };
+    void reset() noexcept {
+        cursor_ = 23; visited_.fill(0); failed_ = complete_ = false;
+        phase_=Phase::select; selected_={}; index_=0;
+    }
     uint8_t cursor() const noexcept { return cursor_; }
     const std::array<uint8_t,24>& visited() const noexcept { return visited_; }
+    Phase phase() const noexcept { return phase_; }
+    std::optional<uint8_t> currentVoice() const noexcept
+    {
+        if((phase_!=Phase::readback && phase_!=Phase::calculate) || index_>=selected_.count) return std::nullopt;
+        return selected_.slots[index_];
+    }
 
     template<class Controllers,class First,class PairedFirst,class Update,class Write>
     Result step(std::span<const uint16_t,24> stages,const VoiceLinks& links,
         Controllers&& controllers,First&& first,PairedFirst&& pairedFirst,
         Update&& update,Write&& write)
     {
+        for(unsigned phase=0;phase<10;++phase) {
+            const auto result=stepPhase(stages,links,controllers,first,pairedFirst,
+                [](unsigned) { return UpdateResult::proceed; },update,write);
+            if(result!=Result::advanced) return result;
+        }
+        failed_=true; return Result::invalidInput;
+    }
+
+    // One semantic phase per call. Retains selection and paired ordering, not
+    // references to caller buffers or H8 execution state. While a group is
+    // pending its voice owners must not be replaced. PCM may run between calls.
+    template<class Controllers,class First,class PairedFirst,class Readback,class Update,class Write>
+    Result stepPhase(std::span<const uint16_t,24> stages,const VoiceLinks& links,
+        Controllers&& controllers,First&& first,PairedFirst&& pairedFirst,
+        Readback&& readback,Update&& update,Write&& write)
+    {
         if (failed_) return Result::invalidInput;
         if (complete_) return Result::complete;
-        const auto selected = SelectNextVoiceUpdate(cursor_,stages,visited_,links);
         const auto fail = [&] { failed_ = true; return Result::invalidInput; };
-        if (!selected) return fail();
-        if (!selected->count) { complete_ = true; return Result::complete; }
-        if (!controllers(*selected) || !first(selected->slots[0])) return fail();
-        if (selected->count == 2 && !pairedFirst(selected->slots[1],selected->slots[0])) return fail();
-        for (unsigned i = 0; i < selected->count; ++i)
-        {
-            const auto slot = selected->slots[i];
-            visited_[slot] = 255; // 3190: happens before the voice-stage gate
-            const auto outcome = update(slot);
+        const auto finish = [&] {
+            cursor_=selected_.resume; phase_=Phase::select; index_=0;
+            return Result::updated;
+        };
+        if(phase_==Phase::select) {
+            const auto selected=SelectNextVoiceUpdate(cursor_,stages,visited_,links);
+            if(!selected) return fail();
+            if(!selected->count) { complete_=true; return Result::complete; }
+            selected_=*selected;
+            if(!controllers(selected_)) return fail();
+            index_=0; phase_=Phase::firstModulation; return Result::advanced;
+        }
+        if(phase_==Phase::firstModulation) {
+            const auto result=first(selected_.slots[0]);
+            if constexpr(requires { result==UpdateResult::continueCalculation; }) {
+                if(result==UpdateResult::invalidInput) return fail();
+                if(result==UpdateResult::continueCalculation) return Result::advanced;
+                if(result==UpdateResult::skipRemaining) return finish();
+            }
+            else if(!result) return fail();
+            phase_=selected_.count==2 ? Phase::pairedModulation : Phase::readback;
+            return Result::advanced;
+        }
+        if(phase_==Phase::pairedModulation) {
+            if(!pairedFirst(selected_.slots[1],selected_.slots[0])) return fail();
+            phase_=Phase::readback; return Result::advanced;
+        }
+        const auto slot=selected_.slots[index_];
+        if(phase_==Phase::readback || phase_==Phase::calculate) {
+            const bool reading=phase_==Phase::readback;
+            if(reading) visited_[slot]=255; // Before the voice-stage gate.
+            const auto outcome=reading ? readback(slot) : update(slot);
             if (outcome == UpdateResult::invalidInput) return fail();
+            if(outcome==UpdateResult::continueCalculation)
+                return reading ? fail() : Result::advanced;
             // 33e7..33f1 discards the 3188 return address and resumes the
             // scan at5b5c: no remaining paired DSP or final PCM writes.
-            if (outcome == UpdateResult::skipRemaining)
-            {
-                cursor_ = selected->resume;
-                return Result::updated;
-            }
+            if(outcome==UpdateResult::skipRemaining) return finish();
+            if(reading) phase_=Phase::calculate;
+            else if(++index_<selected_.count) phase_=Phase::readback;
+            else { index_=0; phase_=Phase::publish; }
+            return Result::advanced;
         }
         // Both updates precede either write for a pair, including self pairs.
-        for (unsigned i = 0; i < selected->count; ++i)
-            if (!write(selected->slots[i])) return fail();
-        cursor_ = selected->resume;
-        return Result::updated;
+        if(!write(slot)) return fail();
+        return ++index_==selected_.count ? finish() : Result::advanced;
     }
 private:
     std::array<uint8_t,24> visited_{};
     uint8_t cursor_ = 23;
+    VoiceUpdateSelection selected_{};
+    uint8_t index_=0;
+    Phase phase_=Phase::select;
     bool failed_ = false, complete_ = false;
 };
 

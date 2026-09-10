@@ -38,7 +38,7 @@ uint32_t g_previous_keys = 0;
 // Per-voice state the chip keeps in its own registers, so the simulation can be
 // checked field by field instead of only at the mix bus.
 struct FieldError { double sum_abs = 0.0; double sum_ref = 0.0; uint64_t n = 0; };
-FieldError g_err_address, g_err_reference, g_err_env0, g_err_env1, g_err_env2;
+FieldError g_err_address, g_err_reference;
 FieldError g_err_svf_low, g_err_svf_band;
 uint64_t g_nibble_total = 0, g_nibble_match = 0;
 uint64_t g_addr_total = 0, g_addr_exact = 0;
@@ -92,6 +92,12 @@ void CompareFrame(double reference_l_raw)
         const bool keyed_before = ((g_previous_keys >> slot) & 1) != 0;
 
         PCMSim_SyncVoice(g_sim, pcm, slot);
+        // The waveform renderer now consumes envelope outputs owned by PCM.
+        // This legacy post-output probe has only level readback, not the
+        // prospective gain of calc_tv; do not report it as an EG parity test.
+        g_sim.gain_a[slot] = float(pcm.ram2[slot][9] & 0x7ffe) / 16384.0f;
+        g_sim.gain_b[slot] = float(pcm.ram2[slot][10] & 0x7ffe) / 16384.0f;
+        g_sim.cutoff[slot] = float(pcm.ram2[slot][11]);
 
         if (keyed_now && !keyed_before)
         {
@@ -136,9 +142,6 @@ void CompareFrame(double reference_l_raw)
         Track(g_err_reference, (double)g_sim.reference[slot], sx20(pcm.ram1[slot][5]));
         Track(g_err_svf_low,  (double)g_sim.svf_low[slot],  sx20(pcm.ram1[slot][3]));
         Track(g_err_svf_band, (double)g_sim.svf_band[slot], sx20(pcm.ram1[slot][1]));
-        Track(g_err_env0, (double)g_sim.env_level[0][slot], (double)(pcm.ram2[slot][9]  & 0x7fff));
-        Track(g_err_env1, (double)g_sim.env_level[1][slot], (double)(pcm.ram2[slot][10] & 0x7fff));
-        Track(g_err_env2, (double)g_sim.env_level[2][slot], (double)(pcm.ram2[slot][11] & 0x7fff));
 
         // The chip caches the current block's exponent in ram2[7] bits 12..15.
         const uint32_t here = pcm.ram1[slot][4] & 0xfffff;
@@ -154,7 +157,7 @@ void CompareFrame(double reference_l_raw)
 
 
     float simulated[4] = {};
-    PCMSim_RenderFrame(g_sim, pcm, simulated);
+    PCMSim_RenderSignals(g_sim, simulated);
 
     g_smooth_reference += (reference_l_raw - g_smooth_reference) * SMOOTHING;
     g_smooth_simulated += (simulated[0] - g_smooth_simulated) * SMOOTHING;
@@ -300,9 +303,7 @@ int main(int argc, char** argv)
     report("dpcm sum ram1[5]", g_err_reference);
     report("svf low  ram1[3]", g_err_svf_low);
     report("svf band ram1[1]", g_err_svf_band);
-    report("env0     ram2[9]", g_err_env0);
-    report("env1     ram2[10]", g_err_env1);
-    report("cutoff   ram2[11]", g_err_env2);
+    std::puts("Envelope parity is not measured by this post-output probe; use --voice-renderer-envelope.");
 
     std::printf("\naddress exact match: %llu / %llu (%.2f%%)\n",
                 (unsigned long long)g_addr_exact, (unsigned long long)g_addr_total,

@@ -81,15 +81,15 @@ struct VoiceInstallationState
         if (input.sample&0x8000)
         {
             auto updated = allocator;
-            updated.status[slot] = 0;
+            updated.allocations[slot].status = 0;
             if (!updated.returnVoice(slot)) return false;
             allocator = updated;
             return true; // Old metadata, pending release and preparation flags survive.
         }
         if (input.restarted) preparationFlags |= 128;
         voices[slot] = {input,preparationFlags,2};
-        allocator.status[slot] = 0;
-        allocator.fieldA3E0[slot] = 0;
+        allocator.allocations[slot].status = 0;
+        allocator.allocations[slot].releaseCommand = 0;
         pendingRelease[slot] = 0;
         return true;
     }
@@ -259,6 +259,8 @@ struct MelodicAllocationInputs
     NoteKeyRange keyRange{};
     uint8_t fieldAC0E = 0;
     PartVelocityAdjustment velocityAdjustment{};
+    std::optional<uint16_t> resolvedTone{}; // Program-change owner resolved the bank table.
+    std::optional<uint8_t> groupNote{}; // High-note mapping keeps the original release key.
 };
 
 struct MelodicAllocationResult
@@ -294,8 +296,9 @@ inline MelodicAllocationResult AllocateMelodicNote(
     { result.status = MelodicAllocationResult::Status::keyRangeRejected; return result; }
     if (received.status != Received::prepare) return result;
     auto adjustedEvent = event; adjustedEvent.second = received.velocity;
-    result.selection = PrepareMelodicNoteVelocity(adjustedEvent,channel,input.bankMsb,input.rhythm,
-        input.velocityAccumulator,data);
+    result.selection = input.resolvedTone
+        ? PrepareMappedNoteVelocity(adjustedEvent,*input.resolvedTone,channel.softPedal,input.velocityAccumulator,data)
+        : PrepareMelodicNoteVelocity(adjustedEvent,channel,input.bankMsb,input.rhythm,input.velocityAccumulator,data);
     if (!result.selection) return result;
     const auto count = result.selection->partials.candidates.count;
     if (count == 0) { result.status = MelodicAllocationResult::Status::velocityRejected; return result; }
@@ -303,7 +306,7 @@ inline MelodicAllocationResult AllocateMelodicNote(
     if (allocator.freeCount < count)
     { result.status = MelodicAllocationResult::Status::needsCapacity; return result; }
     auto updated = allocator;
-    const auto group = updated.createGroup({input.part,input.groupFlags,result.selection->note,
+    const auto group = updated.createGroup({input.part,input.groupFlags,input.groupNote.value_or(result.selection->note),
         input.groupPriority,uint8_t(count)});
     if (!group) return result;
     const auto dispatch = PlanPartialVoiceDispatch(*data.patch(result.selection->tone),
@@ -312,6 +315,32 @@ inline MelodicAllocationResult AllocateMelodicNote(
     result.group = group; result.dispatch = *dispatch;
     result.status = MelodicAllocationResult::Status::allocated;
     allocator = updated;
+    return result;
+}
+
+// Existing mono group at0b1a/0b97 ->1219. Tone/velocity and restart policy
+// are already resolved by the part owner. Never allocate extra voices to
+// satisfy a changed partial count here: firmware reuses the existing slots.
+// An explicit group selects CC84's polyphonic source instead of partHead.
+inline MelodicAllocationResult PrepareMonoReuseAllocation(const MelodicNoteVelocity& selection,
+    unsigned part,const SoundData& data,const VoiceAllocator& allocator,uint8_t group=255) noexcept
+{
+    MelodicAllocationResult result;
+    if (part>=16 || selection.note>=128 || selection.velocity>=128) return result;
+    const auto* patch=data.patch(selection.tone);
+    if(group==255) group=allocator.partHead[part];
+    const auto reuse=allocator.prepareGroupReuse(group,{0xff,{255,255}});
+    if (!patch || !reuse) return result;
+    for(const auto voice:reuse->voices)
+        if(voice<24 && (allocator.allocations[voice].part!=part || allocator.allocations[voice].noteGroup!=group)) return result;
+    result.selection=selection;
+    if (!selection.partials.candidates.count) {
+        result.status=MelodicAllocationResult::Status::velocityRejected; return result;
+    }
+    const auto dispatch=PlanPartialVoiceDispatch(*patch,selection.partials.candidates.flags,reuse->voices);
+    if (!dispatch) return result;
+    result.group=VoiceAllocator::GroupAllocation{group,{reuse->voices[0],reuse->voices[1],255}};
+    result.dispatch=*dispatch; result.status=MelodicAllocationResult::Status::allocated;
     return result;
 }
 
@@ -481,6 +510,25 @@ public:
         return ApplyRoutedHoldController(event,index,receiveEnabled,state.retainedKeys,allocator)
             || ApplyRoutedSostenutoController(event,index,receiveEnabled,state.sostenutoEnabled,
                 state.retainedKeys,allocator);
+    }
+
+    bool allNotesOff(unsigned index,bool rhythm) noexcept
+    {
+        return index < parts.size()
+            && allocator.requestGroupReleases(index,rhythm,0x80,0,parts[index].retainedKeys);
+    }
+
+    // 08ba: hold-off then retained-key release; do not clear mono held keys.
+    bool resetPedals(unsigned index) noexcept
+    {
+        if (index >= parts.size()) return false;
+        auto updated = *this;
+        auto& part = updated.parts[index];
+        if (!updated.allocator.setPartHold(index,false,part.retainedKeys)
+            || !updated.allocator.releaseRetainedKeys(index,part.retainedKeys)) return false;
+        part.sostenutoEnabled = false;
+        *this = updated;
+        return true;
     }
 
     // 268a/2702 visit parts15..0, matching channel and BOTH receive gates.

@@ -3,7 +3,7 @@
 #include "SC55Lcd.h"
 #include "SC55Debug.h"
 #include "NativeSoundDataCache.h"
-#include "sc55_native_player.h"
+#include "sc55_synth.h"
 
 #include <algorithm>
 #include <array>
@@ -202,6 +202,61 @@ public:
             return;
         if (lcd == current)
             snapshot = next;
+    }
+
+    // Message-thread rendering model. No firmware or audio-thread LCD writes.
+    void captureNativeState (const sc55::SynthState& state)
+    {
+        Snapshot next;
+        next.valid = next.enabled = ! state.failed;
+        next.width = LCD_DISPLAY_WIDTH; next.height = LCD_DISPLAY_HEIGHT;
+        next.data.fill (' ');
+        const auto gsPart = [](unsigned p) { return p == 9 ? 0u : p < 9 ? p + 1 : p; };
+        const auto& part = state.parts[gsPart (state.selectedPart)];
+        const auto number = [&](unsigned offset, int value)
+        {
+            char text[16]; std::snprintf (text, sizeof (text), "%3d", value);
+            std::copy_n (text, 3, next.data.begin() + offset);
+        };
+        number (0, state.selectedPart + 1);
+        number (3, part.program + 1);
+        std::copy (part.name.begin(), part.name.end(), next.data.begin() + 7);
+        number (40, part.volume);
+        number (43, int (part.pan) - 64);
+        number (49, part.reverb); number (46, part.chorus);
+        number (52, int (part.keyShift) - 64);
+        if (part.channel < 16) number (55, part.channel + 1);
+        else std::copy_n ("OFF", 3, next.data.begin() + 55);
+        if (state.allSelected)
+        {
+            next.data.fill (' ');
+            std::copy_n ("ALL", 3, next.data.begin());
+            std::copy_n ("ALL PARTS", 9, next.data.begin() + 7);
+            number (40, state.masterVolume);
+            number (43, int (state.masterPan) - 64);
+            number (49, state.reverbLevel); number (46, state.chorusLevel);
+            number (52, int (state.masterKeyShift) - 64);
+        }
+        if (state.displayTextVisible)
+            std::copy (state.displayText.begin(), state.displayText.end(), next.data.begin() + 3);
+        for (unsigned matrix = 0; matrix < 2; ++matrix)
+        {
+            for (unsigned group = 0; group < 4; ++group)
+                next.data[20 + matrix * 40 + group] = uint8_t (matrix * 4 + group);
+            for (unsigned p = 0; p < 16; ++p)
+            {
+                const unsigned bars = std::min (16u, (unsigned (state.parts[gsPart (p)].envelopeLevel) + 4095) / 4096);
+                for (unsigned row = 0; row < 8; ++row)
+                    if (bars >= (1 - matrix) * 8 + 8 - row)
+                        next.cg[(matrix * 4 + p / 5) * 8 + row] |= uint8_t (1u << (4 - p % 5));
+            }
+        }
+        // 04:3065..3072 selects the received 64-byte CG bank while CF34
+        // is active; the LCD consumes it in the same order as normal bars.
+        if (state.displayBitmapVisible)
+            std::copy (state.displayBitmap.begin(), state.displayBitmap.end(), next.cg.begin());
+        const std::lock_guard lock (mutex);
+        snapshot = next;
     }
 
     bool copyMask (uint8_t* destination, size_t destinationStride) const
@@ -640,7 +695,7 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     error.clear();
     hostSampleRate = newHostSampleRate;
 
-    if (hostSampleRate <= 0.0)
+    if (! std::isfinite (hostSampleRate) || hostSampleRate <= 0.0)
     {
         setError ("Invalid host sample rate");
         return false;
@@ -674,69 +729,79 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
         return false;
     }
 
-    auto nextCore = std::make_unique<Emulator>();
-    EMU_Options options;
-    options.lcd_backend = lcdBackend.get();
-
-    if (! nextCore->Init (options))
+    std::unique_ptr<Emulator> nextCore;
+    std::unique_ptr<sc55::NativeSynth> nextNativePlayer;
+    // Normal app and plug-in launches use the C++ controller, including AUv3
+    // extension processes which do not inherit a Standalone scheme's environment.
+    // The H8 implementation remains an explicitly selected comparison oracle.
+    const auto* h8Option = std::getenv ("NUKED_SC55_USE_H8");
+    if (h8Option == nullptr || std::string_view (h8Option) != "1")
     {
-        setError ("Failed to initialise the Nuked-SC55 backend");
-        return false;
-    }
-
-    if (! nextCore->LoadRoms (nextRoms->romset, nextRoms->romset_info))
-    {
-        setError ("Failed to load the selected SC-55 ROM set");
-        return false;
-    }
-
-    nextCore->Reset();
-    std::unique_ptr<sc55::SoundData> nextNativeData;
-    std::unique_ptr<sc55::NativeMelodicPlayer> nextNativePlayer;
-    const auto* nativeOption = std::getenv ("NUKED_SC55_NATIVE_PREVIEW");
-    if (nativeOption != nullptr && std::string_view (nativeOption) == "1")
-    {
-        const auto& data = nextRoms->romset_info.rom_data;
-        if (! sc55::CanImportSoundData (data[static_cast<size_t> (RomLocation::ROM1)],
-                                       data[static_cast<size_t> (RomLocation::ROM2)]))
+        const auto& loaded = nextRoms->romset_info.rom_data;
+        if (! sc55::CanImportSoundData (loaded[static_cast<size_t> (RomLocation::ROM1)],
+                                       loaded[static_cast<size_t> (RomLocation::ROM2)]))
         {
-            setError ("Native preview requires SC-55 v1.21");
+            setError ("The C++ engine requires SC-55 v1.21 ROMs. Use NUKED_SC55_USE_H8=1 for other ROM sets.");
             return false;
         }
         const auto asset = juce::File (juce::String::fromUTF8 (nativeCacheDirectory.c_str()))
             .getChildFile ("mk1-v1.21-md15/sc55-native.sdata");
         juce::MemoryBlock bytes;
-        nextNativeData = std::make_unique<sc55::SoundData>();
-        if (! asset.loadFileAsData (bytes)
-            || ! nextNativeData->loadEncoded ({ static_cast<const uint8_t*> (bytes.getData()), bytes.getSize() }))
+        if (! asset.loadFileAsData (bytes))
         {
             setError ("Could not load the generated native sound data");
             return false;
         }
-        PCM_UseSimulation (nextCore->GetPCM(), false);
-        nextCore->GetPCM().use_float_effects = false;
-        nextNativePlayer = std::make_unique<sc55::NativeMelodicPlayer> (*nextNativeData, nextCore->GetPCM());
-        if (nextNativePlayer->failed())
+        const auto& data = nextRoms->romset_info.rom_data;
+        try
         {
-            setError ("Could not initialise the native melodic preview");
+            // Explicit comparison switch, not the native engine's default:
+            // some tones still differ substantially from the chip renderer.
+            const auto* simulation = std::getenv ("SC55_SIM");
+            const auto rendering = simulation != nullptr && std::string_view (simulation) == "1"
+                ? sc55::NativeSynth::VoiceRendering::nativeVoices
+                : sc55::NativeSynth::VoiceRendering::referenceChip;
+            nextNativePlayer = std::make_unique<sc55::NativeSynth> (
+                std::span (static_cast<const uint8_t*> (bytes.getData()), bytes.getSize()),
+                data[static_cast<size_t> (RomLocation::ROM1)],
+                data[static_cast<size_t> (RomLocation::ROM2)],
+                data[static_cast<size_t> (RomLocation::WAVEROM1)],
+                data[static_cast<size_t> (RomLocation::WAVEROM2)],
+                data[static_cast<size_t> (RomLocation::WAVEROM3)], rendering);
+        }
+        catch (const std::exception& exception)
+        {
+            setError (exception.what());
             return false;
         }
-        sc55debug::log ("NATIVE PREVIEW: melodic capital bank only; no H8 execution, drums, GS SysEx, effects or front-panel emulation");
+        sourceSampleRate = sc55::NativeSynth::sampleRate;
+        sc55debug::log ("NATIVE SYNTH: MIDI, voice control and PCM; no H8 or LCD execution");
     }
-    nextCore->GetMCU().button_pressed.store (0, std::memory_order_relaxed);
-    nextCore->SetSampleCallback (&NukedSC55Emulator::sampleSink, this);
-    if (! nextCore->StartLCD())
+    else
     {
-        nextCore->StopLCD();
-        setError ("Failed to initialise the SC-55 LCD backend");
-        return false;
+        nextCore = std::make_unique<Emulator>();
+        EMU_Options options;
+        options.lcd_backend = lcdBackend.get();
+        if (! nextCore->Init (options)
+            || ! nextCore->LoadRoms (nextRoms->romset, nextRoms->romset_info))
+        {
+            setError ("Failed to initialise the selected SC-55 ROM set");
+            return false;
+        }
+        nextCore->Reset();
+        nextCore->GetMCU().button_pressed.store (0, std::memory_order_relaxed);
+        nextCore->SetSampleCallback (&NukedSC55Emulator::sampleSink, this);
+        if (! nextCore->StartLCD())
+        {
+            nextCore->StopLCD();
+            setError ("Failed to initialise the SC-55 LCD backend");
+            return false;
+        }
+        sourceSampleRate = static_cast<double> (PCM_GetOutputFrequency (nextCore->GetPCM()));
     }
-
-    sourceSampleRate = static_cast<double> (PCM_GetOutputFrequency (nextCore->GetPCM()));
     {
         const std::lock_guard lock (coreMutex);
         core = std::move (nextCore);
-        nativeData = std::move (nextNativeData);
         nativePlayer = std::move (nextNativePlayer);
         // RomsetInfo must outlive Emulator::LoadRoms(). Keep it beside the
         // core until release() destroys the core first.
@@ -766,17 +831,20 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     gsResetSent = false;
 
     publishDebugState();
+    if (nativePlayer != nullptr)
+        nativeStateExchange.publish (nativePlayer->state());
+    nativeEngineActive.store (nativePlayer != nullptr, std::memory_order_release);
     ready.store (true, std::memory_order_release);
 
-    const auto& mcu = core->GetMCU();
     sc55debug::log ("initialise succeeded romset=%s mk1=%d sourceRate=%.2f",
                     loadedRoms != nullptr ? RomsetName (loadedRoms->romset) : "unknown",
-                    mcu.is_mk1 ? 1 : 0, sourceSampleRate);
+                    nativePlayer != nullptr || (core != nullptr && core->GetMCU().is_mk1) ? 1 : 0, sourceSampleRate);
     return true;
 }
 
 void NukedSC55Emulator::release()
 {
+    nativeEngineActive.store (false, std::memory_order_release);
     const bool wasReady = ready.load (std::memory_order_acquire);
     if (wasReady)
     {
@@ -795,8 +863,9 @@ void NukedSC55Emulator::release()
         const std::lock_guard lock (coreMutex);
         if (core != nullptr)
             core->StopLCD();
+        else if (lcdBackend != nullptr)
+            lcdBackend->Stop();
         nativePlayer.reset();
-        nativeData.reset();
         core.reset();
         loadedRoms.reset();
     }
@@ -828,6 +897,7 @@ void NukedSC55Emulator::clearPendingMidi() noexcept
 
 void NukedSC55Emulator::clearFrontPanelButtons() noexcept
 {
+    nativePanelRead.store (nativePanelWrite.load (std::memory_order_acquire), std::memory_order_release);
     frontPanelPendingMask.store (0, std::memory_order_release);
     frontPanelPressedMask.store (0, std::memory_order_release);
     frontPanelReleaseFrame.store (0, std::memory_order_release);
@@ -852,6 +922,19 @@ void NukedSC55Emulator::sendMidi (const uint8_t* data, int size)
 
 void NukedSC55Emulator::pressFrontPanelButton (FrontPanelButton button)
 {
+    if (nativeEngineActive.load (std::memory_order_acquire))
+    {
+        const auto write = nativePanelWrite.load (std::memory_order_relaxed);
+        const auto next = (write + 1) % nativePanelCapacity;
+        if (next == nativePanelRead.load (std::memory_order_acquire))
+        {
+            sc55debug::log ("Native panel command queue is full");
+            return;
+        }
+        nativePanelQueue[write] = button;
+        nativePanelWrite.store (next, std::memory_order_release);
+        return;
+    }
     const auto mask = frontPanelButtonMask (button);
     if (mask == 0)
         return;
@@ -931,6 +1014,28 @@ void NukedSC55Emulator::consumeSourceFrames (uint32_t count) noexcept
     sourceRead.store ((read + count) % sourceFifoFrames, std::memory_order_release);
 }
 
+void NukedSC55Emulator::drainNativePanel() noexcept
+{
+    auto read = nativePanelRead.load (std::memory_order_relaxed);
+    const auto write = nativePanelWrite.load (std::memory_order_acquire);
+    while (read != write)
+    {
+        const auto button = nativePanelQueue[read];
+        const auto value = static_cast<unsigned> (button);
+        const auto delta = (value & 1u) != 0 ? 1 : -1;
+        if (value < 2) nativePlayer->selectPart (delta);
+        else if (value < 16)
+        {
+            if (! nativePlayer->adjustSelectedPart (static_cast<sc55::PartParameter> ((value - 2) / 2), delta))
+                break; // Keep this command until the audio-owner queue has room.
+        }
+        else if (button == FrontPanelButton::all) nativePlayer->toggleAll();
+        else if (button == FrontPanelButton::mute) nativePlayer->toggleMute();
+        read = (read + 1) % nativePanelCapacity;
+    }
+    nativePanelRead.store (read, std::memory_order_release);
+}
+
 void NukedSC55Emulator::updateFrontPanelButtons() noexcept
 {
     const auto currentFrame = sourceSamplesProduced.load (std::memory_order_relaxed);
@@ -966,7 +1071,7 @@ void NukedSC55Emulator::updateFrontPanelButtons() noexcept
 
 void NukedSC55Emulator::drainMidi()
 {
-    if (core == nullptr)
+    if (core == nullptr && nativePlayer == nullptr)
         return;
 
     if (nativePlayer != nullptr)
@@ -1015,6 +1120,19 @@ void NukedSC55Emulator::drainMidi()
 
 void NukedSC55Emulator::publishDebugState() noexcept
 {
+    if (nativePlayer != nullptr)
+    {
+        const auto state = nativePlayer->state();
+        debugCycles.store (state.renderedFrames * 625, std::memory_order_relaxed);
+        debugVoiceMask.store (state.activeVoiceMask, std::memory_order_relaxed);
+        debugVoiceMaskPending.store (state.activeVoiceMask, std::memory_order_relaxed);
+        debugCp.store (0, std::memory_order_relaxed);
+        debugPc.store (0, std::memory_order_relaxed);
+        const unsigned part = state.selectedPart == 9 ? 0 : state.selectedPart < 9 ? state.selectedPart + 1 : state.selectedPart;
+        debugAllLed.store (state.allSelected, std::memory_order_relaxed);
+        debugMuteLed.store (state.allSelected ? state.globalMuted : state.parts[part].muted, std::memory_order_relaxed);
+        return;
+    }
     if (core == nullptr)
         return;
 
@@ -1048,6 +1166,7 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
     debugStateRequested.store (true, std::memory_order_release);
 
     DebugState state;
+    state.nativeEngine = nativeEngineActive.load (std::memory_order_acquire);
     state.ready = ready.load (std::memory_order_acquire);
     state.backendRunning = state.ready;
     state.romFamily = static_cast<RomFamily> (debugRomFamily.load (std::memory_order_acquire));
@@ -1077,19 +1196,26 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
 
 void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noexcept
 {
-    if (core == nullptr)
+    if (core == nullptr && nativePlayer == nullptr)
         return;
 
     if (nativePlayer != nullptr)
     {
         drainMidi();
+        drainNativePanel();
+        std::array<AudioFrame<int32_t>, 256> frames;
         while (availableSourceFrames() < minimumFrames && ! nativePlayer->failed())
         {
-            nativePlayer->step();
+            const auto count = std::min<uint32_t> (frames.size(), minimumFrames - availableSourceFrames());
+            nativePlayer->render (std::span (frames.data(), count));
+            for (uint32_t i = 0; i < count; ++i)
+                sampleSink (this, frames[i]);
             drainMidi();
         }
         if (nativePlayer->failed())
             ready.store (false, std::memory_order_release);
+        if (nativeStateRequested.exchange (false, std::memory_order_acquire))
+            nativeStateExchange.publish (nativePlayer->state());
         if (debugStateRequested.exchange (false, std::memory_order_acquire))
             publishDebugState();
         return;
@@ -1138,6 +1264,15 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
         publishDebugState();
 }
 
+bool NukedSC55Emulator::getNativeState (sc55::SynthState& destination) const noexcept
+{
+    if (! nativeEngineActive.load (std::memory_order_acquire))
+        return false;
+    destination = nativeStateExchange.read();
+    nativeStateRequested.store (true, std::memory_order_release);
+    return true;
+}
+
 bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride) const
 {
     if (destination == nullptr || destinationStride < static_cast<size_t> (LCD_DISPLAY_WIDTH))
@@ -1154,7 +1289,9 @@ bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destination
     // LCD の文字 RAM を取り込むのはここ。読みに来た側のスレッドで行う。
     // 以前は音声コールバックの中で毎ブロック取り込んでいたが、これは表示のための
     // データ作成であって信号処理ではない。
-    lcdBackend->captureState();
+    sc55::SynthState nativeState;
+    if (getNativeState (nativeState)) lcdBackend->captureNativeState (nativeState);
+    else lcdBackend->captureState();
     return lcdBackend->copyMask (destination, destinationStride);
 }
 
@@ -1167,13 +1304,63 @@ bool NukedSC55Emulator::copyMergedLcdDisplay (const NukedSC55Emulator& alternate
     if (alternate.lcdBackend == nullptr)
         return copyLcdDisplay (destination, destinationStride);
 
-    lcdBackend->captureState();
-    alternate.lcdBackend->captureState();
+    sc55::SynthState primaryState, secondaryState;
+    const bool primaryNative = getNativeState (primaryState);
+    const bool secondaryNative = alternate.getNativeState (secondaryState);
+    if (primaryNative && secondaryNative)
+    {
+        // MIDI controls and panel selection are mirrored by the processor;
+        // notes are split between engines. Merge semantic activity, not LCD
+        // characters (the instrument name is one string, not channel slots).
+        auto merged = primaryState.failed ? secondaryState : primaryState;
+        for (size_t part = 0; part < merged.parts.size(); ++part)
+        {
+            const auto& a = primaryState.parts[part];
+            const auto& b = secondaryState.parts[part];
+            merged.parts[part].voices = static_cast<uint8_t> (
+                (primaryState.failed ? 0u : a.voices) + (secondaryState.failed ? 0u : b.voices));
+            merged.parts[part].envelopeLevel = static_cast<uint16_t> (std::min (65535u,
+                (primaryState.failed ? 0u : a.envelopeLevel)
+                + (secondaryState.failed ? 0u : b.envelopeLevel)));
+        }
+        lcdBackend->captureNativeState (merged);
+        return lcdBackend->copyMask (destination, destinationStride);
+    }
+    if (primaryNative) lcdBackend->captureNativeState (primaryState);
+    else lcdBackend->captureState();
+    if (secondaryNative) alternate.lcdBackend->captureNativeState (secondaryState);
+    else alternate.lcdBackend->captureState();
     return lcdBackend->copyMergedMask (*alternate.lcdBackend,
                                        destination, destinationStride);
 }
 
 void NukedSC55Emulator::render (float* left, float* right, int numSamples)
+{
+    if (left == nullptr || numSamples <= 0)
+        return;
+    if (! ready.load (std::memory_order_acquire)
+        || hostSampleRate <= 0.0 || sourceSampleRate <= 0.0)
+    {
+        renderSegment (left, right, numSamples);
+        return;
+    }
+
+    // A host/offline renderer may request more than the fixed source FIFO can
+    // hold. Consume each bounded segment before producing the next; otherwise
+    // the native producer waits forever for an impossible minimumFrames.
+    // Leave room for interpolation lookahead and fractional source position.
+    const double sourceStep = sourceSampleRate / hostSampleRate;
+    const int segmentLimit = static_cast<int> (std::clamp (
+        std::floor (double (sourceFifoFrames - 8) / sourceStep), 1.0, double (numSamples)));
+    for (int offset = 0; offset < numSamples;)
+    {
+        const int count = std::min (segmentLimit, numSamples - offset);
+        renderSegment (left + offset, right != nullptr ? right + offset : nullptr, count);
+        offset += count;
+    }
+}
+
+void NukedSC55Emulator::renderSegment (float* left, float* right, int numSamples)
 {
     ++renderCallCount;
 

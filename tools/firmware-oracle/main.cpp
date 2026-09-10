@@ -27,6 +27,8 @@
 #include "envelope-pcm-test.h"
 #include "voice-control-pcm-test.h"
 #include "native-player-test.h"
+#include "native-audio-comparison.h"
+#include "native-pcm-boundary-test.h"
 #include "rhythm-velocity-oracle.h"
 #include "control-clock-probe.h"
 #include "native-tva-test.h"
@@ -532,6 +534,27 @@ void Oracle_PCM_Write(pcm_t& pcm, uint32_t address, uint8_t value)
 
 int main(int argc, char** argv)
 {
+    if(argc==4 && std::string(argv[1])=="--compare-native-rhythm-bulk")
+        return compareNativeAudio(argv[2],argv[3],false,80,2);
+    if(argc==4 && std::string(argv[1])=="--compare-native-modes")
+        return compareNativeAudio(argv[2],argv[3],false,80,true);
+    if(argc==4 && std::string(argv[1])=="--compare-native-snare")
+        return compareNativeAudio(argv[2],argv[3],true,0,3);
+    if ((argc == 6 || argc == 7) && std::string(argv[1]) == "--compare-native-audio"
+        && std::string(argv[4]) == "--program") {
+        const std::string number(argv[5]);
+        if (number.empty() || number.size()>3 || number.find_first_not_of("0123456789")!=std::string::npos
+            || (argc==7 && std::string(argv[6])!="--dry")) return 2;
+        const auto program=unsigned(std::stoul(number));
+        if(program>=128) return 2;
+        return compareNativeAudio(argv[2],argv[3],argc==7,program);
+    }
+    if (argc == 3 && std::string(argv[1]) == "--native-pcm-boundary-test")
+        return verifyPcmBoundary(argv[2]);
+    if (argc == 5 && std::string(argv[1]) == "--compare-native-audio" && std::string(argv[4]) == "--dry")
+        return compareNativeAudio(argv[2],argv[3],true);
+    if (argc == 4 && std::string(argv[1]) == "--compare-native-audio")
+        return compareNativeAudio(argv[2],argv[3]);
     if (argc == 3 && std::string(argv[1]) == "--native-tva-test")
     {
         try { return verifyNativeTva (argv[2]); }

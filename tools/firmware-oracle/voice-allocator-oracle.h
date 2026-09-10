@@ -20,14 +20,22 @@ void visitAllocatorBytes(sc55::VoiceAllocator& state, Visit&& visit)
     const auto array = [&](unsigned base, auto& values) {
         for (unsigned i = 0; i < values.size(); ++i) visit(base+i,values[i]);
     };
-    array(0xa318,state.voicePart); array(0xa330,state.voiceGroup);
-    array(0xa348,state.status); array(0xa360,state.fieldA360); array(0xa3e0,state.fieldA3E0);
-    array(0xa378,state.freeNext); array(0xa390,state.groups.next); array(0xa3a8,state.groups.previous);
+    for(unsigned i=0;i<state.allocations.size();++i) {
+        auto& voice=state.allocations[i];
+        visit(0xa318+i,voice.part); visit(0xa330+i,voice.noteGroup);
+        visit(0xa348+i,voice.status); visit(0xa360+i,voice.releaseRequested);
+        visit(0xa3e0+i,voice.releaseCommand); visit(0xa378+i,voice.nextFree);
+    }
+    array(0xa390,state.groups.next); array(0xa3a8,state.groups.previous);
     array(0xa2a0,state.groups.head); array(0xa2b8,state.groups.tail);
     array(0xcac4,state.pcmLinks.first); array(0xcadc,state.pcmLinks.second);
-    array(0xa240,state.groupNext); array(0xa258,state.groupPrevious);
-    array(0xa270,state.groupStatus); array(0xa2e8,state.groupValue);
-    array(0xa288,state.groupFieldA288); array(0xa2d0,state.groupFieldA2D0); array(0xa300,state.groupFieldA300);
+    for(unsigned i=0;i<state.noteGroups.size();++i) {
+        auto& group=state.noteGroups[i];
+        visit(0xa240+i,group.next); visit(0xa258+i,group.previous);
+        visit(0xa270+i,group.status); visit(0xa2e8+i,group.key);
+        visit(0xa288+i,group.retirementFlags); visit(0xa2d0+i,group.noteClass);
+        visit(0xa300+i,group.releaseFlags);
+    }
     array(0xa210,state.partHead); array(0xa220,state.partTail);
     array(0xa1e0,state.partMinimum); array(0xa1f0,state.partVoiceCount);
     array(0xa230,state.partFlags); array(0xa200,state.partPrevious);
@@ -688,7 +696,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             const auto group = allocator.createGroup({uint8_t(part),0x80,60,1,2});
             if (!group) throw std::runtime_error("Installation fixture allocation failed");
             const unsigned slot = group->voices[(seed/4)%2];
-            allocator.fieldA3E0[slot] = 173;
+            allocator.allocations[slot].releaseCommand = 173;
             write(allocator);
             sc55::VoiceInstallationState installed;
             installed.pendingRelease.fill(197);
@@ -830,8 +838,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             const auto created = allocator.createGroup({part,0x80,60,1,2});
             if (!created) throw std::runtime_error("Mono reuse fixture allocation failed");
             const auto tail = allocator.groups.tail[created->group], head = allocator.groups.head[created->group];
-            allocator.status[tail] = uint8_t(seed/16);
-            allocator.status[head] = uint8_t((seed/16)*73);
+            allocator.allocations[tail].status = uint8_t(seed/16);
+            allocator.allocations[head].status = uint8_t((seed/16)*73);
             if (seed&1) allocator.groups.head[created->group] = tail;
             if (seed%5 == 0) allocator.groups.head[created->group] = 255;
             const sc55::VoiceAllocator::MonoReuse input{uint8_t(seed),{uint8_t(seed+11),uint8_t(seed+37)}};
@@ -894,8 +902,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             const auto created = allocator.createGroup({part,0x80,60,1,uint8_t(1+(seed/16)%2)});
             if (!created) throw std::runtime_error("Mono release fixture allocation failed");
             allocator.partFlags[part] = uint8_t(seed/32);
-            allocator.groupStatus[created->group] = uint8_t(seed/4);
-            allocator.groupFieldA288[created->group] = uint8_t(seed*13);
+            allocator.noteGroups[created->group].status = uint8_t(seed/4);
+            allocator.noteGroups[created->group].retirementFlags = uint8_t(seed*13);
             // Distinguish head from previous: mono release must use head.
             allocator.groups.previous[created->voices[0]] = 255;
             if (seed%7 == 0) allocator.groups.tail[created->group] = 255;
@@ -1094,8 +1102,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             {
                 const auto created = allocator.createGroup({part,0,uint8_t(40+i),1,uint8_t(1+i%2)});
                 if (!created) throw std::runtime_error("Retained release fixture allocation failed");
-                allocator.groupStatus[created->group] = (seed+i)%3 == 0 ? 0 : 2;
-                allocator.groupFieldA288[created->group] = uint8_t(seed>>(i%5));
+                allocator.noteGroups[created->group].status = (seed+i)%3 == 0 ? 0 : 2;
+                allocator.noteGroups[created->group].retirementFlags = uint8_t(seed>>(i%5));
             }
             std::array<uint8_t,16> retained; retained.fill(255);
             for (unsigned i = 0; i < (seed/16)%17; ++i) retained[i] = uint8_t(40+(i+seed)%16);
@@ -1128,7 +1136,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 const auto created = allocator.createGroup({uint8_t(part),0,
                     uint8_t(40+(i*(1+seed%5))%19),1,1});
                 if (!created) throw std::runtime_error("Retained-key fixture allocation failed");
-                allocator.groupStatus[created->group] = (seed+i)%7 == 0 ? 2 : 0;
+                allocator.noteGroups[created->group].status = (seed+i)%7 == 0 ? 2 : 0;
             }
             std::array<uint8_t,16> retained; retained.fill(255);
             for (unsigned i = 0; i < (seed/400)%17; ++i) retained[i] = uint8_t(40+i);
@@ -1160,8 +1168,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             {
                 const auto created = allocator.createGroup({part,0,uint8_t(60+i),1,uint8_t(1+i%2)});
                 if (!created) throw std::runtime_error("Hold fixture allocation failed");
-                allocator.groupFieldA288[created->group] = uint8_t(seed>>(i%4));
-                allocator.groupStatus[created->group] = uint8_t(seed+i);
+                allocator.noteGroups[created->group].retirementFlags = uint8_t(seed>>(i%4));
+                allocator.noteGroups[created->group].status = uint8_t(seed+i);
             }
             allocator.partFlags[part] = uint8_t(seed/16);
             std::array<uint8_t,16> retained; retained.fill(255);
@@ -1193,8 +1201,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 const auto created = allocator.createGroup({part,uint8_t(i%3),uint8_t(60+i%2),
                     uint8_t((seed>>(i+3))&3),2});
                 if (!created) throw std::runtime_error("Release fixture allocation failed");
-                allocator.groupStatus[created->group] = ((seed>>(i+7))&1) ? 2 : 0;
-                allocator.groupFieldA288[created->group] = uint8_t(seed*7)&0xfe;
+                allocator.noteGroups[created->group].status = ((seed>>(i+7))&1) ? 2 : 0;
+                allocator.noteGroups[created->group].retirementFlags = uint8_t(seed*7)&0xfe;
             }
             allocator.partFlags[part] = uint8_t(seed/128);
             std::array<uint8_t,16> retained;
@@ -1220,9 +1228,9 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             sc55::VoiceAllocator allocator;
             for (unsigned slot = 0; slot < 24; ++slot)
             {
-                allocator.fieldA3E0[slot] = uint8_t(seed+slot*17);
-                MCU_Write(cpu,0xa3e0+slot,allocator.fieldA3E0[slot]);
-                MCU_Write(cpu,0xac2a+slot,uint8_t(~allocator.fieldA3E0[slot]));
+                allocator.allocations[slot].releaseCommand = uint8_t(seed+slot*17);
+                MCU_Write(cpu,0xa3e0+slot,allocator.allocations[slot].releaseCommand);
+                MCU_Write(cpu,0xac2a+slot,uint8_t(~allocator.allocations[slot].releaseCommand));
             }
             execute(0x1e04,0x1e1a);
             unsigned remaining = 24;
@@ -3484,8 +3492,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                                 const auto extra = state.createGroup({uint8_t(i == 4 ? (part+1)%16 : part),
                                     uint8_t(60+i%2),uint8_t(repeated ? (i == 0 ? 99 : 100) : 40+i),0,uint8_t(count)});
                                 if (!extra) throw std::runtime_error("Choke fixture allocation failed");
-                                state.groupStatus[extra->group] = uint8_t(i%3);
-                                if (repeated && operation != 4 && i == 2) state.groupFieldA288[extra->group] = 4;
+                                state.noteGroups[extra->group].status = uint8_t(i%3);
+                                if (repeated && operation != 4 && i == 2) state.noteGroups[extra->group].retirementFlags = 4;
                             }
                             state.partFlags[part] = uint8_t(seed); // Hold never inhibits choke.
                         }
@@ -3573,7 +3581,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 const auto created = state.createGroup({uint8_t(i%4),60,uint8_t(60+i),0,2});
                 if (!created) throw std::runtime_error("Capacity fixture allocation failed");
                 for (unsigned j = 0; j < 2; ++j) state.activity[created->voices[j]] = uint8_t(10+i);
-                state.groupStatus[created->group] = uint8_t((i+seed)%2);
+                state.noteGroups[created->group].status = uint8_t((i+seed)%2);
             }
             sc55::VoiceCapacityPolicy policy;
             policy.startPartControl = uint8_t(seed%16);
@@ -3609,8 +3617,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 std::array<uint8_t,16> retained; retained.fill(255);
                 if (seed&64) retained[0] = request.value;
                 for (unsigned i = 0; i < 16; ++i) MCU_Write(cpu,0xa090+incoming*16+i,retained[i]);
-                MCU_Write(cpu,0xa3d1,request.fieldA3D1); MCU_Write(cpu,0xa3d2,request.value);
-                MCU_Write(cpu,0xa1bf,request.fieldA1BF);
+                MCU_Write(cpu,0xa3d1,request.noteClass); MCU_Write(cpu,0xa3d2,request.value);
+                MCU_Write(cpu,0xa1bf,request.releaseFlags);
                 execute(0x0ca5,0x0cb6);
                 sc55::RhythmGroupAdmission pending(request,partFlags,retained,policy);
                 const auto result = pending.run(state,stopped,
@@ -3747,8 +3755,8 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             state.partHead[part] = 0;
             for (unsigned i = 0; i < 24; ++i)
             {
-                state.groupNext[i] = i+1 < length ? uint8_t(i+1) : 255;
-                state.groupValue[i] = byte()%8; state.groupStatus[i] = byte()%2;
+                state.noteGroups[i].next = i+1 < length ? uint8_t(i+1) : 255;
+                state.noteGroups[i].key = byte()%8; state.noteGroups[i].status = byte()%2;
                 state.groups.tail[i] = byte()%24;
                 state.groups.previous[i] = byte()%2 ? uint8_t(byte()%24) : 255;
                 activity[i] = seed%3 ? byte() : 255;
@@ -3792,17 +3800,17 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             for (unsigned variant = 0; variant < 32; ++variant)
             {
                 sc55::VoiceAllocator state;
-                state.freeGroupHead = uint8_t(group); state.groupNext[group] = uint8_t((group+1)%24);
+                state.freeGroupHead = uint8_t(group); state.noteGroups[group].next = uint8_t((group+1)%24);
                 state.partTail[part] = variant & 1 ? uint8_t((group+2)%24) : 255;
                 state.partMinimum[part] = variant & 2 ? 255 : uint8_t(variant*7);
                 state.freeHead = uint8_t(group); state.freeTail = uint8_t((group+1)%24);
-                state.freeNext[group] = state.freeTail; state.freeNext[state.freeTail] = 255;
+                state.allocations[group].nextFree = state.freeTail; state.allocations[state.freeTail].nextFree = 255;
                 state.freeCount = 2; state.partVoiceCount[part] = uint8_t(variant*11);
-                state.groupStatus[group] = 0x94; state.groupFieldA288[group] = 0x57;
+                state.noteGroups[group].status = 0x94; state.noteGroups[group].retirementFlags = 0x57;
                 const sc55::VoiceAllocator::GroupRequest request{uint8_t(part),uint8_t(variant*3),uint8_t(variant*13),uint8_t(variant*9),uint8_t(1+(variant&1))};
                 write(state);
-                MCU_Write(cpu,0xa3d0,request.part); MCU_Write(cpu,0xa3d1,request.fieldA3D1);
-                MCU_Write(cpu,0xa3d2,request.value); MCU_Write(cpu,0xa1bf,request.fieldA1BF);
+                MCU_Write(cpu,0xa3d0,request.part); MCU_Write(cpu,0xa3d1,request.noteClass);
+                MCU_Write(cpu,0xa3d2,request.value); MCU_Write(cpu,0xa1bf,request.releaseFlags);
                 MCU_Write(cpu,0xa3d4,request.voiceCount);
                 for (auto& r : cpu.r) r = 0;
                 cpu.r[7] = 0x9300;
@@ -3820,7 +3828,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
         for (unsigned next = 0; next < 26; ++next)
         {
             sc55::VoiceAllocator state;
-            state.freeHead = uint8_t(voice); state.freeNext[voice] = index(next);
+            state.freeHead = uint8_t(voice); state.allocations[voice].nextFree = index(next);
             state.freeTail = uint8_t((voice+5)%24); state.freeCount = uint8_t(next);
             write(state); cpu.r[0] = cpu.r[1] = 0;
             execute(0x1ca5,0x1cbc);
@@ -3858,11 +3866,11 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             {
                 sc55::VoiceAllocator state;
                 const auto group = (voice+7)%24, otherGroup = (group+1)%24, otherVoice = (voice+1)%24;
-                state.groupNext.fill(0xff); state.groupPrevious.fill(0xff);
+                for(auto& group:state.noteGroups) group.next=group.previous=255;
                 state.partHead.fill(0xff); state.partTail.fill(0xff);
-                state.voicePart[voice] = uint8_t(part); state.voiceGroup[voice] = uint8_t(group);
-                state.status[voice] = (variant & 32) ? 0x94 : 0x14;
-                state.fieldA360[voice] = 0x73; state.fieldA3E0[voice] = 0x65;
+                state.allocations[voice].part = uint8_t(part); state.allocations[voice].noteGroup = uint8_t(group);
+                state.allocations[voice].status = (variant & 32) ? 0x94 : 0x14;
+                state.allocations[voice].releaseRequested = 0x73; state.allocations[voice].releaseCommand = 0x65;
                 state.freeTail = (variant & 1) ? uint8_t((voice+2)%24) : uint8_t(variant & 2 ? 0x80 : 0xff);
                 state.freeHead = state.freeTail; state.freeCount = uint8_t(variant);
                 state.freeGroupHead = uint8_t((group+2)%24);
@@ -3876,19 +3884,19 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 state.partHead[part] = state.partTail[part] = uint8_t(group);
                 if (variant & 8)
                 {
-                    state.groupNext[group] = uint8_t(otherGroup);
-                    state.groupPrevious[otherGroup] = uint8_t(group);
+                    state.noteGroups[group].next = uint8_t(otherGroup);
+                    state.noteGroups[otherGroup].previous = uint8_t(group);
                     state.partTail[part] = uint8_t(otherGroup);
                 }
                 else if (variant & 2)
                 {
-                    state.groupPrevious[group] = uint8_t(otherGroup);
-                    state.groupNext[otherGroup] = uint8_t(group);
+                    state.noteGroups[group].previous = uint8_t(otherGroup);
+                    state.noteGroups[otherGroup].next = uint8_t(group);
                     state.partHead[part] = uint8_t(otherGroup);
                 }
-                state.groupValue[group] = uint8_t(voice+20);
-                state.groupValue[otherGroup] = uint8_t(127-voice);
-                state.partMinimum[part] = variant & 16 ? 0xff : state.groupValue[group];
+                state.noteGroups[group].key = uint8_t(voice+20);
+                state.noteGroups[otherGroup].key = uint8_t(127-voice);
+                state.partMinimum[part] = variant & 16 ? 0xff : state.noteGroups[group].key;
                 state.partVoiceCount[part] = uint8_t(variant);
                 state.activity[voice] = uint8_t(variant*3); state.shortage = uint8_t(variant);
                 const auto originalState = state;

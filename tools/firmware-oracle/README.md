@@ -7,6 +7,130 @@
 
 ## Native prepared-start ownership
 
+`SC55_TRACE_CONTROL_ROUTINES=1 ... --native-capacity-stealing` now reports
+exclusive instruction-entry accounting as well as the older sampled totals.
+Diagnostic-only hardware-frame tracking follows task stack switches and both
+RTE and the timer's explicit-SR/PRTS return. It does not modify H8 timing.
+`--native-controller-work` checks both counters against input-derived costs.
+It also checks the complete second-envelope output calculation and its nested
+conversion against real H8 values and exclusive instruction counts:1223 cases,
+40 full-output budgets and24 conversion budgets. The capacity fixture supplies
+7471 additional comparisons but deliberately still fails its survivor gate.
+These diagnostic costs are not yet a complete product scheduling model.
+See [current capacity evidence](../../docs/firmware/NATIVE_CAPACITY_MODE_2026-09-10.md).
+Normal capacity still fails at admission40; measured totals are not product delays.
+
+`sc55-cpu-roles ROM_DIRECTORY --native-midi-during-preparation` fills24 voices,
+enters physical reuse waiting, then sends another Note On, CC121, expression,
+hold-on, and CC7.
+The unchanged H8 applies CC7 before the first reuse wait returns. The native
+player now does too: its receiver publishes complete part-resolved VoiceCommands
+and continues controller interpretation while voice management consumes those
+requests. Before those splits, the queued Note On/hold/reset blocked the following CC7.
+The fixture also checks owned snapshots, FIFO wraparound, atomic fan-out under
+backpressure, eventual completion of the pending notes, and hold protection of
+All Notes Off followed by complete release on hold-off. Expression after CC121
+must apply during the wait and survive the deferred voice-side reset.
+Hold/sostenuto/portamento,
+the configurable portamento source, and part release requests share the FIFO.
+CC121 resets input values immediately and queues only pedal/source release.
+Voice-changing SysEx transactions and recovery still form a parser barrier;
+this is not a claim that all firmware command producers have been split, or
+that the capacity-survivor mismatch is fixed.
+
+`--native-sysex-during-preparation` sends32 notes at full capacity, followed by
+a master-volume DT1 and CC7. H8 writes master volume while its note-command
+cursors still differ. Before the receiver split, native waited for all note
+work; afterward it writes with31 queued events remaining. The fixture also
+compares fragmented packets, checksum rejection and following controllers.
+One ordinary reuse wait was shorter than receipt of this packet on H8, so that
+initial fixture was not evidence of a firmware barrier.
+Master/controller/FX/reserve/drum/display updates now run in the receiver.
+Reset and reply transactions still
+wait at EOX. Previewing a fixed-size receiver leaves deferred EOX unconsumed,
+without retaining a payload pointer or mutating the parser on retry.
+
+Bulk-system refresh now queues changed melodic programs as a complete batch
+before committing settings. Shared rhythm-map reselection remains live and
+descending-part ordered. `--native-bulk-system` checks eight transfers and
+reset against all1864 configuration bytes, then sends48 notes followed by a
+bulk volume write: H8 command cursors remain32/08 and native has47 queued
+events when the value changes. This is not a PCM-renderer optimization.
+
+`--panel-bulk-sequence` enters all-data transmit through physical H8 buttons
+(ALL, both INSTRUMENT buttons, ALL confirmation), without patching CPU state.
+It observes one start, seventeen producer waits/requests, sixty TX packets and
+one finish. NativeSynth::requestAllSettingsDump emits the same sixty packets
+through push/render/transport, retaining RX isolation for the whole sequence.
+It also checks ACK waits, rejection without an output connection, duplicate
+start/disconnect rejection, accumulated panel-edit discard and post-transfer
+MIDI reception. Product UI gestures and host MIDI output are not yet connected;
+the two partial-dump panel paths remain separate unfinished work.
+
+The partial paths are now integrated through requestSettingsDump(scope).
+`--panel-bulk-system-parts` and `--panel-bulk-parts` compare49 and47 packets.
+`--panel-bulk-melodic`, `--panel-bulk-empty`, `--panel-bulk-second-map` compare
+30,0,47 packets using real MIDI to select Note Receive/rhythm configuration.
+`--panel-bulk-both-maps` verifies a firmware quirk: the map0 parser call clears
+the retained map selection, so partial dumping omits map1 (49 packets, not64).
+The all-settings path still sends both maps. The instruction hook verifies7318
+is a direct parser call in task7; earlier attribution to another task's priority
+was incorrect. UI confirmation, solo-display selection and host output remain
+unfinished; these are audio-owner transport tests, not host-output tests.
+
+GS part writes now use the same PartSettings decoder to plan a complete batch
+before committing input values. Channel assignment publishes controller reset
+then All Notes Off even for the same channel; program selection captures a
+changed valid tone; mono/poly queues voice work only when its bit changes.
+The existing valid-prefix-on-later-error behavior is preserved. Rhythm-map
+configuration stays receiver-owned; synchronous mono switching was removed.
+`--native-part-during-preparation` compares part volume with H8 while note work
+remains, then verifies same-channel reassignment releases held voices and does
+not overwrite subsequent expression. Release111, rhythm42, reply463 and
+panel42,015 comparisons pass with this path.
+
+`--native-program-during-preparation` checks Note On -> Program Change -> CC7
+during reuse, then compares the selected tone and voice-management capacity mode.
+It also queues valid drum notes before an invalid kit selection and requires
+the accepted snare to survive in both engines. H8's original drum key is A1B6
+at sample installation; C8FC is a mapped key and is not the MIDI note number.
+Melodic program side effects use a captured tone in ProgramVoiceRequest; shared
+drum-map selection runs in the receiver, as in the firmware.
+
+`--native-mode-during-preparation` sends a mono command during physical reuse,
+checks subsequent CC input and completed stopping, then compares mono/poly note
+groups and repeated MIDI mode commands against H8. A note may use two physical
+partials: this asserts one mono note group, not one physical voice. Mode changes
+may cancel H8 preparation rather than pass its ordinary gain-ready return PC.
+The native receiver changes routing mode immediately and queues only voice-side
+stop/held-key work. GS's unchanged-mode no-op policy remains separate.
+
+Current integration regression: `sc55-cpu-roles ROM_DIRECTORY --native-startup-wake`
+fills all24 voices, steals eight times, and verifies that an unsuccessful
+gain-readiness check resumes on the common one-kernel-tick event, not every
+sample. It also requires other envelopes to progress during reuse and checks
+full-capacity audio partition invariance through NativeSynth. The voice/PCM
+test verifies scheduled partial-pass publication and pending-clock preservation
+separately from explicitly stepped diagnostic passes.
+This does not prove H8 dispatch-time parity or replace the failing
+capacity-survivor comparison.
+
+The voice/PCM regression also covers queued physical stops: the periodic owner
+sees stage18/20 before scanning, other voices can run, linked-stage early exit
+is preserved, and only the stop dispatcher consumes the request/changes to14/16.
+An all-stopped pass performs no PCM I/O and does not reclaim prematurely.
+Pending preparation is also tested through RestartAndInstallVoice: continuation
+uses the newly installed controller identity with the existing DSP; restart is
+excluded by its stopped stage. Both retain the preparation request for its
+consumer. This does not fabricate DSP state for a never-installed slot.
+
+Diagnostic `SC55_REPLAY_MIDI_INGRESS=1` may be combined with capacity replay
+options in the cpu-roles executable. It observes actual H8 RX-ring byte commits
+and replays their frame timestamps to separate ingress latency from later
+control ordering. Input bytes must match exactly; resets/filtering not covered
+by the fixture fail the probe explicitly. Never enable recorded-trace replay
+in the product as a timing fix.
+
 `VoiceControlRuntime::beginPreparedStart/pollPreparedStart` now owns the
 prepared batch copy, PCM activation continuation and atomic publication of
 both DSP owners. The 36-program paired sweep uses this path instead of
@@ -399,7 +523,12 @@ ingress/pending notes in fixed storage, preserves a pending note across voice
 stealing, resumes device waits without spinning, and advances PCM at control
 deadlines. No H8 instruction is executed in this loop.
 
-For a **comparison-only** plug-in run, set `NUKED_SC55_NATIVE_PREVIEW=1` in the
+Current product builds select the C++ controller by default, including AUv3.
+Set `NUKED_SC55_USE_H8=1` only for an explicit H8 comparison. The C++ controller
+requires v1.21 ROMs. See `docs/firmware/NATIVE_SYNTH_ARCHITECTURE_2026-09-09.md`
+for current capabilities; the following preview description is historical.
+
+Historically, for a **comparison-only** plug-in run, set `NUKED_SC55_NATIVE_PREVIEW=1` in the
 process environment (for example, the Standalone Xcode scheme's environment).
 Initialisation loads the automatically generated v1.21 MD15 cache; the existing
 backend still loads the ROM set/waveforms and provides the PCM device, but its
@@ -3786,3 +3915,21 @@ polyphonic/host integration.
 The full H8 regression `/tmp/sc55-native-send-mapping-1.csv` remains byte-identical
 to `/tmp/sc55-native-midi-hold-1.csv` (923,053 writes). This trace is an H8
 regression check, not native audio-fidelity proof.
+# Additional native panel validation
+
+`sc55-cpu-roles ROM_DIRECTORY --native-panel-settings` compares the product
+NativeSynth's semantic panel commands with physical H8 button presses: all 16
+parts, ALL settings, and traversal of all drum kits in both directions including
+end stops. This does not cover hidden modes, held-button repeat or combinations.
+It also compares the selected instrument name with H8's LCD text buffer,
+including live rhythm-map name edits, MIDI family fallback and rejected programs.
+
+`sc55-cpu-roles ROM_DIRECTORY --native-release-integration` compares actual MIDI
+admission and release through the native owner with H8 group state, including
+CC120/121/123-127, hold/sostenuto, repeated notes and GS assignment modes0/1/2.
+It compares semantic group state, not physical slots or sample-exact EG timing.
+
+`--native-high-admission` uses the same real-MIDI harness for special keys125-127.
+Currently FAILS after Note Off in program24/key125 (H8 two groups, native one);
+later cases are not reached. Do not treat the mapping-only probe as integration
+coverage. Group release flags now compare all bits, not just bit0.

@@ -1,4 +1,5 @@
 #pragma once
+#include "allocator-state-snapshot.h"
 #include "sc55_envelope_pcm.h"
 #include "sc55_voice_lifecycle.h"
 #include "sc55_rhythm_admission.h"
@@ -305,13 +306,13 @@ inline int verifyNativeEnvelopePcm()
         auto group = allocator.createGroup({1,0x80,60,1,1}); require(bool(group));
         const auto slot = group->voices[0];
         sc55::VoiceInstallationState installation;
-        installation.pendingRelease[slot] = 255; allocator.fieldA3E0[slot] = 255;
+        installation.pendingRelease[slot] = 255; allocator.allocations[slot].releaseCommand = 255;
         sc55::VoiceInstallationInput input{12,345,1,1,60,64,100,3,67,true};
         uint8_t flags = 0x40;
         require(installation.install(slot,input,flags,allocator));
         require(flags == 0xc0 && installation.voices[slot].input == input);
-        require(installation.voices[slot].taskState == 2 && allocator.status[slot] == 0);
-        require(installation.pendingRelease[slot] == 0 && allocator.fieldA3E0[slot] == 0);
+        require(installation.voices[slot].taskState == 2 && allocator.allocations[slot].status == 0);
+        require(installation.pendingRelease[slot] == 0 && allocator.allocations[slot].releaseCommand == 0);
         auto invalid = input; invalid.part = 16;
         require(!installation.install(slot,invalid,flags,allocator));
         invalid = input; invalid.partial = 2;
@@ -324,10 +325,10 @@ inline int verifyNativeEnvelopePcm()
         require(flags == 1 && installation.voices[slot].input == input);
         require(installation.pendingRelease[slot] == 99 && allocator.freeCount == 24);
         // A corrupt return must roll back the initial status clear too.
-        allocator.voiceGroup[slot] = 24;
-        const auto status = allocator.status[slot];
+        allocator.allocations[slot].noteGroup = 24;
+        const auto status = allocator.allocations[slot].status;
         require(!installation.install(slot,absent,flags,allocator));
-        require(allocator.status[slot] == status && installation.pendingRelease[slot] == 99);
+        require(allocator.allocations[slot].status == status && installation.pendingRelease[slot] == 99);
     }
     {
         SC55Patch patch;
@@ -360,11 +361,11 @@ inline int verifyNativeEnvelopePcm()
         sc55::VoiceAllocator allocator; require(allocator.initializeTables());
         const auto group = allocator.createGroup({0,0x80,60,1,2}); require(group.has_value());
         const auto tail = allocator.groups.tail[group->group], head = allocator.groups.head[group->group];
-        allocator.status[tail] = allocator.status[head] = 0;
+        allocator.allocations[tail].status = allocator.allocations[head].status = 0;
         const sc55::VoiceAllocator::MonoReuse input{255,{255,17}};
         const auto active = allocator.prepareMonoReuse(0,input);
         require(active && active->flags == 0x5f && active->voices[0] == tail && active->voices[1] == head);
-        allocator.status[head] = 0x94;
+        allocator.allocations[head].status = 0x94;
         const auto restart = allocator.prepareMonoReuse(0,input);
         require(restart && restart->flags == 0xdf);
         allocator.groups.head[group->group] = tail;
@@ -418,7 +419,7 @@ inline int verifyNativeEnvelopePcm()
         const auto last = keys.release(60,60);
         require(last && last->action == Action::releaseGroup && !keys.highest());
         require(allocator.releaseMonoGroup(0));
-        require(allocator.fieldA3E0[group->voices[0]] == 255 && allocator.fieldA3E0[group->voices[1]] == 255);
+        require(allocator.allocations[group->voices[0]].releaseCommand == 255 && allocator.allocations[group->voices[1]].releaseCommand == 255);
         const auto before = keys.words;
         require(!keys.release(128,60) && keys.words == before);
         // Current key comparison is independent of whether its bit was set.
@@ -430,17 +431,17 @@ inline int verifyNativeEnvelopePcm()
         const auto group = allocator.createGroup({0,0x80,60,1,2}); require(group.has_value());
         const auto head = allocator.groups.head[group->group], tail = allocator.groups.tail[group->group];
         allocator.groups.previous[tail] = 255;
-        allocator.groupStatus[group->group] = 94;
+        allocator.noteGroups[group->group].status = 94;
         require(allocator.releaseMonoGroup(0));
-        require(allocator.groupStatus[group->group] == 2);
-        require(allocator.fieldA3E0[head] == 255 && allocator.fieldA3E0[tail] == 255);
-        allocator.fieldA3E0.fill(0); allocator.partFlags[0] = 1;
+        require(allocator.noteGroups[group->group].status == 2);
+        require(allocator.allocations[head].releaseCommand == 255 && allocator.allocations[tail].releaseCommand == 255);
+        for(auto& voice:allocator.allocations) voice.releaseCommand=0; allocator.partFlags[0] = 1;
         require(allocator.releaseMonoGroup(0));
-        require(allocator.groupFieldA288[group->group]&1);
-        require(allocator.fieldA3E0[head] == 0 && allocator.fieldA3E0[tail] == 0);
+        require(allocator.noteGroups[group->group].retirementFlags&1);
+        require(allocator.allocations[head].releaseCommand == 0 && allocator.allocations[tail].releaseCommand == 0);
         allocator.partFlags[0] = 0; allocator.groups.head[group->group] = 24;
         require(!allocator.releaseMonoGroup(0));
-        require(allocator.fieldA3E0[tail] == 0);
+        require(allocator.allocations[tail].releaseCommand == 0);
         require(!allocator.releaseMonoGroup(16));
         require(!allocator.releaseMonoGroup(1));
     }
@@ -470,17 +471,17 @@ inline int verifyNativeEnvelopePcm()
         require(wrong && normal && rhythm);
         const sc55::MidiDecoder::Event off{sc55::MidiDecoder::Kind::message,0x87,60,0,2};
         require(notes.receiveNoteOff(off,routing,{}) == 3);
-        require(notes.allocator.groupStatus[wrong->group] == 0);
-        require(notes.allocator.groupStatus[normal->group] == 2);
-        require(notes.allocator.groupStatus[rhythm->group] == 2);
+        require(notes.allocator.noteGroups[wrong->group].status == 0);
+        require(notes.allocator.noteGroups[normal->group].status == 2);
+        require(notes.allocator.noteGroups[rhythm->group].status == 2);
         const auto high = notes.allocator.createGroup({0,0x81,125,1,1}); require(high.has_value());
         routing[0].noteFlags = 0; // High-key branch precedes mono mode.
         const sc55::MidiDecoder::Event highOff{sc55::MidiDecoder::Kind::message,0x97,125,0,2};
         require(notes.receiveNoteOff(highOff,routing,{}) == 1);
-        notes.allocator.groupStatus[rhythm->group] = 0;
+        notes.allocator.noteGroups[rhythm->group].status = 0;
         // Part1 would release before unsupported mono part0: rollback both.
         require(!notes.receiveNoteOff(off,routing,{}).has_value());
-        require(notes.allocator.groupStatus[rhythm->group] == 0);
+        require(notes.allocator.noteGroups[rhythm->group].status == 0);
         require(!sc55::SelectNoteRelease(128,0x80));
     }
     for (unsigned part = 0; part < 16; ++part)
@@ -540,7 +541,7 @@ inline int verifyNativeEnvelopePcm()
             if (part&1) pedal(part,64,127);
             const sc55::MidiDecoder::Event off{sc55::MidiDecoder::Kind::message,0x87,60,0,2};
             require(notes.noteOff(off,part,0) == true);
-            require(notes.allocator.fieldA3E0[slots[part]] == 0);
+            require(notes.allocator.allocations[slots[part]].releaseCommand == 0);
         }
         // All16 same-key notes coexist. Releasing one part must not release
         // another, and disabled receive must not clear that part's row.
@@ -551,11 +552,11 @@ inline int verifyNativeEnvelopePcm()
             require(notes.part(part)->retainedKeys[0] == 60);
             pedal(part,66,0);
             require(!notes.part(part)->sostenutoEnabled);
-            require(notes.allocator.fieldA3E0[slots[part]] == ((part&1) ? 0 : 255));
+            require(notes.allocator.allocations[slots[part]].releaseCommand == ((part&1) ? 0 : 255));
             if (part&1) pedal(part,64,0);
             for (unsigned p = 0; p < 16; ++p)
             {
-                require(notes.allocator.fieldA3E0[slots[p]] == (p <= part ? 255 : 0));
+                require(notes.allocator.allocations[slots[p]].releaseCommand == (p <= part ? 255 : 0));
                 require(notes.part(p)->retainedKeys[0] == (p <= part ? 255 : 60));
             }
         }
@@ -601,23 +602,23 @@ inline int verifyNativeEnvelopePcm()
         require(allocator.requestNoteRelease(0,61,0,retained) == true);
         require(allocator.releaseRetainedKeys(0,retained));
         for (auto key : retained) require(key == 255);
-        require(allocator.fieldA3E0[first->voices[0]] == 255);
-        require(allocator.fieldA3E0[first->voices[1]] == 255);
-        require(allocator.fieldA3E0[second->voices[0]] == 0);
+        require(allocator.allocations[first->voices[0]].releaseCommand == 255);
+        require(allocator.allocations[first->voices[1]].releaseCommand == 255);
+        require(allocator.allocations[second->voices[0]].releaseCommand == 0);
         require(allocator.setPartHold(0,false,retained));
-        require(allocator.fieldA3E0[second->voices[0]] == 255);
+        require(allocator.allocations[second->voices[0]].releaseCommand == 255);
 
-        allocator.fieldA3E0.fill(0);
+        for(auto& voice:allocator.allocations) voice.releaseCommand=0;
         retained.fill(61);
         // Full nonmatching row exits at the first group, skipping the second.
         require(allocator.releaseRetainedKeys(0,retained));
-        require(allocator.fieldA3E0[second->voices[0]] == 0);
+        require(allocator.allocations[second->voices[0]].releaseCommand == 0);
         retained.fill(255); retained[0] = 60; retained[1] = 61;
         const auto before = retained;
         allocator.groups.tail[second->group] = 24;
         require(!allocator.releaseRetainedKeys(0,retained));
         require(retained == before);
-        for (auto request : allocator.fieldA3E0) require(request == 0);
+        for (const auto& voice : allocator.allocations) require(voice.releaseCommand == 0);
         require(!allocator.releaseRetainedKeys(16,retained));
     }
     {
@@ -626,13 +627,13 @@ inline int verifyNativeEnvelopePcm()
         const auto duplicate = allocator.createGroup({0,0,60,1,1});
         const auto released = allocator.createGroup({0,0,61,1,1});
         require(first.has_value() && duplicate.has_value() && released.has_value());
-        allocator.groupStatus[released->group] = 2;
+        allocator.noteGroups[released->group].status = 2;
         std::array<uint8_t,16> retained; retained.fill(255);
         require(allocator.captureRetainedKeys(0,retained));
         require(retained[0] == 60 && retained[1] == 255);
         // Corruption after an otherwise valid insertion must not leak changes.
         retained.fill(255);
-        allocator.groupNext[released->group] = first->group;
+        allocator.noteGroups[released->group].next = first->group;
         require(!allocator.captureRetainedKeys(0,retained));
         for (auto key : retained) require(key == 255);
         require(!allocator.captureRetainedKeys(16,retained));
@@ -673,24 +674,24 @@ inline int verifyNativeEnvelopePcm()
         require(allocator.setPartHold(0,true,retained) && allocator.partFlags[0] == 129);
         require(allocator.requestNoteRelease(0,60,0,retained) == true);
         require(allocator.requestNoteRelease(0,61,0,retained) == true);
-        require(allocator.fieldA3E0[first->voices[0]] == 0 && allocator.fieldA3E0[second->voices[0]] == 0);
+        require(allocator.allocations[first->voices[0]].releaseCommand == 0 && allocator.allocations[second->voices[0]].releaseCommand == 0);
         retained[0] = 61;
         require(allocator.setPartHold(0,false,retained) && allocator.partFlags[0] == 128);
-        require(allocator.groupStatus[first->group] == 2 && allocator.groupStatus[second->group] == 2);
-        require(allocator.fieldA3E0[first->voices[0]] == 255 && allocator.fieldA3E0[first->voices[1]] == 255);
-        require(allocator.fieldA3E0[second->voices[0]] == 0 && allocator.groupFieldA288[second->group] == 0);
-        const auto before = allocator.fieldA3E0;
+        require(allocator.noteGroups[first->group].status == 2 && allocator.noteGroups[second->group].status == 2);
+        require(allocator.allocations[first->voices[0]].releaseCommand == 255 && allocator.allocations[first->voices[1]].releaseCommand == 255);
+        require(allocator.allocations[second->voices[0]].releaseCommand == 0 && allocator.noteGroups[second->group].retirementFlags == 0);
+        const auto before = SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand);
         retained.fill(255);
-        require(allocator.setPartHold(0,false,retained) && allocator.fieldA3E0 == before);
+        require(allocator.setPartHold(0,false,retained) && SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand) == before);
         // Failure late in the chain must not commit earlier group/part clears.
         require(allocator.setPartHold(0,true,retained));
-        allocator.groupFieldA288[first->group] = allocator.groupFieldA288[second->group] = 1;
+        allocator.noteGroups[first->group].retirementFlags = allocator.noteGroups[second->group].retirementFlags = 1;
         allocator.groups.tail[second->group] = 24;
         require(!allocator.setPartHold(0,false,retained));
-        require(allocator.partFlags[0] == 129 && allocator.groupFieldA288[first->group] == 1
-            && allocator.groupFieldA288[second->group] == 1 && allocator.fieldA3E0 == before);
-        allocator.groupNext[second->group] = first->group;
-        allocator.groupFieldA288.fill(0);
+        require(allocator.partFlags[0] == 129 && allocator.noteGroups[first->group].retirementFlags == 1
+            && allocator.noteGroups[second->group].retirementFlags == 1 && SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand) == before);
+        allocator.noteGroups[second->group].next = first->group;
+        for(auto& group:allocator.noteGroups) group.retirementFlags=0;
         require(!allocator.setPartHold(0,false,retained));
         require(!allocator.setPartHold(16,true,retained));
     }
@@ -703,34 +704,34 @@ inline int verifyNativeEnvelopePcm()
         const sc55::MidiDecoder::Event off{sc55::MidiDecoder::Kind::message,0x80,60,64,2};
         require(sc55::RequestMelodicNoteOff(off,0,2,retained,allocator) == false);
         require(sc55::RequestMelodicNoteOff(off,0,3,retained,allocator) == true);
-        require(allocator.groupStatus[first->group] == 2 && allocator.groupStatus[second->group] == 0);
+        require(allocator.noteGroups[first->group].status == 2 && allocator.noteGroups[second->group].status == 0);
         for (auto slot : {first->voices[0],first->voices[1]})
-            require(allocator.fieldA360[slot] == 1 && allocator.fieldA3E0[slot] == 255);
-        require(allocator.fieldA3E0[second->voices[0]] == 0);
+            require(allocator.allocations[slot].releaseRequested == 1 && allocator.allocations[slot].releaseCommand == 255);
+        require(allocator.allocations[second->voices[0]].releaseCommand == 0);
         auto zeroOn = off; zeroOn.status = 0x90; zeroOn.second = 0;
         require(sc55::RequestMelodicNoteOff(zeroOn,0,0,retained,allocator) == true);
         require(sc55::RequestMelodicNoteOff(off,0,0,retained,allocator) == false);
         zeroOn.second = 1;
         require(!sc55::RequestMelodicNoteOff(zeroOn,0,0,retained,allocator).has_value());
         const auto deferred = allocator.createGroup({1,0,60,1,1}); require(bool(deferred));
-        allocator.partFlags[1] = 1; allocator.groupFieldA288[deferred->group] = 128;
+        allocator.partFlags[1] = 1; allocator.noteGroups[deferred->group].retirementFlags = 128;
         require(allocator.requestNoteRelease(1,60,0,retained) == true);
-        require(allocator.groupStatus[deferred->group] == 2 && allocator.groupFieldA288[deferred->group] == 129
-            && allocator.fieldA3E0[deferred->voices[0]] == 0);
+        require(allocator.noteGroups[deferred->group].status == 2 && allocator.noteGroups[deferred->group].retirementFlags == 129
+            && allocator.allocations[deferred->voices[0]].releaseCommand == 0);
         const auto held = allocator.createGroup({2,0,60,1,1}); require(bool(held));
         retained[0] = 60;
         require(allocator.requestNoteRelease(2,60,0,retained) == true);
-        require(allocator.groupStatus[held->group] == 2 && allocator.fieldA3E0[held->voices[0]] == 0);
+        require(allocator.noteGroups[held->group].status == 2 && allocator.allocations[held->voices[0]].releaseCommand == 0);
         const auto ended = allocator.createGroup({3,0,60,1,1}); require(bool(ended));
         retained[0] = 255; retained[1] = 60;
         require(allocator.requestNoteRelease(3,60,0,retained) == true);
-        require(allocator.fieldA3E0[ended->voices[0]] == 255);
+        require(allocator.allocations[ended->voices[0]].releaseCommand == 255);
         const auto corrupt = allocator.createGroup({4,0,60,1,1}); require(bool(corrupt));
         allocator.groups.tail[corrupt->group] = 24;
-        const auto flags = allocator.fieldA3E0;
+        const auto flags = SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand);
         require(!allocator.requestNoteRelease(4,60,0,retained).has_value());
-        require(allocator.groupStatus[corrupt->group] == 0 && allocator.fieldA3E0 == flags);
-        allocator.groupNext[corrupt->group] = corrupt->group;
+        require(allocator.noteGroups[corrupt->group].status == 0 && SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand) == flags);
+        allocator.noteGroups[corrupt->group].next = corrupt->group;
         require(!allocator.requestNoteRelease(4,61,0,retained).has_value());
         require(!allocator.requestNoteRelease(16,60,0,retained).has_value());
     }
@@ -741,7 +742,7 @@ inline int verifyNativeEnvelopePcm()
         require(allocation && allocator.freeCount == 23);
         require(allocator.returnVoice(allocation->voices[0]));
         require(allocator.freeCount == 23); // Reserved is not yet active.
-        allocator.status[allocation->voices[0]] = 0; // 113a, separate from createGroup.
+        allocator.allocations[allocation->voices[0]].status = 0; // 113a, separate from createGroup.
         require(allocator.returnVoice(allocation->voices[0]));
         require(allocator.freeCount == 24);
     }
@@ -750,18 +751,18 @@ inline int verifyNativeEnvelopePcm()
         std::array<sc55::VoiceReleaseAuxiliary,24> voices{};
         for (unsigned slot = 0; slot < 24; ++slot)
         {
-            allocator.fieldA3E0[slot] = uint8_t(slot*11);
+            allocator.allocations[slot].releaseCommand = uint8_t(slot*11);
             voices[slot].pending = 255; voices[slot].activity = 17;
         }
-        const auto flags = allocator.fieldA3E0;
+        const auto flags = SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand);
         unsigned remaining = 24;
         allocator.publishReleaseRequests([&](uint8_t slot,uint8_t request) {
             require(slot == --remaining); voices[slot].pending = request;
         });
-        require(remaining == 0 && allocator.fieldA3E0 == flags);
+        require(remaining == 0 && SnapshotAllocationField(allocator,&sc55::VoiceAllocator::VoiceAllocation::releaseCommand) == flags);
         for (unsigned slot = 0; slot < 24; ++slot)
             require(voices[slot].pending == flags[slot] && voices[slot].activity == 17);
-        allocator.fieldA3E0.fill(0);
+        for(auto& voice:allocator.allocations) voice.releaseCommand=0;
         allocator.publishReleaseRequests([&](uint8_t slot,uint8_t request) { voices[slot].pending = request; });
         for (const auto& voice : voices) require(voice.pending == 0);
     }
@@ -1725,11 +1726,11 @@ inline int verifyNativeEnvelopePcm()
         std::array<sc55::VoiceStopState,24> states{};
         for (auto& state : states) state = {{{2,4,6}},0x1234,0x5678,7,9};
         if (fault == 0) allocator.groups.tail[second->group] = 24;
-        if (fault == 1) allocator.groupNext[second->group] = 24;
+        if (fault == 1) allocator.noteGroups[second->group].next = 24;
         if (fault == 2)
         {
-            allocator.groupFieldA2D0[second->group] = 61;
-            allocator.groupNext[second->group] = second->group;
+            allocator.noteGroups[second->group].noteClass = 61;
+            allocator.noteGroups[second->group].next = second->group;
         }
         const auto savedAllocator = allocator;
         const auto savedStates = states;
@@ -1744,8 +1745,8 @@ inline int verifyNativeEnvelopePcm()
         require(!sc55::StopRhythmExclusiveGroups(allocator,states,16,60,load,store));
         require(io == 0 && std::memcmp(&allocator,&savedAllocator,sizeof allocator) == 0
             && std::memcmp(&states,&savedStates,sizeof states) == 0);
-        allocator.groupValue[second->group] = 42;
-        allocator.groupFieldA288[second->group] = 4;
+        allocator.noteGroups[second->group].key = 42;
+        allocator.noteGroups[second->group].retirementFlags = 4;
         const auto beforeRepeated = allocator;
         std::array<uint8_t,16> retained; retained.fill(255);
         require(!sc55::RetireRepeatedNote(allocator,states,0,42,60,0x81,retained,load,store));
@@ -1862,7 +1863,7 @@ inline int verifyNativeEnvelopePcm()
                     require(allocator.freeCount == (absent ? 1 : 0));
                     if (!absent) require(installed.voices[slot].input.restarted == restart);
                     // Invalid return links cannot emit even the channel-select write.
-                    allocator.voiceGroup[slot] = 24;
+                    allocator.allocations[slot].noteGroup = 24;
                     auto invalid = input; invalid.sample = 0xffff;
                     flags = 128; io = 0;
                     require(!sc55::RestartAndInstallVoice(slot,invalid,flags,allocator,installed,state,

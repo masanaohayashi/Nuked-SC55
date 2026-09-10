@@ -653,6 +653,7 @@ NukedSC55AudioProcessor::UiStatus NukedSC55AudioProcessor::getUiStatus() const
     status.romDirectory = selectedRomDirectory.getFullPathName();
     status.error = uiError;
     status.emulator = emulators[0].getDebugState();
+    status.hasNativeState = emulators[0].getNativeState (status.nativeState);
     return status;
 }
 

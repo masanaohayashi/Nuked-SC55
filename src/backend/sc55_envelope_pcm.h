@@ -1,6 +1,7 @@
 #pragma once
 #include "sc55_envelope_runner.h"
 #include "sc55_voice_links.h"
+#include "sc55_envelope_ramp.h"
 #include <optional>
 
 namespace sc55
@@ -18,6 +19,11 @@ template<class Read,class Write>
 std::optional<VoiceReuseReadiness> PollVoiceReuse(uint8_t channel,uint8_t flagCAF4,Read&& read,Write&& write)
 {
     if (channel >= 24) return std::nullopt;
+    if constexpr(requires { write.voiceGainLevels(channel); })
+    {
+        const auto levels=write.voiceGainLevels(channel);
+        return CheckVoiceReuse(levels[0],levels[1],flagCAF4);
+    }
     write(uint8_t(0x3e),channel);
     const auto level = [&](uint8_t a) {
         (void)read(a); const auto hi = read(uint8_t(0x3a)); const auto lo = read(uint8_t(0x3b));
@@ -48,6 +54,15 @@ template<class Read,class Write>
 std::optional<VoiceStopPlan> StopVoicePcm(uint8_t channel,Read&& read,Write&& write)
 {
     if (channel >= 24) return std::nullopt;
+    if constexpr(requires { write.voiceGainLevels(channel);
+        write.setVoiceRamp(channel,EnvelopeRamp::Stage::firstGain,uint16_t(0)); }) {
+        const auto levels=write.voiceGainLevels(channel);
+        const auto plan=PrepareVoiceStop(levels[0],levels[1]);
+        write.setVoiceRamp(channel,levels[1]<levels[0] ? EnvelopeRamp::Stage::firstGain
+            : EnvelopeRamp::Stage::secondGain,0xb6);
+        return plan;
+    }
+    else {
     write(uint8_t(0x3e),channel);
     const auto level = [&](uint8_t address) {
         (void)read(address);
@@ -61,6 +76,7 @@ std::optional<VoiceStopPlan> StopVoicePcm(uint8_t channel,Read&& read,Write&& wr
     write(plan.pcmAddress,uint8_t(0));
     write(uint8_t(plan.pcmAddress+1),uint8_t(0xb6));
     return plan;
+    }
 }
 
 struct EnvelopePcmSync
@@ -92,9 +108,13 @@ template<class Write>
 bool WriteEnvelopeTermination(uint8_t physicalChannel,Write&& write)
 {
     if (physicalChannel >= 32) return false;
+    if constexpr(requires { write.setVoiceRamp(physicalChannel,EnvelopeRamp::Stage::secondGain,uint16_t(0)); })
+        write.setVoiceRamp(physicalChannel,EnvelopeRamp::Stage::secondGain,0xb6);
+    else {
     write(uint8_t(0x3e),physicalChannel);
     write(uint8_t(0x18),uint8_t(0));
     write(uint8_t(0x19),uint8_t(0xb6));
+    }
     return true;
 }
 
@@ -118,11 +138,17 @@ std::optional<EnvelopeTermination> PollEnvelopeTermination(unsigned channel,
 {
     if (channel >= 24) return std::nullopt;
     if (stage != 14 && stage != 16) return EnvelopeTermination::bypassed;
+    const auto level=[&]() -> uint16_t {
+    if constexpr(requires { write.voiceRampLevel(uint8_t(channel),EnvelopeRamp::Stage::firstGain); })
+        return write.voiceRampLevel(uint8_t(channel),stage==14 ? EnvelopeRamp::Stage::firstGain : EnvelopeRamp::Stage::secondGain);
+    else {
     write(uint8_t(0x3e),uint8_t(channel));
     (void)read(uint8_t(stage == 14 ? 0x32 : 0x34));
     const auto hi = read(uint8_t(0x3a));
     const auto lo = read(uint8_t(0x3b));
-    const auto level = uint16_t((hi<<8)|lo);
+    return uint16_t((hi<<8)|lo);
+    }
+    }();
     if (level)
     {
         activity = uint8_t(uint16_t(level*2)>>8);

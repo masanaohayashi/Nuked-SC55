@@ -5,7 +5,23 @@
 
 ## 最初に読むこと
 
-- 通常起動は現在もH8経路。製品のC++化は未完了。
+- [現在の完成条件とWAVESTATION構成](docs/firmware/WAVESTATION_STRUCTURE_CHECK_2026-09-09.md):
+  H8制御の完全C++化がゴール。既存PCMを使い続けてよく、独立PCMの既定化は必須ではない。
+- [H8完全置換の実装ログ](docs/firmware/NATIVE_SYSTEM_IMPLEMENTATION_2026-09-09.md):
+  製品はC++制御が既定。全機能・動作一致は未完了。追記は時点ごとの記録として読む。
+- [CPUの仕事とC++接続の現在地](docs/firmware/CPU_NATIVE_READINESS_2026-09-09.md):
+  解析開始時点の責務整理。本文の未接続一覧や既定H8という記述は歴史的なもの。
+- [設定転送・起動・パネル・実行順序](docs/firmware/CPU_SERVICES_AND_ORDER_2026-09-09.md):
+  model45、bulk48/49、RQ1、TX診断の制限、RAM保持reset、イベントの合流と優先順序。
+- [CPUのエフェクト設定](docs/firmware/CPU_EFFECTS_CONTROL_2026-09-09.md):
+  reverb/chorusの全切替・差分更新・フェード・33周期待機とPCMへの接続。
+- [SysEx・初期化・リセット同期](docs/firmware/SYSTEM_SYSEX_RESET_2026-09-09.md):
+  141設定レコードと7書込形式、task 7の音源リセット責務、scale/fine tuningの旧誤判定を訂正。
+- [CPUイベントとボイス寿命](docs/firmware/CPU_EVENT_LIFECYCLE_2026-09-09.md):
+  task 1の16種の処理先、CC入力の実測、release要求→EG→返却、解析済み奪取仕様と未接続箇所。
+- CPUの責務・タスク分類の訂正は [CPU役割マップ](docs/firmware/CPU_ROLE_MAP_2026-09-09.md) を参照。
+  9実タスク＋idle、task 8の8tick周期、MIDI→発音→PCMと表示処理を再確認。全機能解析完了ではない。
+- 通常起動はC++制御＋既存PCM。`NUKED_SC55_USE_H8=1` でH8参照経路。完全置換は未完了。
 - 2026-09-09: 音量LFOの呼び出し接続・最終変換・復帰を追加。
   [スタック・演算・音声一致](docs/firmware/NATIVE_LEVEL_CONNECTIONS_2026-09-09.md)。
 - 2026-09-09: 音量LFOの直接入口と非マスク経路43命令をC++化。
@@ -263,7 +279,25 @@
   範囲判定の積み上がりを除去。旧測定版比で24音-2.92%、idle-3.80%（各2回）。
 
 - [ボイス基準値の更新](docs/firmware/NATIVE_VOICE_BASE_VALUE_2026-09-09.md):
-  4858..4923の72命令。基準値補正・保存とページ3の補正テーブル参照、桁借り付き補正とゼロ制限。LDC.Wの命令境界訂正を含む。
+  4858..49aaの124命令。基準値補正・保存、ページ3の補正テーブル、パッチbyte11とPCM値×byte12の補正。PCMラッチ状態も比較。LDC.Wの命令境界訂正を含む。
+
+- [ボイス基準値の差分更新](docs/firmware/NATIVE_VOICE_BASE_DIFFERENCE_2026-09-09.md):
+  49ad..4a4dの57命令。bit5/7による差分初期化・累積、割り込みマスク解除とNOP。
+
+- [パッチからのボイス補正係数](docs/firmware/NATIVE_VOICE_PATCH_SCALE_2026-09-09.md):
+  4a4e..4ad7の50命令。5補正値の保存・符号反転、テーブルと乗算・丸めによる係数算出。
+
+- [ボイス補正係数の適用](docs/firmware/NATIVE_VOICE_PATCH_APPLY_2026-09-09.md):
+  4ada..4c50の154命令。5ブロックの乗算・中間値抽出、基準値への加減算とゼロ制限。
+
+- [PCM由来値によるボイス追加補正](docs/firmware/NATIVE_VOICE_PCM_CORRECTION_2026-09-09.md):
+  4c53..4cb7の38命令。byte17による乗算・補正、3組への保存、補正値の大小判定と割り込みマスク解除。
+
+- [ボイス補正カーブ](docs/firmware/NATIVE_VOICE_CURVE_2026-09-09.md):
+  4cbb..4d21の40命令。ページ3のdd42参照、byte32による補正、voice[-54]への保存。LDC.Wの境界訂正を含む。
+
+- [第2ボイス補正カーブ](docs/firmware/NATIVE_SECOND_VOICE_CURVE_2026-09-09.md):
+  4d26..4d87の39命令。byte31/33とページ3のdd62参照、voice[-52]への保存。LDC.Wの境界訂正を含む。
 
 1. 本索引で対象分野と訂正先を確認する。
 2. 該当する実装ヘッダーとoracle/testを読む。検証済み入力範囲と未対応条件を確認する。

@@ -253,6 +253,7 @@
 		6544EF32561DDB50576BD6CC /* include_juce_audio_processors_headless_lv2_libs.cpp */ /* include_juce_audio_processors_headless_lv2_libs.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = include_juce_audio_processors_headless_lv2_libs.cpp; path = ../../JuceLibraryCode/include_juce_audio_processors_headless_lv2_libs.cpp; sourceTree = SOURCE_ROOT; };
 		669272BD6E567FD9F9BAE67F /* Info-Standalone_Plugin.plist */ /* Info-Standalone_Plugin.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Info-Standalone_Plugin.plist"; path = "Info-Standalone_Plugin.plist"; sourceTree = SOURCE_ROOT; };
 		687B27CB561E434796E31173 /* pcm_sim.cpp */ /* pcm_sim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = pcm_sim.cpp; path = ../../../src/backend/pcm_sim.cpp; sourceTree = SOURCE_ROOT; };
+		69108EE314CBE895E010CAE4 /* BackPanel.png */ /* BackPanel.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = BackPanel.png; path = ../../Images/BackPanel.png; sourceTree = SOURCE_ROOT; };
 		69E6D14AB8A96ED206B1BCFB /* juce_audio_processors */ /* juce_audio_processors */ = {isa = PBXFileReference; lastKnownFileType = folder; name = juce_audio_processors; path = ../../../3rdparty/JUCE/modules/juce_audio_processors; sourceTree = SOURCE_ROOT; };
 		6ABF50028CECEAB82DE9CC36 /* GS_old.png */ /* GS_old.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = GS_old.png; path = ../../Images/GS_old.png; sourceTree = SOURCE_ROOT; };
 		6C99A7AFEAE38D475F96F8B6 /* Cocoa.framework */ /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
@@ -584,6 +585,7 @@
 			isa = PBXGroup;
 			children = (
 				02E8D33C8321EFA4D764FADF,
+				69108EE314CBE895E010CAE4,
 				B6759039BC794D46B117144F,
 				B7C56968A6C5DD35B3D93333,
 				0E7E755690E59F445D3AB337,

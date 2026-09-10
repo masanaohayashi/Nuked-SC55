@@ -17,6 +17,7 @@
 // 波形は 7 種類（ジャンプテーブルの有効エントリ 0..6）:
 //   [0] 正弦   [1] 矩形   [2] 鋸   [3] 台形状   [4][5][6] ランダム（平滑量違い）
 #pragma once
+#include "sc55_control_random.h"
 
 #include <cmath>
 #include <cstdint>
@@ -230,11 +231,7 @@ struct LfoWaveformState
             const uint32_t low = (doubled&65535u)+phase;
             if (uint16_t((doubled>>16)+(low>>16)) != 0)
             {
-                write(uint8_t(0x3e),uint8_t(30));
-                (void)read(uint8_t(0x34));
-                const auto high = read(uint8_t(0x3a));
-                const auto lowByte = read(uint8_t(0x3b));
-                held = uint16_t((uint16_t(high)<<8)|lowByte);
+                held = ReadControlRandom(read,write);
             }
             phase = uint16_t(low);
             if (waveform == 4) output = held;
@@ -439,9 +436,7 @@ bool InitializeFirstModulation(ModulationBlock& block,const FirstModulationInput
     if (input.rateControl > 127 || input.depthControl > 127 || input.delayControl > 127) return false;
     auto next = block;
     PrepareFirstModulation(next,input.mode,input.delay,input.attack,input.delayControl,timing);
-    write(uint8_t(0x3e),uint8_t(30)); (void)read(uint8_t(0x34));
-    const auto high = read(uint8_t(0x3a)); const auto low = read(uint8_t(0x3b));
-    next.wave.held = next.wave.smoothed = uint16_t((uint16_t(high)<<8)|low);
+    next.wave.held = next.wave.smoothed = ReadControlRandom(read,write);
     PrepareFirstModulationControls(next,input.baseRate,input.pitchDepth,input.rateControl,input.depthControl,depths);
     next.advance(1,rates,tables,read,write);
     block = next;
@@ -580,9 +575,7 @@ void InitializeSecondModulation(ModulationBlock& block,const SC55Partial& partia
 {
     PrepareFirstModulation(block,partial.raw[4],partial.raw[6],partial.raw[7],64,timing);
     block.rateIndex = partial.raw[5];
-    write(uint8_t(0x3e),uint8_t(30)); (void)read(uint8_t(0x34));
-    const auto high = read(uint8_t(0x3a)); const auto low = read(uint8_t(0x3b));
-    block.wave.held = block.wave.smoothed = uint16_t((uint16_t(high)<<8)|low);
+    block.wave.held = block.wave.smoothed = ReadControlRandom(read,write);
     block.advance(1,rates,tables,read,write);
 }
 
@@ -669,6 +662,7 @@ class VoiceModulationUpdate
 {
 public:
     enum class Result { invalidInput, ready, shared, stageChanged, updated };
+    bool pending() const noexcept { return pending_; }
     Result begin(unsigned channel,std::array<VoiceModulation,24>& voices,
         std::array<uint8_t,24>& sources) noexcept
     {

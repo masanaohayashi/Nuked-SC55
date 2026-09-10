@@ -1,5 +1,8 @@
 #pragma once
 #include "mcu_native.h"
+#include "pcm.h"
+#include <cstddef>
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <vector>
@@ -11,7 +14,9 @@ inline void verifyNativeVoiceBaseValue(mcu_t& cpu)
     constexpr uint16_t entries[]{0x4858,0x485c,0x485f,0x4863,0x4866,0x486a,0x486c,0x4870,0x4874,0x4876,0x4878,0x487c,0x487f,0x4882,0x4885,0x4889,
         0x488d,0x488f,0x4892,0x4896,0x4899,0x489d,0x489f,0x48a1,0x48a3,0x48a6,0x48a8,0x48aa,0x48ad,0x48b0,0x48b3,0x48b6,0x48ba,0x48bc,0x48be,0x48c0,0x48c3,0x48c5,0x48c7,0x48ca,0x48cd,0x48d0,0x48d4,
         0x48d8,0x48da,0x48dd,0x48df,0x48e1,0x48e5,0x48e7,0x48e9,0x48ed,0x48f1,0x48f3,0x48f5,0x48f9,0x48fc,
-        0x48ff,0x4903,0x4905,0x4907,0x4909,0x490c,0x490e,0x4910,0x4912,0x4914,0x4916,0x4919,0x491c,0x491f,0x4923};
+        0x48ff,0x4903,0x4905,0x4907,0x4909,0x490c,0x490e,0x4910,0x4912,0x4914,0x4916,0x4919,0x491c,0x491f,0x4923,
+        0x4927,0x492a,0x492d,0x4930,0x4933,0x4935,0x4937,0x493a,0x493c,0x493f,0x4941,0x4943,0x4945,0x4947,0x494a,0x494c,0x494f,0x4952,
+        0x4955,0x4959,0x495b,0x495d,0x495f,0x4961,0x4963,0x4966,0x4969,0x496c,0x496e,0x4970,0x4972,0x4975,0x4979,0x497b,0x497e,0x4980,0x4983,0x4985,0x4987,0x498a,0x498e,0x4990,0x4993,0x4995,0x4998,0x499a,0x499c,0x499e,0x49a1,0x49a4,0x49a7,0x49aa};
     uint32_t random = 55;
     auto next = [&] { random = random*1664525u+1013904223u; return uint16_t(random>>16); };
     unsigned cases = 0;
@@ -21,6 +26,12 @@ inline void verifyNativeVoiceBaseValue(mcu_t& cpu)
         cpu.dp = (entry == 0x48ed || entry == 0x48f1 || entry == 0x48f3 || entry == 0x48f5) ? 3 : 0;
         const auto oldEp = cpu.ep, oldDp = cpu.dp;
         cpu.tp = 0;
+        cpu.br = 0xe0;
+        cpu.pcm->select_channel = uint8_t(variant%32);
+        cpu.pcm->read_latch = next(); cpu.pcm->write_latch = next(); cpu.pcm->sim_dirty = 0;
+        for (auto& channel : cpu.pcm->ram2) for (auto& word : channel) word = next();
+        std::array<unsigned char,offsetof(pcm_t,eram)> pcmBefore{}, pcmAfter{};
+        std::memcpy(pcmBefore.data(),cpu.pcm,pcmBefore.size());
         cpu.pc = entry; cpu.sr = uint16_t((variant&15)|(((variant/16)%8)<<8)); cpu.native_debt = 0;
         for (auto& byte : cpu.sram) byte = uint8_t(next());
         for (auto& reg : cpu.r) reg = next();
@@ -43,6 +54,9 @@ inline void verifyNativeVoiceBaseValue(mcu_t& cpu)
         std::copy(std::begin(cpu.r),std::end(cpu.r),after.begin());
         const std::vector<uint8_t> result(std::begin(cpu.sram),std::end(cpu.sram));
         const auto nextEp = cpu.ep, nextDp = cpu.dp, nextIgnore = cpu.ex_ignore;
+        std::memcpy(pcmAfter.data(),cpu.pcm,pcmAfter.size());
+        const auto dirtyAfter = cpu.pcm->sim_dirty;
+        std::memcpy(cpu.pcm,pcmBefore.data(),pcmBefore.size()); cpu.pcm->sim_dirty = 0;
         cpu.ep = oldEp; cpu.dp = oldDp; cpu.ex_ignore = 0;
         cpu.pc = entry; cpu.sr = sr;
         std::copy(before.begin(),before.end(),std::begin(cpu.r));
@@ -50,6 +64,7 @@ inline void verifyNativeVoiceBaseValue(mcu_t& cpu)
         const auto opcode = MCU_ReadCodeAdvance(cpu);
         MCU_Operand_Table[opcode](cpu,opcode);
         if (cpu.pc != nextPc || cpu.sr != nextSr || cpu.ep != nextEp || cpu.dp != nextDp || cpu.ex_ignore != nextIgnore
+            || std::memcmp(cpu.pcm,pcmAfter.data(),pcmAfter.size()) != 0 || cpu.pcm->sim_dirty != dirtyAfter
             || !std::equal(after.begin(),after.end(),std::begin(cpu.r))
             || !std::equal(result.begin(),result.end(),std::begin(cpu.sram))) {
             std::fprintf(stderr,"Second voice base value mismatch at %04x variant %u\n",entry,variant);
