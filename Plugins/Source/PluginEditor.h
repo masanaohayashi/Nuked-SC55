@@ -152,7 +152,6 @@ private:
     };
 
     FilmstripSliderLookAndFeel1 filmstripSliderLookAndFeel1;
-    std::unique_ptr<juce::Label> label2x;
     std::unique_ptr<juce::TextButton> buttonPlayPause;
     std::unique_ptr<juce::TextButton> buttonStop;
     std::unique_ptr<juce::ImageButton> buttonPartDec2;
@@ -165,7 +164,6 @@ private:
     std::unique_ptr<juce::ImageButton> buttonMk2;
     std::unique_ptr<juce::ImageButton> buttonAll_new;
     std::unique_ptr<juce::ImageButton> buttonMute_new;
-    std::unique_ptr<juce::ImageButton> button2x_new;
     std::unique_ptr<juce::ImageButton> buttonPower2;
     std::unique_ptr<juce::ImageButton> buttonLevelDec2;
     std::unique_ptr<juce::ImageButton> buttonLevelInc2;
@@ -194,3 +192,4 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
+

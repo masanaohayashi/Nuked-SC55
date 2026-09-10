@@ -14,6 +14,16 @@
 
 ## 現在の製品構造
 
+### 2X廃止
+
+ユーザー指示で2Xを廃止。音源インスタンスは一台のみとし、二台目の生成、
+MIDIの奇偶チャンネル振分け、音声加算、LCD合成、パネル操作の複製を削除。
+旧保存状態のprimary MIDI受信設定は維持し、secondary設定は無視／再保存時に除去。
+以下の2X関連の過去試験記録は廃止前の履歴。可変polyphonyは単一C++音源で実装する。
+検証：native-adapter（44.1/48/96kHzの発音・パネル・LCD）とC++→H8→C++の
+engine-switchがPASS。Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED。
+ログは`/tmp/sc55-remove-2x-{adapter,switch,release}.log`。Logic実機確認は未実施。
+
 ### 可変polyphonyの実装着手（未完了）
 
 追加実装：VoiceLinks/VoiceGroupLinks/VoiceAllocatorを保管容量のtemplateに変更。
@@ -46,7 +56,7 @@ voice-set試験（31/32、63/64、95/96、127/128境界を含む）と既存nati
   mode低5bitだけに128個の論理voice IDを詰めない。typed voice API経由で接続する。
 - voice loopの拡張でPCM clockが変わらないようにする（現行nativeは1frame625cycles）。
   effects returnはslot位置で挿入しているため、voice増加で重複加算しない。
-- sliderの制約・OFF時disable・音声外の再初期化・2X時の上限の扱いを接続。
+- sliderの制約・OFF時disable・音声外の再初期化を接続。
 - 24音互換、全27設定値の上限、満杯時steal、mono/drum、reserve、resetを検証。
 
 比較スイッチOFFのPCM方式を修正。以前はEmulatorコンストラクタが高速PCMを

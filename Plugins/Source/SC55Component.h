@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.0
+  Created with Projucer version: 9.0.2
 
   ------------------------------------------------------------------------------
 
@@ -108,7 +108,6 @@ private:
     };
 
     FilmstripSliderLookAndFeel1 filmstripSliderLookAndFeel1;
-    std::unique_ptr<juce::Label> label2x;
     std::unique_ptr<juce::TextButton> buttonPlayPause;
     std::unique_ptr<juce::TextButton> buttonStop;
     std::unique_ptr<juce::ImageButton> buttonPartDec;
@@ -121,7 +120,6 @@ private:
     std::unique_ptr<juce::ImageButton> buttonMk2;
     std::unique_ptr<juce::ImageButton> buttonAll;
     std::unique_ptr<juce::ImageButton> buttonMute;
-    std::unique_ptr<juce::ImageButton> button2x;
     std::unique_ptr<juce::ImageButton> buttonPower;
     std::unique_ptr<juce::ImageButton> buttonLevelDec;
     std::unique_ptr<juce::ImageButton> buttonLevelInc;

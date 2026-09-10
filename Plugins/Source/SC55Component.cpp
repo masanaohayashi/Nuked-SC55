@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.0
+  Created with Projucer version: 9.0.2
 
   ------------------------------------------------------------------------------
 
@@ -47,18 +47,6 @@ SC55Component::SC55Component ()
     sliderMasterVolume->setLookAndFeel (&filmstripSliderLookAndFeel1);
 
     sliderMasterVolume->setBounds (132, 24, 64, 64);
-
-    label2x.reset (new juce::Label (juce::String(),
-                                    TRANS ("2X")));
-    addAndMakeVisible (label2x.get());
-    label2x->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
-    label2x->setJustificationType (juce::Justification::centredRight);
-    label2x->setEditable (false, false, false);
-    label2x->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
-    label2x->setColour (juce::TextEditor::textColourId, juce::Colours::black);
-    label2x->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
-
-    label2x->setBounds (648, 112, 46, 16);
 
     buttonPlayPause.reset (new juce::TextButton (juce::String()));
     addAndMakeVisible (buttonPlayPause.get());
@@ -172,16 +160,6 @@ SC55Component::SC55Component ()
                            juce::ImageCache::getFromMemory (BinaryData::LedButton_off_png, BinaryData::LedButton_off_pngSize), 1.000f, juce::Colour (0x00000000),
                            juce::ImageCache::getFromMemory (BinaryData::LedButton_on_png, BinaryData::LedButton_on_pngSize), 1.000f, juce::Colour (0x00000000));
     buttonMute->setBounds (696, 64, 24, 24);
-
-    button2x.reset (new juce::ImageButton (juce::String()));
-    addAndMakeVisible (button2x.get());
-    button2x->addListener (this);
-
-    button2x->setImages (false, true, true,
-                         juce::ImageCache::getFromMemory (BinaryData::LedButton_off_png, BinaryData::LedButton_off_pngSize), 1.000f, juce::Colour (0x00000000),
-                         juce::ImageCache::getFromMemory (BinaryData::LedButton_off_png, BinaryData::LedButton_off_pngSize), 1.000f, juce::Colour (0x00000000),
-                         juce::ImageCache::getFromMemory (BinaryData::LedButton_on_png, BinaryData::LedButton_on_pngSize), 1.000f, juce::Colour (0x00000000));
-    button2x->setBounds (696, 108, 24, 24);
 
     buttonPower.reset (new juce::ImageButton (juce::String()));
     addAndMakeVisible (buttonPower.get());
@@ -378,7 +356,6 @@ SC55Component::~SC55Component()
     lcd = nullptr;
     sliderMasterVolume->setLookAndFeel (nullptr);
     sliderMasterVolume = nullptr;
-    label2x = nullptr;
     buttonPlayPause = nullptr;
     buttonStop = nullptr;
     buttonPartDec = nullptr;
@@ -391,7 +368,6 @@ SC55Component::~SC55Component()
     buttonMk2 = nullptr;
     buttonAll = nullptr;
     buttonMute = nullptr;
-    button2x = nullptr;
     buttonPower = nullptr;
     buttonLevelDec = nullptr;
     buttonLevelInc = nullptr;
@@ -521,11 +497,6 @@ void SC55Component::buttonClicked (juce::Button* buttonThatWasClicked)
         //[UserButtonCode_buttonMute] -- add your button handler code here..
         //[/UserButtonCode_buttonMute]
     }
-    else if (buttonThatWasClicked == button2x.get())
-    {
-        //[UserButtonCode_button2x] -- add your button handler code here..
-        //[/UserButtonCode_button2x]
-    }
     else if (buttonThatWasClicked == buttonPower.get())
     {
         //[UserButtonCode_buttonPower] -- add your button handler code here..
@@ -643,11 +614,6 @@ BEGIN_JUCER_METADATA
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="BinaryData::Volume_png" filmstripFrames="101"
           filmstripVertical="1"/>
-  <LABEL name="" id="571536871ed7a09d" memberName="label2x" virtualName=""
-         explicitFocusOrder="0" pos="648 112 46 16" textCol="80ffffff"
-         edTextCol="ff000000" edBkgCol="0" labelText="2X" editableSingleClick="0"
-         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
-         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="34"/>
   <TEXTBUTTON name="" id="d38aac467e703aaf" memberName="buttonPlayPause" virtualName=""
               explicitFocusOrder="0" pos="88 144 64 24" buttonText="PLAY" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
@@ -710,12 +676,6 @@ BEGIN_JUCER_METADATA
                connectedEdges="0" needsCallback="1" radioGroupId="0" keepProportions="1"
                resourceNormal="BinaryData::LedButton_off_png" opacityNormal="1.0"
                colourNormal="0" resourceOver="BinaryData::LedButton_off_png"
-               opacityOver="1.0" colourOver="0" resourceDown="BinaryData::LedButton_on_png"
-               opacityDown="1.0" colourDown="0"/>
-  <IMAGEBUTTON name="" id="a87ba9651dd9c626" memberName="button2x" virtualName=""
-               explicitFocusOrder="0" pos="696 108 24 24" buttonText="" connectedEdges="0"
-               needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::LedButton_off_png"
-               opacityNormal="1.0" colourNormal="0" resourceOver="BinaryData::LedButton_off_png"
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::LedButton_on_png"
                opacityDown="1.0" colourDown="0"/>
   <IMAGEBUTTON name="" id="44ae4a19ee6707ae" memberName="buttonPower" virtualName=""

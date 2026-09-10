@@ -1396,53 +1396,6 @@ int main(int argc,char** argv) {
         std::puts("Native adapter: 200000-frame host block matches 257-frame partitions exactly");
         return 0;
     }
-    if(argc == 3 && std::strcmp(argv[2],"--native-panel-two-x") == 0) {
-        const auto* cache=std::getenv("SC55_TEST_CACHE");if(!cache) return 6;
-        NukedSC55Emulator primary,secondary;
-        if(!primary.initialise(argv[1],48000,cache) || !secondary.initialise(argv[1],48000,cache)) return 5;
-        using Button=NukedSC55Emulator::FrontPanelButton;
-        std::array<float,513> left{},right{};
-        const auto settle=[&] {
-            for(unsigned i=0;i<16;++i) {
-                primary.render(left.data(),right.data(),513);
-                secondary.render(left.data(),right.data(),513);
-            }
-        };
-        primary.pressFrontPanelButton(Button::partInc);
-        primary.pressFrontPanelButton(Button::partInc);settle();
-        // Same fan-out entry as the processor when 2X becomes active.
-        primary.pressFrontPanelButton(Button::partInc,&secondary);
-        primary.pressFrontPanelButton(Button::levelDec,&secondary);settle();
-        sc55::SynthState a,b;primary.getNativeState(a);secondary.getNativeState(b);settle();
-        primary.getNativeState(a);secondary.getNativeState(b);
-        std::printf("2X selected=%u/%u part4 volume=%u/%u\n",a.selectedPart,b.selectedPart,a.parts[4].volume,b.parts[4].volume);
-        std::fflush(stdout);
-        if(a.selectedPart!=3 || b.selectedPart!=3 || a.parts[4].volume!=99 || b.parts[4].volume!=99)
-            throw std::runtime_error("2X panel command targeted different parts after single-engine selection");
-        const auto snapshot=[&] {
-            settle();primary.getNativeState(a);secondary.getNativeState(b);settle();
-            primary.getNativeState(a);secondary.getNativeState(b);
-        };
-        // Enabling 2X need not be followed by a PART key. SOLO must use the
-        // command's target, not the secondary's previous selection.
-        primary.pressFrontPanelButton(Button::partInc);
-        primary.pressFrontPanelButton(Button::solo,&secondary);snapshot();
-        if(a.selectedPart!=4 || b.selectedPart!=4 || !a.soloEnabled || !b.soloEnabled)
-            throw std::runtime_error("2X SOLO lost the resolved target");
-        primary.pressFrontPanelButton(Button::solo,&secondary);snapshot();
-        for(unsigned i=0;i<63;++i) secondary.pressFrontPanelButton(Button::partDec);
-        primary.pressFrontPanelButton(Button::partInc,&secondary);snapshot();
-        if(a.selectedPart!=4 || b.selectedPart!=0)
-            throw std::runtime_error("Full secondary queue accepted half of a 2X gesture");
-        primary.pressFrontPanelButton(Button::partInc,&secondary);snapshot();
-        if(a.selectedPart!=5 || b.selectedPart!=5)
-            throw std::runtime_error("Rejected 2X gesture advanced UI selection");
-        primary.pressFrontPanelButton(Button::levelDec,&primary);snapshot();
-        if(a.parts[6].volume!=99)
-            throw std::runtime_error("Self mirror applied a command twice");
-        std::puts("2X panel: shared target, SOLO, queue backpressure and self mirror PASS");
-        return 0;
-    }
     if(argc == 3 && std::strcmp(argv[2],"--native-adapter") == 0) {
         const auto* cache=std::getenv("SC55_TEST_CACHE");
         if(!cache) return 6;
@@ -1491,23 +1444,6 @@ int main(int argc,char** argv) {
                 || std::count(mask.begin(),mask.end(),uint8_t(1))<100)
                 throw std::runtime_error("Native LCD is blank");
             if(rate==44100) {
-                NukedSC55Emulator second;
-                if(!second.initialise(argv[1],rate,cache)) throw std::runtime_error("2X initialization failed");
-                const uint8_t secondNote[]{0x91,67,127}; second.sendMidi(secondNote,3);
-                for(unsigned i=0;i<16;++i) second.render(left.data(),right.data(),513);
-                second.getNativeState(state);
-                second.render(left.data(),right.data(),513);
-                if(!second.getNativeState(state) || !state.parts[2].envelopeLevel)
-                    throw std::runtime_error("2X alternate voice missing");
-                std::vector<uint8_t> merged(mask.size());
-                if(!adapter.copyMergedLcdDisplay(second,merged.data(),LCD_DISPLAY_WIDTH))
-                    throw std::runtime_error("Native 2X LCD missing");
-                // Deliberately different selections/programs: names must not
-                // interleave. Only the lower meter region should change.
-                const auto topEnd=LCD_DISPLAY_WIDTH*70;
-                if(!std::equal(mask.begin(),mask.begin()+topEnd,merged.begin())
-                    || std::equal(mask.begin()+topEnd,mask.end(),merged.begin()+topEnd))
-                    throw std::runtime_error("Native 2X LCD corrupted text or omitted alternate activity");
                 std::ofstream image(std::string(cache)+"/native-panel.pgm",std::ios::binary);
                 image<<"P5\n"<<LCD_DISPLAY_WIDTH<<" "<<LCD_DISPLAY_HEIGHT<<"\n255\n";
                 for(auto pixel:mask) image.put(char(pixel==1?0:pixel==2?220:255));

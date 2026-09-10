@@ -111,7 +111,7 @@ public:
     static void logRomSetDiagnostics (const std::string& romDirectory);
 
     void sendMidi (const uint8_t* data, int size);
-    void pressFrontPanelButton (FrontPanelButton button, NukedSC55Emulator* mirror = nullptr);
+    void pressFrontPanelButton (FrontPanelButton button);
     void render (float* left, float* right, int numSamples);
 
     // Message-thread only. Returns the latest complete native sound state;
@@ -120,10 +120,6 @@ public:
 
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
     bool copyLcdDisplay (uint8_t* destination, size_t destinationStride) const;
-
-    /** Copies a display with channel-specific LCD content merged from another instance. */
-    bool copyMergedLcdDisplay (const NukedSC55Emulator& alternate,
-                               uint8_t* destination, size_t destinationStride) const;
 
     bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
 

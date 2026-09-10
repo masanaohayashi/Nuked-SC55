@@ -33,7 +33,6 @@ constexpr uint32_t midiPauseCommand = 1u << 0;
 constexpr uint32_t midiStopCommand = 1u << 1;
 constexpr const char* romNameStateProperty = "romName";
 constexpr const char* midiInputStateProperty = "nativeMidiInputV1";
-constexpr const char* secondaryMidiInputStateProperty = "nativeMidiInputSecondaryV1";
 // Strip this property from newly-written state blobs.  It is not used for
 // loading because ROMs must come from the App Group's shared library.
 constexpr const char* romDirectoryStateProperty = "romDirectory";
@@ -630,7 +629,6 @@ void NukedSC55AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     sc55debug::log ("prepareToPlay rate=%.2f block=%d", sampleRate, samplesPerBlock);
     processLoadMeasurer.reset (sampleRate, std::max (1, samplesPerBlock));
     maximumProcessLoadPercent.store (0.0);
-    secondaryRenderBuffer.setSize (2, std::max (1, samplesPerBlock), false, true, true);
     currentSampleRate.store (sampleRate, std::memory_order_release);
     midiFilePlaying.store (false, std::memory_order_release);
     midiFilePositionForUi.store (0.0, std::memory_order_release);
@@ -650,12 +648,11 @@ NukedSC55AudioProcessor::UiStatus NukedSC55AudioProcessor::getUiStatus() const
 {
     UiStatus status;
     status.audioReady = audioReady.load (std::memory_order_acquire);
-    status.twoXEnabled = twoXEnabled.load (std::memory_order_acquire);
     status.sampleRate = currentSampleRate.load (std::memory_order_acquire);
     status.romDirectory = selectedRomDirectory.getFullPathName();
     status.error = uiError;
-    status.emulator = emulators[0].getDebugState();
-    status.hasNativeState = emulators[0].getNativeState (status.nativeState);
+    status.emulator = emulator.getDebugState();
+    status.hasNativeState = emulator.getNativeState (status.nativeState);
     return status;
 }
 
@@ -764,10 +761,7 @@ NukedSC55AudioProcessor::WrdDisplayState NukedSC55AudioProcessor::getWrdDisplayS
 
 bool NukedSC55AudioProcessor::copyLcdDisplay (uint8_t* destination, size_t destinationStride)
 {
-    if (twoXEnabled.load (std::memory_order_acquire))
-        return emulators[0].copyMergedLcdDisplay (emulators[1], destination, destinationStride);
-
-    return emulators[0].copyLcdDisplay (destination, destinationStride);
+    return emulator.copyLcdDisplay (destination, destinationStride);
 }
 
 void NukedSC55AudioProcessor::releaseResources()
@@ -777,16 +771,13 @@ void NukedSC55AudioProcessor::releaseResources()
     const juce::ScopedLock callbackLock (getCallbackLock());
     const bool wasReady = audioReady.load (std::memory_order_acquire);
     audioReady.store (false, std::memory_order_release);
-    secondaryReleaseRequested.store (false, std::memory_order_release);
-    emulators[0].release();
-    emulators[1].release();
+    emulator.release();
 
     // Keep MIDI received while no ROM is selected, but discard bytes belonging
     // to an already-running instance when the host tears that instance down.
     if (wasReady)
     {
-        emulators[0].clearPendingMidi();
-        emulators[1].clearPendingMidi();
+        emulator.clearPendingMidi();
     }
 }
 
@@ -837,7 +828,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         static_cast<unsigned long long> (processBlockCount), numSamples,
                         numChannels, midiEventCount,
                         audioReady.load (std::memory_order_acquire) ? 1 : 0,
-                        emulators[0].isReady() ? 1 : 0);
+                        emulator.isReady() ? 1 : 0);
     }
 
     for (int channel = 0; channel < numChannels; ++channel)
@@ -851,18 +842,6 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     processMidiPlaybackCommands();
     const bool playMidiFile = midiFilePlaying.load (std::memory_order_relaxed);
     const auto rate = currentSampleRate.load (std::memory_order_relaxed);
-    const bool renderTwoX = twoXEnabled.load (std::memory_order_acquire)
-                         && secondaryRenderBuffer.getNumSamples() > 0;
-
-    if (secondaryReleaseRequested.exchange (false, std::memory_order_acq_rel))
-    {
-        for (int channel = 0; channel < 16; ++channel)
-        {
-            const uint8_t allOff[3] = { static_cast<uint8_t> (0xb0 | channel), 123, 0 };
-            emulators[1].sendMidi (allOff, 3);
-        }
-    }
-
     // An SMF event used to be dispatched only at the beginning of the host
     // block. Keep the audio callback as the clock, but visit the file player at
     // roughly 1 ms intervals so large host blocks cannot quantise note starts by
@@ -882,7 +861,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                && activeMidiFile->events[midiFileNext].seconds <= midiFilePosition)
         {
             const auto& e = activeMidiFile->events[midiFileNext++];
-            sendMidiToEmulators (e.bytes.data(), static_cast<int> (e.bytes.size()));
+            sendMidiToEmulator (e.bytes.data(), static_cast<int> (e.bytes.size()));
         }
     };
 
@@ -909,7 +888,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         while (hasHostMidi && nextHostMidiPosition <= renderedSamples)
         {
             const auto message = nextHostMidi.getMessage();
-            sendMidiToEmulators (message.getRawData(), message.getRawDataSize());
+            sendMidiToEmulator (message.getRawData(), message.getRawDataSize());
 
             ++hostMidiIterator;
             hasHostMidi = hostMidiIterator != hostMidiEnd;
@@ -930,34 +909,15 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         if (playMidiFile)
             nextRenderPosition = std::min (nextRenderPosition,
                                            renderedSamples + midiFileQuantumSamples);
-        if (renderTwoX)
-            nextRenderPosition = std::min (nextRenderPosition,
-                                           renderedSamples + secondaryRenderBuffer.getNumSamples());
         if (hasHostMidi)
             nextRenderPosition = std::min (nextRenderPosition, nextHostMidiPosition);
 
         const int segmentSamples = nextRenderPosition - renderedSamples;
         if (ready && left != nullptr && segmentSamples > 0)
         {
-            emulators[0].render (left + renderedSamples,
-                                 right != nullptr ? right + renderedSamples : nullptr,
-                                 segmentSamples);
-
-            if (renderTwoX)
-            {
-                auto* secondaryLeft = secondaryRenderBuffer.getWritePointer (0);
-                auto* secondaryRight = right != nullptr
-                                     ? secondaryRenderBuffer.getWritePointer (1)
-                                     : nullptr;
-                emulators[1].render (secondaryLeft, secondaryRight, segmentSamples);
-
-                for (int i = 0; i < segmentSamples; ++i)
-                {
-                    left[renderedSamples + i] += secondaryLeft[i];
-                    if (right != nullptr)
-                        right[renderedSamples + i] += secondaryRight[i];
-                }
-            }
+            emulator.render (left + renderedSamples,
+                             right != nullptr ? right + renderedSamples : nullptr,
+                             segmentSamples);
         }
 
         renderedSamples = nextRenderPosition;
@@ -1146,7 +1106,7 @@ void NukedSC55AudioProcessor::sendAllNotesOff() noexcept
     for (int channel = 0; channel < 16; ++channel)
     {
         const uint8_t allOff[3] = { static_cast<uint8_t> (0xb0 | channel), 123, 0 };
-        sendMidiToEmulators (allOff, 3);
+        sendMidiToEmulator (allOff, 3);
     }
 }
 
@@ -1155,7 +1115,7 @@ void NukedSC55AudioProcessor::sendResetAllControllers() noexcept
     for (int channel = 0; channel < 16; ++channel)
     {
         const uint8_t reset[3] = { static_cast<uint8_t> (0xb0 | channel), 121, 0 };
-        sendMidiToEmulators (reset, 3);
+        sendMidiToEmulator (reset, 3);
     }
 }
 
@@ -1219,88 +1179,30 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
 
 void NukedSC55AudioProcessor::pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button)
 {
-    emulators[0].pressFrontPanelButton (button,
-        twoXEnabled.load (std::memory_order_acquire) ? &emulators[1] : nullptr);
+    emulator.pressFrontPanelButton (button);
 }
 
 void NukedSC55AudioProcessor::requestGsReset()
 {
     sc55debug::log ("GS reset requested by GS button");
-    const unsigned count = twoXEnabled.load (std::memory_order_acquire) ? 2u : 1u;
-    for (unsigned i = 0; i < count; ++i)
-    {
-        std::array<uint8_t, sizeof (gsResetMessage)> message;
-        std::copy (std::begin (gsResetMessage), std::end (gsResetMessage), message.begin());
-        if (emulators[i].getDebugState().nativeEngine)
-            message[2] = NativeMidiInputState::decode (emulators[i].savedMidiInputState())->deviceId;
-        // Roland's checksum covers address/data, not the device identifier.
-        emulators[i].sendMidi (message.data(), int (message.size()));
-    }
+    std::array<uint8_t, sizeof (gsResetMessage)> message;
+    std::copy (std::begin (gsResetMessage), std::end (gsResetMessage), message.begin());
+    if (emulator.getDebugState().nativeEngine)
+        message[2] = NativeMidiInputState::decode (emulator.savedMidiInputState())->deviceId;
+    // Roland's checksum covers address/data, not the device identifier.
+    emulator.sendMidi (message.data(), int (message.size()));
 }
 
 void NukedSC55AudioProcessor::requestGmReset()
 {
     sc55debug::log ("GM reset requested by GM button");
-    sendMidiToEmulators (gmResetMessage, static_cast<int> (sizeof (gmResetMessage)));
+    sendMidiToEmulator (gmResetMessage, static_cast<int> (sizeof (gmResetMessage)));
 }
 
-void NukedSC55AudioProcessor::setTwoXEnabled (bool enabled)
+void NukedSC55AudioProcessor::sendMidiToEmulator (const uint8_t* data, int size) noexcept
 {
-    if (enabled
-        && audioReady.load (std::memory_order_acquire)
-        && ! emulators[1].isReady())
-    {
-        sc55debug::log ("2X mode unavailable: secondary emulator is not ready");
-        enabled = false;
-    }
-
-    const bool previous = twoXEnabled.exchange (enabled, std::memory_order_acq_rel);
-    if (previous == enabled)
-        return;
-
-    if (previous && ! enabled)
-        secondaryReleaseRequested.store (true, std::memory_order_release);
-
-    sc55debug::log ("2X mode %s", enabled ? "enabled" : "disabled");
-    if (enabled)
-        triggerAsyncUpdate();
-}
-
-void NukedSC55AudioProcessor::sendMidiToEmulators (const uint8_t* data, int size) noexcept
-{
-    if (data == nullptr || size <= 0)
-        return;
-
-    const auto status = data[0];
-    const bool useTwoX = twoXEnabled.load (std::memory_order_acquire);
-
-    if (! useTwoX)
-    {
-        emulators[0].sendMidi (data, size);
-        return;
-    }
-
-    // A running-status data byte is not a complete message at this boundary;
-    // keep the defensive behavior of the single-instance path.
-    if (status < 0x80)
-    {
-        emulators[0].sendMidi (data, size);
-        return;
-    }
-
-    // In 2X mode, notes are split between the two complete emulators while
-    // channel state and other performance data must remain identical. System
-    // messages have no MIDI channel, so they are broadcast as well.
-    const auto messageType = static_cast<uint8_t> (status & 0xf0);
-    if (status >= 0xf0 || (messageType != 0x80 && messageType != 0x90))
-    {
-        emulators[0].sendMidi (data, size);
-        emulators[1].sendMidi (data, size);
-        return;
-    }
-
-    const auto instance = static_cast<size_t> ((status & 0x0f) & 1u);
-    emulators[instance].sendMidi (data, size);
+    if (data != nullptr && size > 0)
+        emulator.sendMidi (data, size);
 }
 
 void NukedSC55AudioProcessor::handleAsyncUpdate()
@@ -1400,24 +1302,12 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
     const auto nativeCacheDirectory = settingsDirectory.isDirectory()
         ? settingsDirectory.getChildFile ("NativeSoundData").getFullPathName().toStdString()
         : std::string();
-    if (! emulators[0].initialise (directory.getFullPathName().toStdString(), sampleRate,
-                                  nativeCacheDirectory, mode))
+    if (! emulator.initialise (directory.getFullPathName().toStdString(), sampleRate,
+                               nativeCacheDirectory, mode))
     {
-        uiError = juce::String (emulators[0].getError());
-        sc55debug::log ("ROM directory initialisation failed: %s", emulators[0].getError().c_str());
+        uiError = juce::String (emulator.getError());
+        sc55debug::log ("ROM directory initialisation failed: %s", emulator.getError().c_str());
         return false;
-    }
-
-    // Construct both complete backend instances before publishing audioReady.
-    // Once the audio callback starts, 2X changes only affect MIDI routing and
-    // output mixing; no message-thread core lifetime change can race rendering.
-    if (! emulators[1].initialise (directory.getFullPathName().toStdString(), sampleRate,
-                                  nativeCacheDirectory, mode))
-    {
-        sc55debug::log ("2X secondary initialisation failed: %s; continuing with one emulator",
-                        emulators[1].getError().c_str());
-        twoXEnabled.store (false, std::memory_order_release);
-        emulators[1].release();
     }
 
     uiError.clear();
@@ -1514,8 +1404,8 @@ void NukedSC55AudioProcessor::launchRomChooser()
             "sc55_waverom2.bin, sc55_waverom3.bin\n"
         "SC-55mkII: rom1.bin, rom2.bin, waverom1.bin, waverom2.bin, rom_sm.bin";
 
-        if (! emulators[0].getError().empty())
-            message += "\n\n" + juce::String (emulators[0].getError());
+        if (! emulator.getError().empty())
+            message += "\n\n" + juce::String (emulator.getError());
 
         const auto options = juce::MessageBoxOptions::makeOptionsOk (
             juce::AlertWindow::WarningIcon,
@@ -1544,8 +1434,8 @@ juce::AudioProcessorEditor* NukedSC55AudioProcessor::createEditor()
 void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
-    state.setProperty (midiInputStateProperty, int (emulators[0].savedMidiInputState()), nullptr);
-    state.setProperty (secondaryMidiInputStateProperty, int (emulators[1].savedMidiInputState()), nullptr);
+    state.setProperty (midiInputStateProperty, int (emulator.savedMidiInputState()), nullptr);
+    state.removeProperty ("nativeMidiInputSecondaryV1", nullptr); // Obsolete 2X state.
     const auto selectedRomIsStored = selectedRomDirectory.isDirectory()
                                   && selectedRomDirectory.getParentDirectory()
                                          == getRomStorageDirectory();
@@ -1576,8 +1466,7 @@ void NukedSC55AudioProcessor::setStateInformation (const void* data, int sizeInB
         return parsed ? int64_t (*parsed) : fallback;
     };
     const auto primaryInput = inputValue (midiInputStateProperty, NativeMidiInputState::defaultValue);
-    emulators[0].restoreMidiInputState (primaryInput);
-    emulators[1].restoreMidiInputState (inputValue (secondaryMidiInputStateProperty, primaryInput));
+    emulator.restoreMidiInputState (primaryInput);
     parameters.replaceState (state);
 
     const auto savedRomName = state.getProperty (

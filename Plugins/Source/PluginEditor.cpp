@@ -355,18 +355,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     sliderMasterVolume->setBounds (132, 24, 64, 64);
 
-    label2x.reset (new juce::Label (juce::String(),
-                                    TRANS ("2X")));
-    contentComponent.addAndMakeVisible (label2x.get());
-    label2x->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
-    label2x->setJustificationType (juce::Justification::centredRight);
-    label2x->setEditable (false, false, false);
-    label2x->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
-    label2x->setColour (juce::TextEditor::textColourId, juce::Colours::black);
-    label2x->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
-
-    label2x->setBounds (648, 112, 46, 16);
-
     buttonPlayPause.reset (new juce::TextButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonPlayPause.get());
     buttonPlayPause->setButtonText (TRANS ("PLAY"));
@@ -479,16 +467,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
                                juce::ImageCache::getFromMemory (BinaryData::LedButton_off_png, BinaryData::LedButton_off_pngSize), 1.000f, juce::Colour (0x00000000),
                                juce::ImageCache::getFromMemory (BinaryData::LedButton_on_png, BinaryData::LedButton_on_pngSize), 1.000f, juce::Colour (0x00000000));
     buttonMute_new->setBounds (696, 64, 24, 24);
-
-    button2x_new.reset (new juce::ImageButton (juce::String()));
-    contentComponent.addAndMakeVisible (button2x_new.get());
-    button2x_new->addListener (this);
-
-    button2x_new->setImages (false, true, true,
-                             juce::ImageCache::getFromMemory (BinaryData::LedButton_off_png, BinaryData::LedButton_off_pngSize), 1.000f, juce::Colour (0x00000000),
-                             juce::ImageCache::getFromMemory (BinaryData::LedButton_off_png, BinaryData::LedButton_off_pngSize), 1.000f, juce::Colour (0x00000000),
-                             juce::ImageCache::getFromMemory (BinaryData::LedButton_on_png, BinaryData::LedButton_on_pngSize), 1.000f, juce::Colour (0x00000000));
-    button2x_new->setBounds (696, 108, 24, 24);
 
     buttonPower2.reset (new juce::ImageButton (juce::String()));
     contentComponent.addAndMakeVisible (buttonPower2.get());
@@ -762,8 +740,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     // chooser from inside the AUv3 extension.
     if (audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
         audioProcessor.requestRomSelection();
-    button2x_new->setClickingTogglesState (true);
-    button2x_new->setToggleState (audioProcessor.isTwoXEnabled(), juce::dontSendNotification);
     syncFrontPanelIndicators();
     //[/Constructor]
 }
@@ -782,7 +758,6 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     lcd = nullptr;
     sliderMasterVolume->setLookAndFeel (nullptr);
     sliderMasterVolume = nullptr;
-    label2x = nullptr;
     buttonPlayPause = nullptr;
     buttonStop = nullptr;
     buttonPartDec2 = nullptr;
@@ -795,7 +770,6 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonMk2 = nullptr;
     buttonAll_new = nullptr;
     buttonMute_new = nullptr;
-    button2x_new = nullptr;
     buttonPower2 = nullptr;
     buttonLevelDec2 = nullptr;
     buttonLevelInc2 = nullptr;
@@ -1022,13 +996,6 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
         suppressMuteClick = false;
         syncFrontPanelIndicators();
         //[/UserButtonCode_buttonMute_new]
-    }
-    else if (buttonThatWasClicked == button2x_new.get())
-    {
-        //[UserButtonCode_button2x_new] -- add your button handler code here..
-        audioProcessor.setTwoXEnabled (button2x_new->getToggleState());
-        syncFrontPanelIndicators();
-        //[/UserButtonCode_button2x_new]
     }
     else if (buttonThatWasClicked == buttonPower2.get())
     {
@@ -1632,9 +1599,6 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
                                + "Shift-click MUTE or hold ALL + MUTE to toggle solo.");
     if (ledPower != nullptr)
         ledPower->setValue (uiStatus.audioReady && ! state.standby ? 1.0f : 0.0f);
-    const auto twoXEnabled = audioProcessor.isTwoXEnabled();
-    if (button2x_new != nullptr)
-        button2x_new->setToggleState (twoXEnabled, juce::dontSendNotification);
     if (settingsComponent != nullptr)
     {
         const auto selectedRomName = uiStatus.romDirectory.isEmpty()
@@ -1763,11 +1727,6 @@ BEGIN_JUCER_METADATA
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="BinaryData::Volume_png" filmstripFrames="101"
           filmstripVertical="1"/>
-  <LABEL name="" id="571536871ed7a09d" memberName="label2x" virtualName=""
-         explicitFocusOrder="0" pos="648 112 46 16" textCol="80ffffff"
-         edTextCol="ff000000" edBkgCol="0" labelText="2X" editableSingleClick="0"
-         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
-         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="34"/>
   <TEXTBUTTON name="" id="d38aac467e703aaf" memberName="buttonPlayPause" virtualName=""
               explicitFocusOrder="0" pos="88 144 64 24" buttonText="PLAY" connectedEdges="0"
               needsCallback="1" radioGroupId="0"/>
@@ -1830,12 +1789,6 @@ BEGIN_JUCER_METADATA
                connectedEdges="0" needsCallback="1" radioGroupId="0" keepProportions="1"
                resourceNormal="BinaryData::LedButton_off_png" opacityNormal="1.0"
                colourNormal="0" resourceOver="BinaryData::LedButton_off_png"
-               opacityOver="1.0" colourOver="0" resourceDown="BinaryData::LedButton_on_png"
-               opacityDown="1.0" colourDown="0"/>
-  <IMAGEBUTTON name="" id="a87ba9651dd9c626" memberName="button2x_new" virtualName=""
-               explicitFocusOrder="0" pos="696 108 24 24" buttonText="" connectedEdges="0"
-               needsCallback="1" radioGroupId="0" keepProportions="1" resourceNormal="BinaryData::LedButton_off_png"
-               opacityNormal="1.0" colourNormal="0" resourceOver="BinaryData::LedButton_off_png"
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::LedButton_on_png"
                opacityDown="1.0" colourDown="0"/>
   <IMAGEBUTTON name="" id="44ae4a19ee6707ae" memberName="buttonPower2" virtualName=""

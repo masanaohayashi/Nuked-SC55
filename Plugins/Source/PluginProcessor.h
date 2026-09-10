@@ -34,7 +34,6 @@ public:
     struct UiStatus
     {
         bool audioReady = false;
-        bool twoXEnabled = false;
         double sampleRate = 0.0;
         juce::String romDirectory;
         juce::String error;
@@ -126,10 +125,6 @@ public:
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
 
-    /** Enables the two-instance polyphony mode. */
-    void setTwoXEnabled (bool enabled);
-    bool isTwoXEnabled() const noexcept { return twoXEnabled.load (std::memory_order_acquire); }
-
     /** Loads a Standard MIDI File or RCP sequence without starting playback. */
     bool loadMidiFile (const juce::File& file);
 
@@ -172,20 +167,17 @@ private:
     bool selectStoredRomInternal (const juce::String& name, bool notifyHost);
     void notifyRomSelectionChanged();
     void launchRomChooser();
-    void sendMidiToEmulators (const uint8_t* data, int size) noexcept;
+    void sendMidiToEmulator (const uint8_t* data, int size) noexcept;
     void processMidiPlaybackCommands() noexcept;
     void sendAllNotesOff() noexcept;
     void sendResetAllControllers() noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
-    std::array<NukedSC55Emulator, 2> emulators;
+    NukedSC55Emulator emulator;
     bool optimizationEnabled = NukedSC55Emulator::usesNativeEngine (
         NukedSC55Emulator::EngineMode::environment);
     bool optimizationAvailable = false; // Updated only when selecting/loading ROMs.
-    juce::AudioBuffer<float> secondaryRenderBuffer;
     std::atomic<bool> audioReady { false };
-    std::atomic<bool> twoXEnabled { false };
-    std::atomic<bool> secondaryReleaseRequested { false };
     std::atomic<bool> romSelectionRequested { false };
     std::atomic<double> currentSampleRate { 0.0 };
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterVolumeGain;

@@ -78,9 +78,8 @@ public:
     {
         using Kind=SynthCommand::Kind;
         const auto part=std::min<unsigned>(command.part,15);
-        // Each command carries its resolved sound-control target. A newly
-        // enabled secondary must not rely on an earlier focus command that
-        // was sent only to the primary (especially for SOLO admission).
+        // Each command carries the sound-control target resolved by the UI,
+        // including commands queued before the next audio render.
         if(selectedPart_!=part || allSelected_!=command.all) {
             selectedPart_=uint8_t(part); allSelected_=command.all;
             player_->selectDisplayPart(gsPart(part),command.all);
