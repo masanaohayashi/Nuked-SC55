@@ -183,6 +183,7 @@ private:
     std::unique_ptr<juce::ImageButton> buttonGS;
     std::unique_ptr<juce::Label> labelProcess;
     std::unique_ptr<juce::TextButton> buttonProcessReset;
+    std::unique_ptr<juce::Label> labelNumVoices;
     juce::Image cachedImage_BinaryData_Background_png_2;
 
 

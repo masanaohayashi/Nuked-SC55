@@ -662,6 +662,18 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
     buttonProcessReset->setBounds (120, 96, 48, 16);
 
+    labelNumVoices.reset (new juce::Label (juce::String(),
+                                           TRANS ("0")));
+    contentComponent.addAndMakeVisible (labelNumVoices.get());
+    labelNumVoices->setFont (juce::Font (juce::FontOptions { 15.00f, juce::Font::plain }.withStyle ("Regular").withMetricsKind (juce::TypefaceMetricsKind::legacy)));
+    labelNumVoices->setJustificationType (juce::Justification::centredRight);
+    labelNumVoices->setEditable (false, false, false);
+    labelNumVoices->setColour (juce::Label::textColourId, juce::Colour (0x80ffffff));
+    labelNumVoices->setColour (juce::TextEditor::textColourId, juce::Colours::black);
+    labelNumVoices->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
+
+    labelNumVoices->setBounds (184, 96, 40, 16);
+
     cachedImage_BinaryData_Background_png_2 = juce::ImageCache::getFromMemory (BinaryData::Background_png, BinaryData::Background_pngSize);
 
     //[UserPreSize]
@@ -678,6 +690,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     buttonAll_new->setTooltip ("ALL. Hold ALL + MUTE to toggle solo.");
     labelProcess->setText ("Max: 0.0%", juce::dontSendNotification);
     labelProcess->setTooltip ("Maximum JUCE audio callback load since RESET (smoothed, 0-100%).");
+    labelNumVoices->setTooltip ("Active C++ engine voices, including release tails. A two-partial note uses two voices. Unavailable in H8 mode.");
     // The faceplate is authored at 1024x200.  resized() fits that panel into
     // the editor while preserving its aspect ratio, like TWV_Wrapper's
     // targetBounds calculation.  Desktop windows keep the panel's aspect
@@ -799,6 +812,7 @@ NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
     buttonGS = nullptr;
     labelProcess = nullptr;
     buttonProcessReset = nullptr;
+    labelNumVoices = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -1594,6 +1608,21 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
                               + "%", juce::dontSendNotification);
     const auto uiStatus = audioProcessor.getUiStatus();
     const auto& state = uiStatus.emulator;
+    // Read only the published snapshot on the message thread. PCM key bits
+    // can remain set after retirement and are not a live voice count.
+    juce::String voiceCountText ("0");
+    if (uiStatus.audioReady && state.ready && ! state.standby)
+    {
+        voiceCountText = juce::String::fromUTF8 ("\xe2\x80\x94");
+        if (state.nativeEngine && uiStatus.hasNativeState)
+        {
+            unsigned voices = 0;
+            for (const auto& part : uiStatus.nativeState.parts)
+                voices += part.voices;
+            voiceCountText = juce::String (voices);
+        }
+    }
+    labelNumVoices->setText (voiceCountText, juce::dontSendNotification);
     updateRomLogo (state.romFamily);
     const auto syncIndicatorState = [] (juce::ImageButton* button, bool isLit)
     {
@@ -1917,6 +1946,11 @@ BEGIN_JUCER_METADATA
   <TEXTBUTTON name="" id="b3c5f137602b46d7" memberName="buttonProcessReset"
               virtualName="" explicitFocusOrder="0" pos="120 96 48 16" buttonText="RESET"
               connectedEdges="0" needsCallback="1" radioGroupId="0"/>
+  <LABEL name="" id="4d473867fcc2af7c" memberName="labelNumVoices" virtualName=""
+         explicitFocusOrder="0" pos="184 96 40 16" textCol="80ffffff"
+         edTextCol="ff000000" edBkgCol="0" labelText="0" editableSingleClick="0"
+         editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
+         fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="34"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA
