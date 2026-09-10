@@ -1,5 +1,6 @@
 #include "emu.h"
 #include "rom_loader.h"
+#include "../../native-engine/mono_replenishment_fixture.h"
 #include <map>
 #include <array>
 #include <cstdio>
@@ -108,6 +109,37 @@ int main(int argc,char** argv) {
     Emulator emu;
     if(!emu.Init({}) || !emu.LoadRoms(roms.romset,roms.romset_info)) return 5;
     emu.Reset(); auto& cpu=emu.GetMCU(); cpu.native_v121_enabled=false;
+    if(argc==4 && std::strcmp(argv[2],"--mono-replenishment")==0) {
+        PCM_UseSimulation(emu.GetPCM(),false);
+        unsigned starts=0,replenishments=0;
+        const auto run=[&](unsigned cycles) {
+            const auto end=cpu.cycles+cycles;
+            while(cpu.cycles<end) {
+                if(cpu.cp==0 && cpu.pc==0x186d) ++replenishments;
+                if(cpu.cp==0 && cpu.pc==0x11d0) {
+                    const auto first=MCU_Read(cpu,0xa3d6),second=MCU_Read(cpu,0xa3d7);
+                    if(first>=24 || second>=24 || first==second)
+                        throw std::runtime_error("H8 mono fixture lost a partial");
+                    ++starts;
+                }
+                emu.Step();
+            }
+        };
+        run(120000000);
+        MidiFileData song;std::string error;
+        if(!song.load(argv[3],error,false)) throw std::runtime_error(error);
+        selectMonoReplenishmentExcerpt(song);
+        const auto origin=cpu.cycles;
+        for(const auto& e:song.events) {
+            const auto target=origin+uint64_t(e.seconds*20000000);
+            if(target>cpu.cycles) run(unsigned(target-cpu.cycles));
+            emu.PostMIDI(e.bytes);
+        }
+        run(10000000);
+        if(starts!=4 || !replenishments) throw std::runtime_error("H8 mono replenishment not observed");
+        std::printf("PASS: H8 starts=%u replenishments=%u (186d)\n",starts,replenishments);
+        return 0;
+    }
     if(argc==3 && std::strcmp(argv[2],"--native-midi-during-preparation")==0) {
         VerifyMidiDuringPreparation(emu,roms.romset_info); return 0;
     }

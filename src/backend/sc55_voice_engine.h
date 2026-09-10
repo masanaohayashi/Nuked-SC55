@@ -52,6 +52,7 @@ public:
         Origin origin=Origin::midi;
         SourceReuse sourceReuse=SourceReuse::search;
         bool repeatedRetired=false;
+        uint8_t addedMonoVoice=255;
         bool isHeldReturn() const noexcept { return origin==Origin::heldKeyReturn; }
         MidiDecoder::Event event() const noexcept
         { return {MidiDecoder::Kind::message,0x90,request.key,request.velocity,2}; }
@@ -453,11 +454,11 @@ public:
         unsigned part,const std::array<PartialSampleInstallInputs,2>& samples,
         const std::array<NormalPartialDspInputs,2>& dsp,const PartControllerState& parts,
         const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
-        Read&& read,Write&& write,uint8_t group=255)
+        Read&& read,Write&& write,uint8_t group=255,uint8_t addedVoice=255)
     {
         if (failed()) return {VoiceControlRuntime::MelodicStartResult::Status::failed,{},{}};
         return runtime.startReusedMelodicNote(selection,part,samples,dsp,notes.allocator,
-            installation,lifecycle,mask,parts,data,conversion,waves,read,write,group);
+            installation,lifecycle,mask,parts,data,conversion,waves,read,write,group,addedVoice);
     }
 
     struct RhythmStartResult
@@ -1002,11 +1003,27 @@ private:
             } else if (!stopPartGroups(part,read,write)) outcome.failed=true;
             return; // Task4 and PCM must settle before the new allocation.
         }
+        // New non-legato Note On replenishes a two-partial tone after one
+        // partial has ended (0f17..0f26 / 0f8c..0f9d ->186d). Held-key returns
+        // and legato reuse deliberately retain their existing-slot policy.
+        if(!polySource && !admission->isHeldReturn() && !state.held.highest()
+            && group<voiceCapacity && selection->partials.candidates.count==2
+            && allocator.groups.head[group]==allocator.groups.tail[group]) {
+            if(!allocator.freeCount) {
+                const auto capacity=ensureCapacity(part,1,config.capacity,read,write);
+                if(!capacity) { outcome.failed=true; return; }
+                if(*capacity) return; // Re-evaluate the group after capacity work settles.
+            } else {
+                const auto added=allocator.extendMonoGroup(group,part,event.first);
+                if(!added) { outcome.failed=true; return; }
+                admission->addedMonoVoice=*added;
+            }
+        }
         const bool reuse=group<voiceCapacity;
         const auto source=admission->isHeldReturn() ? uint8_t(255) : state.source;
         const auto reuseFlags=monoReuseFlags(part,group,admission->isHeldReturn(),polySource);
         if (!reuseFlags) { outcome.failed=true; return; }
-        const auto flags=*reuseFlags;
+        const auto flags=uint8_t(*reuseFlags | (admission->addedMonoVoice<voiceCapacity ? 0x20 : 0));
         const MelodicAllocationInputs allocation{settings.bank,false,0,uint8_t(part),0x80,255,
             {},0,{},tone};
         // CC84 without a matching source group uses the same fresh-note
@@ -1050,7 +1067,7 @@ private:
         }
         const auto result=reuse
             ? startReusedMelodicNote(*selection,part,samples,dsp,controllers,data,conversion,waves,
-                read,write,group)
+                read,write,group,admission->addedMonoVoice)
             : startRoutedMelodicNote(event,settings.controls,allocation,samples,dsp,
                 controllers,data,conversion,waves,read,write);
         using Status=VoiceControlRuntime::MelodicStartResult::Status;

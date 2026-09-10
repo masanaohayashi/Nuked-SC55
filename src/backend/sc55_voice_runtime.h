@@ -167,7 +167,7 @@ public:
         VoiceAllocator& allocator,VoiceInstallationState& installation,
         std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,const PitchConversion& conversion,
-        const LfoWaveformTables& waves,Read&& read,Write&& write,uint8_t group=255)
+        const LfoWaveformTables& waves,Read&& read,Write&& write,uint8_t group=255,uint8_t addedVoice=255)
     {
         using Status=MelodicStartResult::Status;
         if (failed_) return {Status::failed,{},{}};
@@ -180,7 +180,8 @@ public:
         if (allocation.status!=MelodicAllocationResult::Status::allocated)
             return {Status::invalidInput,{},{}};
         for (const auto& destination:allocation.dispatch)
-            if (destination.prepare && destination.voice<voiceCapacity && !voices[destination.voice])
+            if (destination.prepare && destination.voice<voiceCapacity && !voices[destination.voice]
+                && destination.voice!=addedVoice)
                 return {Status::invalidInput,{},{}};
         return beginAllocatedNote(allocation,part,sampleInputs,dspInputs,allocator,installation,lifecycle,mask,
             parts,data,conversion,waves,read,write);

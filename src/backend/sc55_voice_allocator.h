@@ -407,6 +407,26 @@ struct BasicVoiceAllocator
         return result;
     }
 
+    // 188b..18d7: replenish a mono group that has only one partial left.
+    // The new tail renders partial0; the surviving voice becomes partial1.
+    // Capacity/PCM retirement must have completed before this transaction.
+    std::optional<uint8_t> extendMonoGroup(unsigned group,unsigned part,uint8_t key) noexcept
+    {
+        if(group>=Capacity || part>=16 || key>=128 || partHead[part]!=group
+            || groups.tail[group]>=Capacity || groups.head[group]!=groups.tail[group]
+            || !freeCount) return std::nullopt;
+        auto updated=*this;
+        const auto voice=updated.takeFreeVoice();
+        if(!voice || !updated.attachUnchecked(*voice,group,part)) return std::nullopt;
+        auto& note=updated.noteGroups[group];
+        note.key=key; note.status=note.retirementFlags=0;
+        if(updated.partMinimum[part]<128 && (uint8_t(key-updated.partMinimum[part])&128))
+            updated.partMinimum[part]=key;
+        ++updated.partVoiceCount[part];
+        *this=updated;
+        return voice;
+    }
+
     // 1ca5..1cbc. Caller normally ensures capacity before invoking firmware.
     // Does not mark active or clear stale links: those are separate operations.
     std::optional<uint8_t> takeFreeVoice() noexcept

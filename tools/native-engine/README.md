@@ -96,3 +96,28 @@ capacity; the default is 128. These variables affect only this diagnostic.
 Configure `SC55_MONO_REUSE_SONG` alongside `SC55_ROM_DIRECTORY` to register the
 15-second replay as the `native-mono-completion` CTest. ROM/song data are local
 fixtures and are not copied into the repository.
+
+## Mono partial replenishment
+
+55KTIZKE.RCP channel12, at155..156 and162.9..163.9 seconds, exposes a separate
+mono bug. After the short partial finishes, a subsequent non-legato two-partial
+note must acquire one additional voice. Previously both partials were installed
+into the surviving slot, overwriting the main sound with the weaker component.
+H8 performs the missing replenishment at186d (callers0f23/0f9a).
+
+Configure `SC55_MONO_REPLENISH_SONG` with the local RCP path to enable
+`native-mono-replenishment`. The short fixture preserves prior SysEx/channel12
+settings and four notes, and checks two physically sounding voices100ms into
+each note. It fails before the fix despite available capacity. Full-song check:
+
+```
+SC55_PROBE_VOICES=48 SC55_PROBE_MONO_REPLENISH=1 \
+  sc55-native-engine-check ROM_DIRECTORY song-notes 55KTIZKE.RCP
+```
+
+This retains all parts and initialization and checks all eight affected notes,
+plus the existing orphan-voice check through the natural end. The companion
+`sc55-cpu-roles ROM_DIRECTORY --mono-replenishment 55KTIZKE.RCP` verifies that
+the unchanged H8 invokes186d and prepares distinct slots for the four notes.
+Legato and held-key-return selection are intentionally unchanged. These checks
+do not establish complete waveform equivalence or replace listening in Logic.

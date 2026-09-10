@@ -39,6 +39,18 @@ int main()
             check(allocator.reclaimStoppedVoice(i, allocator.allocations[i].noteGroup,
                                                 allocator.allocations[i].part, false));
         check(allocator.freeCount == limit && allocator.partVoiceCount[0] == 0);
+        const auto mono=allocator.createGroup({11,0x80,66,1,2});
+        check(mono.has_value());
+        for(unsigned i=0;i<2;++i) allocator.allocations[mono->voices[i]].status=0;
+        check(allocator.returnVoice(mono->voices[1]));
+        check(allocator.partVoiceCount[11]==1);
+        const auto survivor=mono->voices[0];
+        const auto extra=allocator.extendMonoGroup(mono->group,11,67);
+        check(extra && *extra!=survivor);
+        check(allocator.groups.tail[mono->group]==*extra && allocator.groups.head[mono->group]==survivor);
+        check(allocator.freeCount==limit-2 && allocator.partVoiceCount[11]==2);
+        check(allocator.noteGroups[mono->group].key==67 && allocator.noteGroups[mono->group].status==0);
+        check(!allocator.extendMonoGroup(mono->group,11,68));
     }
     sc55::VoiceAllocator original;
     check(original.initializeTables());

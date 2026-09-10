@@ -31,6 +31,7 @@ target_link_libraries(sc55-native-engine-check PRIVATE sc55-native-engine)
 
 set(SC55_ROM_DIRECTORY "" CACHE PATH "Optional local SC-55 v1.21 ROM directory for the native-only check")
 set(SC55_MONO_REUSE_SONG "" CACHE FILEPATH "Optional local ANMDLYGS.RCP for mono completion regression")
+set(SC55_MONO_REPLENISH_SONG "" CACHE FILEPATH "Optional local 55KTIZKE.RCP for mono replenishment regression")
 enable_testing()
 add_executable(sc55-pcm-voice-bank-check pcm_voice_bank_test.cpp)
 target_link_libraries(sc55-pcm-voice-bank-check PRIVATE sc55-native-engine)
@@ -56,5 +57,11 @@ if(SC55_ROM_DIRECTORY)
         add_test(NAME native-mono-completion
             COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" song-notes "${SC55_MONO_REUSE_SONG}")
         set_tests_properties(native-mono-completion PROPERTIES ENVIRONMENT "SC55_PROBE_SECONDS=15")
+    endif()
+    if(SC55_MONO_REPLENISH_SONG)
+        add_test(NAME native-mono-replenishment
+            COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" song-notes "${SC55_MONO_REPLENISH_SONG}")
+        set_tests_properties(native-mono-replenishment PROPERTIES
+            ENVIRONMENT "SC55_PROBE_MONO_EXCERPT=1;SC55_PROBE_VOICES=48;SC55_PROBE_SECONDS=4")
     endif()
 endif()
