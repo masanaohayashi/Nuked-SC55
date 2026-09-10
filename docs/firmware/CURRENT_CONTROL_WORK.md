@@ -11,6 +11,29 @@
 
 ## 現在の製品構造
 
+2026-09-10 通常周期passの1voice計算を一括実行へ接続：`resumeControlWork`は
+通常passでLFO／EG／filter／pitch／levelごとにphase dispatcherへ戻らず、
+既存の`CalculateVoiceControl`を一回呼ぶ。共通tick、group選択、controller読出し、
+paired LFO、PCM readback、終了通知、出力publishの順序は変更しない。
+明示的phase／命令時間診断と、既に中断状態を持つLFO・計算の再開は従来経路を使う。
+実PCMの再利用待ちやkey-latch待ちを削除する変更ではない。
+
+状態所有の確認：`beginPreparedStart`は新しい準備状態をpendingStartとlifecycleへ保持し、
+`pollPreparedStart`はPCMのreuse／key-latch完了後、全partialの継続状態を検証してから
+`runtime.voices`へ確定する。待ち中の旧EG所有者と新しい準備状態は意味が違う。
+`admissionLifecycle`、`importPendingVoiceOperations`、`exportControlChanges`のコピーを
+単純な重複と判断して一つに潰さない。LFO配列もボイス間の共有元を参照する状態であり、
+配列が複数あるという理由だけで新しい抽象層や参照viewを増やさない。
+
+`voice-control-pcm`（全pass／phaseの入出力比較を含む）と`native-player`がPASS。
+通常C++ targetのchecksum `3b54320560580fd3`、0/1/127/129/257frame分割一致、
+GATCHA55第8音、55KTIZKEの13kickも維持。
+ログ `/tmp/sc55-direct-periodic-{control-test,synth,part16,kick}.log`。
+今回のheadless計測はidle5.472ms、24notes30.239ms／音声1秒。前回同条件の
+5.462ms／30.237msと実質同程度で、大きな速度向上を主張する結果ではない。
+Release arm64 Standalone＋内蔵AUv3もBUILD SUCCEEDED
+(`/tmp/sc55-direct-periodic-release.log`)。Resave・登録・インストールなし、Logic実操作は未確認。
+
 2026-09-10 発音commandの消費をボイス所有者へ集約：`serviceCommand`が
 完了通知との優先順位、1commandの取出し、Note On/Off、pedal、source、release、
 controller reset、program、mono/poly変更と、その後の発音準備を実行する。

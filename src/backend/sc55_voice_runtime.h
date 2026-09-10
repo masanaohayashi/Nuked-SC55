@@ -801,6 +801,19 @@ private:
                 const auto source=secondSources[slot];
                 if(source<24) second[source].firstStage=voices[source] ? voices[source]->lifecycle.stages[0] : 18;
             }
+            // A normal control pass has no interleaving between a voice's
+            // calculations. Run the existing semantic update once, instead
+            // of re-entering the phase dispatcher for each EG/parameter.
+            // Explicit phase resumes (including an already detached LFO or
+            // a retained diagnostic calculation) keep their continuation.
+            if(!singlePhase && !timedCalculations && !calculationPending()
+                && calculationStage_==VoiceCalculationStage::modulation && !secondUpdate_.pending()) {
+                const auto result=CalculateVoiceControl(slot,*voices[slot],second,secondSources,
+                    first[slot].block,inputs[slot],data,conversion,waves,read,write);
+                if(result==VoiceControlResult::updated) calculationStage_=VoiceCalculationStage::level;
+                else if(result==VoiceControlResult::finished) calculationStage_=VoiceCalculationStage::amplitude;
+                return finishUpdate(slot,result);
+            }
             VoiceControlResult result;
 #if defined(SC55_CONTROL_TIMING_ORACLE)
             if(timedCalculations && calculationStage_==VoiceCalculationStage::modulation
