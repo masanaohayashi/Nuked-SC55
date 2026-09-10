@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <bit>
 
 #if defined(SC55_CONTROL_TIMING_ORACLE)
 #error This target must exercise the normal product control runtime.
@@ -58,8 +59,12 @@ int main(int argc,char** argv)
                 const uint8_t note[]{0x90,60,100};
                 adapter.sendMidi(note,3);
                 double peak=0;
+                uint64_t checksum=14695981039346656037ull;
                 for(int i=0;i<94;++i) {
                     adapter.render(left.data(),right.data(),256);
+                    for(const auto* channel:{left.data(),right.data()})
+                        for(unsigned sample=0;sample<256;++sample)
+                            checksum=(checksum^std::bit_cast<uint32_t>(channel[sample]))*1099511628211ull;
                     for(auto v:left) {
                         if(!std::isfinite(v)) throw std::runtime_error("Non-finite output");
                         peak=std::max(peak,std::abs(double(v)));
@@ -74,8 +79,9 @@ int main(int argc,char** argv)
                 if(state.nativeEngine!=(mode==Mode::native) || !state.ready || peak==0
                     || (mode==Mode::h8 && state.cycles==0))
                     throw std::runtime_error("Engine selection/render failed");
-                std::printf("engine=%s peak=%f cycles=%llu PASS\n",
-                    state.nativeEngine?"C++":"H8",peak,(unsigned long long)state.cycles);
+                std::printf("engine=%s peak=%f cycles=%llu checksum=%016llx PASS\n",
+                    state.nativeEngine?"C++":"H8",peak,(unsigned long long)state.cycles,
+                    (unsigned long long)checksum);
             }
             return 0;
         }

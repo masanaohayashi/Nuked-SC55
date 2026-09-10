@@ -844,6 +844,11 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
         // Comparison mode must execute H8, including routines for which the
         // older emulator has optional v1.21 C++ instruction shortcuts.
         nextCore->GetMCU().native_v121_enabled = false;
+        // The UI's unoptimised mode means H8 plus the original integer PCM
+        // renderer, regardless of the Emulator constructor's defaults or
+        // SC55_SIM/SC55_FXSIM. Select before querying the output sample rate.
+        PCM_UseSimulation (nextCore->GetPCM(), false);
+        nextCore->GetPCM().use_float_effects = false;
         nextCore->GetMCU().button_pressed.store (0, std::memory_order_relaxed);
         nextCore->SetSampleCallback (&NukedSC55Emulator::sampleSink, this);
         if (! nextCore->StartLCD())

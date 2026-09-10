@@ -14,6 +14,18 @@
 
 ## 現在の製品構造
 
+比較スイッチOFFのPCM方式を修正。以前はEmulatorコンストラクタが高速PCMを
+既定有効にしており、「両方式で同じPCM」という以前の説明は誤りだった。
+H8側の初期化でPCM_UseSimulation(false)／use_float_effects=falseを明示し、
+SC55_SIM／SC55_FXSIMに関係なくH8命令実行＋従来整数PCM/エフェクトとする。
+PCM出力周波数は方式確定後に取得。ON側の既定整数PCMと実験用指定は変更なし。
+未発音voice・無音effectsの計算省略など共通最適化は残す（Fork当初への復元ではない）。
+engine-switchでC++→H8→C++の発音確認、SIM/FXSIM両方1と両方0で
+H8 stereo出力checksum3621512afd400fcfが一致。
+ログ`/tmp/sc55-h8-pcm-test.log`と`/tmp/sc55-h8-pcm-test-reference.log`。
+Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED
+(`/tmp/sc55-h8-pcm-release.log`)。Logicでの比較試聴は未実施。
+
 最適化toggleのROM対応判定を追加。ROM選択時の既存hash読込みで
 `CanImportSoundData`を使い、C++音源と同じROM1/ROM2の対応条件を取得。
 非対応／未選択はOFF表示・disabled、非対応ROMはH8経路で初期化する。
