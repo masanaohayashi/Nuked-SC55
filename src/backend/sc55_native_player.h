@@ -657,9 +657,7 @@ private:
     }
     bool applyPartMode(unsigned part,bool poly) noexcept
     {
-        if(!stopPartGroups(part)) return false;
-        if(!poly) engine_.mono[part].held={};
-        engine_.mono[part].current=60; engine_.mono[part].tone.reset();
+        if(!engine_.changePartMode(part,poly,[&](uint8_t a) { return read(a); },ControlWriter{pcm_})) return false;
         reuseInvalidation_&=uint16_t(~(1u<<part));
         return true;
     }
@@ -948,10 +946,8 @@ private:
     }
     bool resetVoiceControllers(unsigned part,bool allNotes) noexcept
     {
-        if (!engine_.releasePart(part,(parts_.routing[part].noteFlags&0x10)!=0,true,allNotes))
+        if (!engine_.resetVoiceControllers(part,(parts_.routing[part].noteFlags&0x10)!=0,allNotes))
         { failed_ = true; return false; }
-        engine_.mono[part].portamento=false;
-        engine_.mono[part].source=255;
         return true;
     }
     void resetControllerValues(unsigned part) noexcept
@@ -1537,27 +1533,6 @@ private:
         engine_.admission.reset();
     }
 
-    void releaseNote(const NoteRequest& request) noexcept
-    {
-        const auto part=request.part;
-        const auto selected=SelectNoteRelease(request.key,parts_.routing[part].noteFlags);
-        if(!selected) { failed_=true; return; }
-        if(selected->path==NoteReleaseSelection::Path::group) {
-            const MidiDecoder::Event event{MidiDecoder::Kind::message,0x80,request.key,0,2};
-            if(!engine_.notes.noteOff(event,part,selected->selector)) { failed_=true; return; }
-        } else {
-            auto& mono=engine_.mono[part];
-            const auto decision=engine_.releaseMonoNote(part,request.key);
-            if(!decision) { failed_=true; return; }
-            if(decision->action==MonoHeldKeys::ReleaseDecision::Action::replaceKey && mono.velocity) {
-                engine_.admission=PendingAdmission{{NoteRequest::Action::on,part,
-                    decision->replacement,mono.velocity,selectedTone_[part]},PendingAdmission::Origin::heldKeyReturn};
-            }
-            return; // The engine publishes the release with its key decision.
-        }
-        if(!engine_.runtime.publishNoteReleases(engine_.notes.allocator)) failed_=true;
-    }
-
     void serviceVoiceCommand() noexcept
     {
 #if defined(SC55_NATIVE_IO_AUDIT)
@@ -1569,20 +1544,11 @@ private:
             if(const auto command=engine_.commands.take()) {
                 if(const auto* note=std::get_if<NoteRequest>(&*command)) {
                     if(note->action==NoteRequest::Action::on) engine_.admission=PendingAdmission{*note};
-                    else releaseNote(*note);
+                    else if(!engine_.releaseNote(*note,parts_.routing[note->part].noteFlags,
+                        selectedTone_[note->part])) failed_=true;
                 } else if(const auto* pedal=std::get_if<PedalRequest>(&*command)) {
-                    if(pedal->kind==PedalRequest::Kind::portamento) {
-                        engine_.mono[pedal->part].portamento=pedal->enabled;
-                        if(pedal->enabled) engine_.mono[pedal->part].source=255;
-                        refreshControls();
-                    } else {
-                        auto updated=engine_.notes;
-                        const MidiDecoder::Event event{MidiDecoder::Kind::message,0xb0,
-                            uint8_t(pedal->kind==PedalRequest::Kind::hold ? 64 : 66),uint8_t(pedal->enabled ? 127 : 0),2};
-                        if(!updated.applyPedal(event,pedal->part,true)
-                            || !engine_.runtime.publishNoteReleases(updated.allocator)) failed_=true;
-                        else engine_.notes=updated;
-                    }
+                    if(!engine_.applyPedal(*pedal)) failed_=true;
+                    else if(pedal->kind==PedalRequest::Kind::portamento) refreshControls();
                 } else if(const auto* source=std::get_if<PortamentoSourceRequest>(&*command))
                     engine_.mono[source->part].source=source->key;
                 else if(const auto* release=std::get_if<PartReleaseRequest>(&*command)) {

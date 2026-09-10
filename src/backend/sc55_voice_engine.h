@@ -145,6 +145,71 @@ public:
     }
     bool failed() const noexcept { return rhythmFailed_ || runtime.failed() || noteOn.status() == NoteOnFanout::Status::failed; }
 
+    // Voice-management commands act on one serialized owner. The receiver
+    // supplies routing/tone values, never edits held keys or publishes a
+    // release snapshot itself. A mono return retains the selected live tone,
+    // not the tone of the key being released.
+    bool releaseNote(const NoteRequest& request,uint8_t noteFlags,
+        std::optional<uint16_t> selectedTone) noexcept
+    {
+        if(failed() || runtime.preparationPending() || admission || request.part>=16
+            || request.action!=NoteRequest::Action::off) return false;
+        const auto part=request.part;
+        const auto selected=SelectNoteRelease(request.key,noteFlags);
+        if(!selected) return false;
+        if(selected->path==NoteReleaseSelection::Path::group) {
+            auto updated=notes;
+            const MidiDecoder::Event event{MidiDecoder::Kind::message,0x80,request.key,0,2};
+            if(!updated.noteOff(event,part,selected->selector)
+                || !runtime.publishNoteReleases(updated.allocator)) return false;
+            notes=updated;
+            return true;
+        }
+        const auto decision=releaseMonoNote(part,request.key);
+        if(!decision) return false;
+        const auto& state=mono[part];
+        if(decision->action==MonoHeldKeys::ReleaseDecision::Action::replaceKey && state.velocity)
+            admission=PendingAdmission{{NoteRequest::Action::on,part,decision->replacement,
+                state.velocity,selectedTone},PendingAdmission::Origin::heldKeyReturn};
+        return true;
+    }
+
+    bool applyPedal(const PedalRequest& request) noexcept
+    {
+        if(failed() || runtime.preparationPending() || request.part>=16) return false;
+        if(request.kind==PedalRequest::Kind::portamento) {
+            mono[request.part].portamento=request.enabled;
+            if(request.enabled) mono[request.part].source=255;
+            return true;
+        }
+        auto updated=notes;
+        const MidiDecoder::Event event{MidiDecoder::Kind::message,0xb0,
+            uint8_t(request.kind==PedalRequest::Kind::hold ? 64 : 66),
+            uint8_t(request.enabled ? 127 : 0),2};
+        if(!updated.applyPedal(event,request.part,true)
+            || !runtime.publishNoteReleases(updated.allocator)) return false;
+        notes=updated;
+        return true;
+    }
+
+    bool resetVoiceControllers(unsigned part,bool rhythm,bool allNotes) noexcept
+    {
+        if(!releasePart(part,rhythm,true,allNotes)) return false;
+        mono[part].portamento=false;
+        mono[part].source=255;
+        return true;
+    }
+
+    template<class Read,class Write>
+    bool changePartMode(unsigned part,bool poly,Read&& read,Write&& write)
+    {
+        if(!stopPartGroups(part,read,write)) return false;
+        if(!poly) mono[part].held={};
+        mono[part].current=60;
+        mono[part].tone.reset();
+        return true;
+    }
+
     // 07c7..0850: task1 selects command event0 before completion event1,
     // then drains the command ring before waiting for another event. Keep
     // the completed slot occupied across a queued/resumed admission.

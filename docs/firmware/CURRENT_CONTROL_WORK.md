@@ -11,6 +11,23 @@
 
 ## 現在の製品構造
 
+2026-09-10 Note Off／ペダル／モード変更の発音管理をボイス所有側へ集約：
+`NativeVoiceEngine`がpolyの解放snapshot、monoの保持キー判断と戻り発音要求、
+hold/sostenuto/portamento、controller reset、mono/poly変更時の停止・キー初期化を扱う。
+受信側はroutingのnote flagsと現在の選択toneを渡し、保持キーや解放snapshotを直接変更しない。
+poly Note Offもペダル同様、更新候補のrelease snapshotを検証してから確定する。
+monoの戻り発音は従来どおり現在の選択toneを使う。PCM readiness、共通更新周期は変更しない。
+新しいH8対応機能や速度向上を主張する変更ではない。mono/poly/rhythmのNote On準備には
+まだ受信側からallocator／runtime状態を操作する箇所があり、発音管理全体の集約は未完了。
+
+通常製品targetで可変block（0/1/127/129/257frame）の一致と音声checksum
+`3b54320560580fd3`を維持。GATCHA55初期化後のパートミュート→part16第8音、
+55KTIZKEの13kickのfirst-ms gain、native-player（reset等を含む）試験がPASS。
+ログ `/tmp/sc55-voice-command-owner-{synth,part16,kick,player}.log`。
+Release arm64 Standalone＋内蔵AUv3のXcode buildも成功
+(`/tmp/sc55-voice-command-owner-release.log`)。Resave、登録、インストールなし。
+Logicでの実操作・CPUメーター確認は未実施。
+
 2026-09-10 表示専用メーター集計の音声側残留を除去：従来の`NativeSynth::state()`は
 16partごとに24slotを走査してLCD用のpeak stereo envelopeを集計していた。
 音声側は`voiceLevels`に24slotの所属・active・左右gainを一度ずつコピーするだけに変更。
