@@ -132,7 +132,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         require(engine.notes.allocator.initializeTables());
         const auto group=engine.notes.allocator.createGroup({0,0x81,125,1,1});
         require(bool(group));
-        engine.admission=sc55::NativeVoiceEngine::PendingAdmission{{sc55::NoteRequest::Action::on,0,125,100,0}};
+        engine.admissionAudit()=sc55::NativeVoiceEngine::PendingAdmission{{sc55::NoteRequest::Action::on,0,125,100,0}};
         sc55::ChannelControls channels;
         const sc55::MidiDecoder::Event mapped{sc55::MidiDecoder::Kind::message,0x90,60,100,2};
         sc55::MelodicAllocationInputs input{0,false,0,0,0x81,125,{},0,{},uint16_t(0)};
@@ -141,17 +141,17 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         const auto store=[&](uint8_t,uint8_t) {++io;};
         const auto first=engine.previewMelodicAdmission(mapped,channels.channel(0),input,0x81,data,load,store);
         require(first && first->status==sc55::MelodicAllocationResult::Status::allocated
-            && engine.admission->repeatedRetired && io==0);
+            && engine.admissionAudit()->repeatedRetired && io==0);
         require(engine.notes.allocator.noteGroups[group->group].retirementFlags&4);
         const auto marked=engine.notes.allocator;
         const auto again=engine.previewMelodicAdmission(mapped,channels.channel(0),input,0x81,data,load,store);
         require(again && again->status==first->status && io==0
             && std::memcmp(&marked,&engine.notes.allocator,sizeof marked)==0);
-        engine.admission=sc55::NativeVoiceEngine::PendingAdmission{{sc55::NoteRequest::Action::on,0,125,100,0}};
+        engine.admissionAudit()=sc55::NativeVoiceEngine::PendingAdmission{{sc55::NoteRequest::Action::on,0,125,100,0}};
         input.keyRange={61,127};
         const auto rejected=engine.previewMelodicAdmission(mapped,channels.channel(0),input,0x81,data,load,store);
         require(rejected && rejected->status==sc55::MelodicAllocationResult::Status::keyRangeRejected
-            && !engine.admission->repeatedRetired && io==0
+            && !engine.admissionAudit()->repeatedRetired && io==0
             && std::memcmp(&marked,&engine.notes.allocator,sizeof marked)==0);
         std::puts("Native admission progress: original key, retry and rejected-note retirement PASS");
     }
@@ -601,10 +601,10 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         require(commandOwner.serviceControl(fixtureControllers,data,conversion,waves,read,write).status
             ==sc55::VoiceControlRuntime::ScheduledStatus::deferred);
         require(commandOwner.commands.take().has_value());
-        commandOwner.admission=sc55::NativeVoiceEngine::PendingAdmission{pendingNote};
+        commandOwner.admissionAudit()=sc55::NativeVoiceEngine::PendingAdmission{pendingNote};
         require(commandOwner.serviceVoiceCompletion());
         require(commandOwner.notes.allocator.freeCount==23 && commandOwner.runtime.voiceCompletionPending());
-        commandOwner.admission.reset();
+        commandOwner.admissionAudit().reset();
         require(commandOwner.serviceVoiceCompletion());
         require(commandOwner.notes.allocator.freeCount==24);
         uint8_t replacementGroup=255;

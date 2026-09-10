@@ -11,6 +11,23 @@
 
 ## 現在の製品構造
 
+2026-09-10 発音commandの消費をボイス所有者へ集約：`serviceCommand`が
+完了通知との優先順位、1commandの取出し、Note On/Off、pedal、source、release、
+controller reset、program、mono/poly変更と、その後の発音準備を実行する。
+受信側はcommandを取出さず、保留発音を直接生成・変更しない。
+保留発音はprivate化。既存の命令単位fixtureだけが診断target限定の`admissionAudit`を使う。
+portamento時間もsetter経由とし、製品受信側からmono状態を直接書き換えない。
+capacity設定の所有は受信側に残し、消費したprogramのpart/toneを結果として返す。
+その結果を、次のcommand／周期passへ進む前に反映する。新しい受信toneへ読み替えない。
+
+commandと周期passの同時発生（backlog0/64）、release integration111比較、
+準備中Program Change、native-playerがPASS。通常製品targetのchecksum
+`3b54320560580fd3`と可変block一致、GATCHA55第8音、55KTIZKEの13kickも維持。
+ログ `/tmp/sc55-command-dispatch-{order,integration,program,player,synth,part16,kick}.log`。
+Release arm64 Standalone＋内蔵AUv3もBUILD SUCCEEDED
+(`/tmp/sc55-command-dispatch-release.log`)。Resave・登録・インストールなし、Logic実操作は未確認。
+この変更は発音管理の所有・interfaceの整理であり、新規対応機能やCPU改善の証明ではない。
+
 2026-09-10 Note Onの準備・割当をボイスエンジンへ集約：受信側に残っていた
 poly／high-note mapping、mono／portamento source再利用、rhythmの3経路を
 `NativeVoiceEngine::serviceAdmission`へ移した。準備用PCM／EG入力、capacity確保後の再開、

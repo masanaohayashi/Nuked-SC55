@@ -55,7 +55,11 @@ public:
         { return {MidiDecoder::Kind::message,0x90,request.key,request.velocity,2}; }
     };
     VoiceCommands commands;
-    std::optional<PendingAdmission> admission;
+    bool admissionPending() const noexcept { return admission.has_value(); }
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+    // Fixture access for instruction-level diagnostics, absent in the product.
+    auto& admissionAudit() noexcept { return admission; }
+#endif
 
     // Borrowed audio-owned settings for one synchronous operation. Never
     // retained across a PCM wait: receive-time tone lives in PendingAdmission,
@@ -70,6 +74,55 @@ public:
         bool effectsAvailable;
     };
     struct AdmissionResult { bool failed=false,unsupported=false; };
+    struct CommandResult : AdmissionResult
+    {
+        // The controller owns capacity configuration. Report the consumed
+        // program, not the receiver's possibly newer selected tone.
+        std::optional<ProgramVoiceRequest> program;
+    };
+
+    // One serialized voice-management command, followed by its admission.
+    // The scheduler chooses when to run us; it never takes a command itself
+    // or changes the continuation after a capacity/PCM wait.
+    template<class Read,class Write>
+    CommandResult serviceCommand(const Configuration& config,std::span<const std::optional<uint16_t>,16> tones,
+        const PartControllerState& controllers,const SoundData& data,
+        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
+    {
+        CommandResult result;
+        if(!serviceVoiceCompletion()) { result.failed=true; return result; }
+        if(runtime.startupPending() || operationsPending()) return result;
+        if(!admission) {
+            if(const auto command=commands.take()) {
+                const auto part=std::visit([](const auto& request) { return request.part; },*command);
+                if(part>=16) { result.failed=true; return result; }
+                if(const auto* note=std::get_if<NoteRequest>(&*command)) {
+                    if(note->action==NoteRequest::Action::on) admission=PendingAdmission{*note};
+                    else result.failed=!releaseNote(*note,config.parts.routing[part].noteFlags,tones[part]);
+                } else if(const auto* pedal=std::get_if<PedalRequest>(&*command)) {
+                    result.failed=!applyPedal(*pedal);
+                    if(!result.failed && pedal->kind==PedalRequest::Kind::portamento) refreshControls(config);
+                } else if(const auto* source=std::get_if<PortamentoSourceRequest>(&*command))
+                    mono[part].source=source->key;
+                else if(const auto* release=std::get_if<PartReleaseRequest>(&*command)) {
+                    if(release->kind==PartReleaseRequest::Kind::notes)
+                        result.failed=!releasePart(part,(config.parts.routing[part].noteFlags&0x10)!=0,false,true);
+                    else result.failed=stopSoundingParts(uint16_t(1u<<part),read,write)==StopRequest::failed;
+                } else if(std::holds_alternative<ControllerResetRequest>(*command))
+                    result.failed=!resetVoiceControllers(part,(config.parts.routing[part].noteFlags&0x10)!=0,false);
+                else if(const auto* program=std::get_if<ProgramVoiceRequest>(&*command)) {
+                    programChanged(part,program->tone,config,data);
+                    result.program=*program;
+                } else if(const auto* mode=std::get_if<PartModeRequest>(&*command))
+                    result.failed=!changePartMode(part,mode->poly,read,write);
+            }
+        }
+        if(!result.failed) prepareAdmission(config,controllers,data,conversion,waves,read,write,result);
+        return result;
+    }
+
+    void setPortamentoTime(unsigned part,uint8_t value) noexcept
+    { if(part<16) mono[part].glideRate=value; }
 
     template<class Read,class Write>
     AdmissionResult serviceAdmission(const Configuration& config,const PartControllerState& controllers,
@@ -740,6 +793,7 @@ public:
         return result;
     }
 private:
+    std::optional<PendingAdmission> admission;
     void applyMaster(const Configuration& config,VoiceControlInputs& input) const noexcept
     {
         input.level.master = config.master.volume;

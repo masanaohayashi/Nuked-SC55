@@ -356,7 +356,7 @@ public:
         // Note Receive/mute determines membership. Associated maps are live.
         // The separate firmware solo-display mode is not yet exposed here.
         if(failed() || !bulkOutputConnected_ || !rhythm_ || resetPending() || parameterReplyWaiting_
-            || replyCount_ || queuedEvents() || panelCount_ || engine_.admission || tasksPending()
+            || replyCount_ || queuedEvents() || panelCount_ || engine_.admissionPending() || tasksPending()
             || engine_.runtime.startupPending()) return false;
         uint16_t selectedParts=0;
         uint8_t drumMaps=0;
@@ -519,7 +519,7 @@ public:
         return name;
     }
     std::size_t queuedEvents() const noexcept
-    { return queue_.size() + engine_.commands.size() + (engine_.admission ? 1 : 0); }
+    { return queue_.size() + engine_.commands.size() + (engine_.admissionPending() ? 1 : 0); }
     std::size_t push(std::span<const uint8_t> bytes) noexcept
     {
         if (failed()) return 0;
@@ -1108,7 +1108,7 @@ private:
                     if(result==MidiDispatchResult::accepted) (void)decodeExclusive(sysex_,event);
                     return result;
                 }
-                if((!allowVoiceTransactions || engine_.admission || engine_.commands.size() || tasksPending()
+                if((!allowVoiceTransactions || engine_.admissionPending() || engine_.commands.size() || tasksPending()
                     || engine_.runtime.startupPending()) && requiresVoiceTransaction(packet))
                     return MidiDispatchResult::deferred;
             }
@@ -1213,7 +1213,7 @@ private:
         if (kind==0xb0 && event.first==5) {
             for (unsigned part=16;part-- >0;) if (parts_.routing[part].channel==channel
                 && (parts_.routing[part].flags&0x0840)==0x0840) {
-                engine_.mono[part].glideRate=event.second;
+                engine_.setPortamentoTime(part,event.second);
             }
             refreshControls();
             return MidiDispatchResult::accepted;
@@ -1386,42 +1386,11 @@ private:
 #if defined(SC55_NATIVE_IO_AUDIT)
         if(holdAdmissionsAudit_) return;
 #endif
-        if (!engine_.serviceVoiceCompletion()) { failed_=true; return; }
-        if (engine_.runtime.startupPending() || tasksPending()) return;
-        if(!engine_.admission) {
-            if(const auto command=engine_.commands.take()) {
-                if(const auto* note=std::get_if<NoteRequest>(&*command)) {
-                    if(note->action==NoteRequest::Action::on) engine_.admission=PendingAdmission{*note};
-                    else if(!engine_.releaseNote(*note,parts_.routing[note->part].noteFlags,
-                        selectedTone_[note->part])) failed_=true;
-                } else if(const auto* pedal=std::get_if<PedalRequest>(&*command)) {
-                    if(!engine_.applyPedal(*pedal)) failed_=true;
-                    else if(pedal->kind==PedalRequest::Kind::portamento) refreshControls();
-                } else if(const auto* source=std::get_if<PortamentoSourceRequest>(&*command))
-                    engine_.mono[source->part].source=source->key;
-                else if(const auto* release=std::get_if<PartReleaseRequest>(&*command)) {
-                    if(release->kind==PartReleaseRequest::Kind::notes) {
-                        if(!engine_.releasePart(release->part,(parts_.routing[release->part].noteFlags&0x10)!=0,false,true))
-                            failed_=true;
-                    } else {
-                        if(engine_.stopSoundingParts(uint16_t(1u<<release->part),
-                            [&](uint8_t a) { return read(a); },ControlWriter{pcm_})
-                            ==NativeVoiceEngine::StopRequest::failed) failed_=true;
-                    }
-                } else if(const auto* reset=std::get_if<ControllerResetRequest>(&*command))
-                    (void)resetVoiceControllers(reset->part,false);
-                else if(const auto* program=std::get_if<ProgramVoiceRequest>(&*command))
-                    applyProgramVoiceState(program->part,program->tone);
-                else if(const auto* mode=std::get_if<PartModeRequest>(&*command)) {
-                    if(!applyPartMode(mode->part,mode->poly)) failed_=true;
-                }
-            }
-        }
-        if(failed()) return;
-        const auto result=engine_.serviceAdmission(voiceConfiguration(),controllers_,data_,conversion_,waves_,
+        const auto result=engine_.serviceCommand(voiceConfiguration(),selectedTone_,controllers_,data_,conversion_,waves_,
             [&](uint8_t a) { return read(a); },ControlWriter{pcm_});
         if(result.failed) failed_=true;
         if(result.unsupported) ++unsupported_;
+        if(result.program) updateCapacityMode(result.program->part,result.program->tone);
     }
 
     void serviceMidiInput() noexcept
@@ -1490,7 +1459,7 @@ private:
         // Reaching the bounded command budget is not a task1 wait. Retain
         // the lower-priority event until runnable commands have drained.
         // Actual reuse/capacity/transaction waits still allow control work.
-        if(engine_.commands.size() && !engine_.admission && !tasksPending()
+        if(engine_.commands.size() && !engine_.admissionPending() && !tasksPending()
             && !engine_.runtime.startupPending() && !resetPending()
             && !bulkReply_.active() && !parameterReplyWaiting_
 #if defined(SC55_NATIVE_IO_AUDIT)
@@ -1525,7 +1494,7 @@ private:
         {
             if (resetPending() || bulkReply_.active() || parameterReplyWaiting_) break;
             serviceVoiceCommand();
-            if (engine_.admission || tasksPending() || engine_.runtime.startupPending()) break;
+            if (engine_.admissionPending() || tasksPending() || engine_.runtime.startupPending()) break;
             if (engine_.commands.size()) continue;
             if(standbyStopPending_) {
                 // Standby uses the ordinary controller reset and group stop
@@ -1600,7 +1569,6 @@ private:
     uint32_t receiveTimerPhase_=0;
     bool receiveRecovery_=false;
     uint64_t completedReceiveRecoveries_=0;
-    using PendingAdmission=NativeVoiceEngine::PendingAdmission;
     // Shared melodic/rhythm preparation key (A1B4), read by CC84 before the
     // next note installs its own reference. Serialized with all note fanout.
     PartSettings parts_;
