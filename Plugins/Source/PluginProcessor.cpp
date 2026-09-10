@@ -40,10 +40,19 @@ constexpr const char* romDirectoryStateProperty = "romDirectory";
 #if JUCE_LINUX
 juce::File getLegacyUserSettingsDirectory()
 {
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+    const auto directory = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
         .getChildFile ("Application Support")
         .getChildFile ("STUDIO-R")
         .getChildFile (userDataDirectoryName);
+
+    if (! directory.isDirectory() && directory.createDirectory().failed())
+    {
+        DBG ("[DEBUG-SC55] Linux user data directory could not be created path=\""
+             << directory.getFullPathName() << "\"");
+        return {};
+    }
+
+    return directory;
 }
 #endif
 
@@ -77,6 +86,37 @@ bool containsRomSet (const juce::File& directory)
 {
     return directory.isDirectory()
         && NukedSC55Emulator::hasRomSet (directory.getFullPathName().toStdString());
+}
+
+// ROM libraries are commonly organised as one folder containing several
+// device-specific ROM folders.  The loader itself intentionally only hashes
+// files in one directory, so resolve that library layout at the UI boundary.
+juce::File findRomSetInSelectedDirectory (const juce::File& directory)
+{
+    if (containsRomSet (directory))
+        return directory;
+
+    juce::Array<juce::File> childDirectories;
+    childDirectories.addArray (directory.findChildFiles (
+        juce::File::findDirectories, false, "*"));
+
+    juce::File firstRomSet;
+    for (const auto& child : childDirectories)
+    {
+        if (! containsRomSet (child))
+            continue;
+
+        // Prefer an SC-55 folder when a library contains several supported
+        // devices; selecting a child folder directly still wins above.
+        if (child.getFileName().containsIgnoreCase ("SC-55")
+            && ! child.getFileName().containsIgnoreCase ("mk2"))
+            return child;
+
+        if (firstRomSet == juce::File {})
+            firstRomSet = child;
+    }
+
+    return firstRomSet;
 }
 
 juce::File getRomStorageDirectoryForProcessor();
@@ -119,8 +159,9 @@ juce::File findRomDirectory()
 {
 #if JUCE_LINUX
     const auto rememberedDirectory = loadRememberedRomDirectory();
-    if (containsRomSet (rememberedDirectory))
-        return rememberedDirectory;
+    const auto rememberedRomSet = findRomSetInSelectedDirectory (rememberedDirectory);
+    if (rememberedRomSet.isDirectory())
+        return rememberedRomSet;
 #endif
 
     const auto storageDirectory = getRomStorageDirectoryForProcessor();
@@ -1174,7 +1215,7 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
         ? selectedPath
         : selectedPath.getParentDirectory();
 #if JUCE_LINUX
-    directory = selectedDirectory;
+    directory = findRomSetInSelectedDirectory (selectedDirectory);
 #else
     directory = importRomDirectoryFromFile (selectedDirectory);
 #endif
@@ -1395,7 +1436,7 @@ void NukedSC55AudioProcessor::launchRomChooser()
         }
 
 #if JUCE_LINUX
-        directory = selectedDirectory;
+        directory = findRomSetInSelectedDirectory (selectedDirectory);
 #else
         directory = importRomDirectoryFromFile (selectedDirectory);
 #endif
