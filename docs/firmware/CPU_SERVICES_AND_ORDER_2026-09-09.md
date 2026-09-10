@@ -159,6 +159,32 @@ task 3の04:29c9は3bankを走査し前回値と照合、2a69/2b07側にedge・r
 task 1はevent0→1。これは「後から来た割り込みも常にこの順になる」という主張ではない。
 task 8の周期本体5af1では経過回数を回収し、reverb→chorus→24ボイス更新の順に進む。
 
+2026-09-10再確認: task1のevent0はコマンドリング（07e8–0850）、event1は
+A1D4の終了slotを1cbdへ返す処理（07d0–07e6）。0850は07e8へ戻り、リングを
+空にするまでevent1の選択へ戻らない。従って「終了通知が受付済みコマンドより
+優先」は誤り。Native側の無条件返却を削除し、コマンド／admissionがある間は
+mailboxを保持する。MIDI解析task0も暗黙にslot返却をしてはいけない。
+
+続いて製品dispatcherも訂正した。`serviceMidiInput`による受信解析後、実行可能な
+`serviceCommandWork`をperiodic effects/voice passより先に処理する。
+`--native-command-control-order`は通常のpush/render入口へNote Offと制御イベントを
+同時に与える。修正前はstage4で旧EGを更新済み、修正後は同じ周期でstage12へ。
+さらに64件の先行コマンドで回数上限に達するケースも、次のrenderへ周期イベントを
+保持し、Note Offを受け付けた状態で最初の周期更新を行う。
+診断用の明示イベントは順序テストだけに使用し、製品時計は変更していない。
+PCM再利用や容量確保で待っているadmissionは「処理可能なキュー」と別扱い。
+全処理の入力依存時間配分・割込み中断／復帰の互換性は引き続き未完。
+
+`--kernel-events` は実際の命令入口のread-only probeで通知0422、タイマ登録032d、
+満了03d0、待機0466、消費0473/0518を記録する。既存`--events`と同じ入力
+（起動、note on/off、program48、CC0..127の127/0、GS reset）でexit0。
+task5/6は入口0542各1回、0546への復帰0、通知／タイマ登録0、最終mask01、
+pending00、deadlineffff。mask01なのでタイマevent7だけでは復帰しない。
+task8のperiod8登録1回・満了2625回、task2のperiod1登録1回・満了21008回。
+これは当該入力の観測であり、task5/6の全到達条件の不存在証明ではない。
+ログ `/tmp/sc55-kernel-events.log`。`contextTask`は割込み元を断定しないための
+名称で、ISRが中断中taskのfdcaを保持している場合も含む。
+
 timerはnext deadline word fe12+2*n、period fe24+2*n、epoch fe36、timer wheel fe38。
 周期通知bitと経過byteは別。256回でbyteが0へwrapしても通知は残る。
 既存ControlTaskClockのpendingはraw tick数でなく**周期満了回数**。
@@ -167,6 +193,29 @@ H8実装は命令を一律12cyclesで進める箇所があり、トレースのc
 
 なお既存C++の「task4」はCAF4の**ボイス操作コード4**を指す場合がある。
 本書のkernel task 4（LCD）と別物。名前の一致からスレッド所有権を判断しない。
+
+## PCM通知の受付と処理
+
+ROM 00:0760はE03Eを読んでPCM IRQをacknowledgeし、0764でslotを取り出し、
+0768でCB30[slot]=ff、076d–0774でtask2 event1を通知する。
+task2の5488–548eはmask03からevent0（ボイス操作）を先に選び、event1では
+5491–54b2でslot23から走査する。54a7で通知を消してから2928の境界処理へ入り、
+再びslot23へ戻る。通知の受付と境界処理は別の処理である。
+
+再利用の5710–573cでは5721で割込みを許可し、gainがまだ残れば5738/573aで
+mask80だけを待つ。この間の境界処理は保留するが、IRQ受付まで止めてはならない。
+PCMはirq_assert中に次の通知を発行できないため、Native側も受付を先に行い、
+固定長のボイス別フラグを保持する。StopPreparedVoice（53e6）と波形設定前の
+CommitPreparedVoice（577e）が消したCB30は、古い通知を無効化する。
+準備中／key-latch保護中の受付制限とPCM演算は維持している。
+
+`--native-boundary-reception`では実際のnative再利用待ちへ2つの明示的なPCM
+デバイス通知を与え、待機中のacknowledgeと後続処理を確認した。PCM制御テストでは
+同一slot通知の合流、23→3の処理順、停止後の古い通知破棄を確認した。
+自然なH8入力の観測では再利用待ちとの重なりは未観測。通常capacityの観測では
+35受付・待機との重なり0で、既知の40件目の選択差は残る。
+従って条件付きROM経路と明示イベント試験の結果であり、自然な競合の動的再現や
+音声不具合の解決を証明したとは扱わない。
 
 ## 残る互換性境界
 

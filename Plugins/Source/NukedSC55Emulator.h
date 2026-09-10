@@ -7,6 +7,8 @@
 #include <mutex>
 #include <string>
 #include "NativeSynthStateExchange.h"
+#include "NativeMidiInputState.h"
+#include "sc55_synth_command.h"
 
 template <typename SampleType>
 struct AudioFrame;
@@ -59,6 +61,10 @@ public:
         uint64_t sourceUnderruns = 0;
         bool allLed = false;
         bool muteLed = false;
+        bool soloEnabled = false;
+        bool standby = false, fastDisplayScroll = false;
+        bool receiveExclusive = true, receiveReset = true, ignoreChecksum = false;
+        bool receiveProgramChanges = true;
     };
 
     enum class FrontPanelButton : uint8_t
@@ -80,7 +86,11 @@ public:
         midiChannelDec,
         midiChannelInc,
         all,
-        mute
+        mute,
+        solo, // Normal-screen ALL + MUTE chord.
+        standbyOn, standbyOff, fastScrollOn, fastScrollOff, // Native semantic options.
+        exclusiveOn, exclusiveOff, resetReceiveOn, resetReceiveOff, checksumIgnoreOn, checksumIgnoreOff,
+        programReceiveOn, programReceiveOff
     };
 
     NukedSC55Emulator();
@@ -98,7 +108,7 @@ public:
     static void logRomSetDiagnostics (const std::string& romDirectory);
 
     void sendMidi (const uint8_t* data, int size);
-    void pressFrontPanelButton (FrontPanelButton button);
+    void pressFrontPanelButton (FrontPanelButton button, NukedSC55Emulator* mirror = nullptr);
     void render (float* left, float* right, int numSamples);
 
     // Message-thread only. Returns the latest complete native sound state;
@@ -117,6 +127,8 @@ public:
     /** Source-rate frames currently staged for host-rate conversion. */
     uint32_t availableFrames() const noexcept { return availableSourceFrames(); }
     DebugState getDebugState() const noexcept;
+    uint32_t savedMidiInputState() const noexcept {return midiInputState.encoded();}
+    void restoreMidiInputState(int64_t value) noexcept {midiInputState.restore(value);}
     const std::string& getError() const noexcept { return error; }
 
 private:
@@ -206,6 +218,9 @@ private:
     std::atomic<uint8_t> debugRomFamily { static_cast<uint8_t> (RomFamily::unknown) };
     std::atomic<bool> debugAllLed { false };
     std::atomic<bool> debugMuteLed { false };
+    std::atomic<bool> debugSoloEnabled { false };
+    std::atomic<bool> debugStandby { false }, debugFastDisplayScroll { false };
+    NativeMidiInputState midiInputState;
 
     // The jcmoyer backend is per-instance. The mutex only protects the object
     // lifetime while the message-thread LCD snapshot is taken.
@@ -217,8 +232,14 @@ private:
     mutable std::atomic<bool> nativeStateRequested { false };
     std::atomic<bool> nativeEngineActive { false };
     static constexpr unsigned nativePanelCapacity = 64;
-    std::array<FrontPanelButton,nativePanelCapacity> nativePanelQueue {};
+    std::array<sc55::SynthCommand,nativePanelCapacity> nativePanelQueue {};
     std::atomic<unsigned> nativePanelRead { 0 }, nativePanelWrite { 0 };
+    // Message-thread-only interaction state. Audio never reads these members.
+    // Lifecycle reset is handed off by generation, not a concurrent UI write.
+    std::atomic<unsigned> nativePanelGeneration { 0 };
+    unsigned panelGeneration=0;
+    uint8_t panelPart=0;
+    bool panelAll=false, panelSolo=false, panelStandby=false;
     std::unique_ptr<common::LoadRomsetResult> loadedRoms;
 
     std::string error;

@@ -116,11 +116,56 @@ drum exclusive groupの強制停止は、通常NoteOffのhold/保持キー条件
 
 ## task 5/6の入口について補足
 
+登録そのものの再確認（ROM1生byte、2026-09-10）：0261..02a0はtask0..8を
+同じ手順で構築し、入口は0778+4*task、stack topは07a4+2*taskから読む。
+task5の入口は00000542、stack top FCE2、task6は00000542、stack top FD1C。
+「別の音源routineの入口をまだ取り出せていない」のではなく、このROMの登録表に
+独立した入口がない。026a/026eで双方のpending/wait maskは0へ初期化される。
+この登録表を根拠に新たなEGやMIDI workerをNativeへ追加しない。
+一方、同じ入口であることは全経路での未使用証明ではない。以下の通知元調査の
+限界は残る。既知の入口・通常timerを再確認するだけの試験はこれ以上増やさない。
+
 ROMの0542は `50 01`（r0=1）、0544は`08 10`（TRAPA 0）、
 0546は`30 1a 99`（相対分岐、次PC0549+1a99=1fe2）。
 従ってイベント待ち後にtask 0と同じ初期化/受信入口へ行くコード。
 線形asmは0541のffから誤整列し、これを301aへのjmpに見せていた。
 task 5/6を実際に起こす条件は未確定。用途を「空タスク」とは断定しない。
+
+2026-09-10追加: ROMの通知命令08 12を生byteで走査した。
+ROM1全域＋ROM2先頭bankの42箇所はすべて直前に`50 target 51 event`を持つ。
+通知先別はtask0=1箇所、1=19、2=9、7=2、8=11。3/4/5/6宛ては0。
+線形asmの命令境界による見落としを避けた列挙であり、呼出回数ではない。
+`--kernel-notify-sites`で再生成できる。ログ `/tmp/sc55-notify-sites.log`。
+ROM2の他bankにも08 12というbyte列が5箇所あり、別枠で数える。
+直前の定数設定を飛び越す分岐、trap以外の直接event書込み、timer通知まで
+到達不能と証明したものではない。次はそちらのproducerを確認する。
+同じ0542入口の再解析や、通常CCの動的再生だけを繰り返してもこの穴は閉じない。
+
+### タイマーと割込みからの通知（追加確認）
+
+通常のタイマーはtask5/6の待機解除元ではない。根拠は次の登録・通知規則。
+
+- 初期化0261..02a0は9タスクのpending/wait maskをclearし、
+  deadline[FE12+2*task]をffff（未登録）にする。
+- TRAPA1の030eは現在タスクFDCAを読み、031a..0338はそのタスクだけの
+  period[FE24+2*task]とdeadlineを登録する。他タスクを指定するAPIではない。
+- timer ISRの03cdはexpiration countを増やし、03d0はpending[FDE2+task]の
+  **bit7**だけをset。03d3..03d8はwait maskのbit7がない場合、起床させない。
+- task5/6はtimer登録前にmask01で待つ。仮にtimer期限が存在しても、
+  80と01は交差しない。復帰側0507..0518もpendingとwait maskの積でイベントを選ぶ。
+
+TRAPA2以外にも割込みhandlerが0419へ直接jmpする経路がある。
+ROM1生byte `10 04 19` の6箇所はすべて直前に宛先・bit・DP=0の設定を持つ。
+065d/0731/7e8b/7fcbはtask0 bit0、0774はtask2 bit1、7ee6はtask4 bit0。
+ROM2にはこのbyte列はない。従ってこの6箇所にもtask5/6宛てはない。
+`--kernel-notify-sites`はtrap通知と割込み通知を別々に列挙する。
+task4へのLCD通知を「trap通知0箇所」だけで存在しないと解釈してはいけない。
+診断targetをbuildして実ROMで再実行し、6箇所・引数未解決0を確認した
+（`/tmp/sc55-notify-interrupt-sites.log`、exit0）。製品ソースはこの確認では変更していない。
+
+これは通常timerによる自発起床を除外し、直接jmpの通知先を特定したもの。
+任意のpointer書込み、間接分岐や引数設定を飛び越える分岐まで排除した
+全到達性証明ではない。task5/6に推測の周期処理を追加する根拠にはしない。
 
 ## 検証手順と限界
 

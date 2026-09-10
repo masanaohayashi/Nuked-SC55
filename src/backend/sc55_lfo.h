@@ -552,12 +552,19 @@ public:
         const std::array<uint16_t,128>& depths,const std::array<uint16_t,256>& rates,
         const LfoWaveformTables& tables,Read&& read,Write&& write)
     {
+        const auto prepared=prepareLocal(voices,pitchDepth,rateControl,depthControl,depths);
+        if(prepared!=Result::ready) return prepared;
+        return voices[channel_].block.advance(ticks,rates,tables,read,write) ? Result::updated : Result::invalidInput;
+    }
+    Result prepareLocal(std::array<FirstModulationVoice,24>& voices,uint8_t pitchDepth,
+        uint8_t rateControl,uint8_t depthControl,const std::array<uint16_t,128>& depths) noexcept
+    {
         if (!pending_ || rateControl > 127 || depthControl > 127) return Result::invalidInput;
         pending_ = false;
         auto& voice = voices[channel_];
         if (checkStage_ && voice.firstStage != stage_) return Result::stageChanged;
         PrepareFirstModulationControls(voice.block,voice.sharing.baseRate,pitchDepth,rateControl,depthControl,depths);
-        return voice.block.advance(ticks,rates,tables,read,write) ? Result::updated : Result::invalidInput;
+        return Result::ready;
     }
 private:
     unsigned channel_ = 0;
@@ -681,11 +688,17 @@ public:
         const std::array<uint16_t,256>& rates,const LfoWaveformTables& tables,
         Read&& read,Write&& write)
     {
+        const auto prepared=prepareLocal(voices);
+        if(prepared!=Result::ready) return prepared;
+        return voices[channel_].block.advance(ticks,rates,tables,read,write) ? Result::updated : Result::invalidInput;
+    }
+    Result prepareLocal(std::array<VoiceModulation,24>& voices) noexcept
+    {
         if (!pending_) return Result::invalidInput;
         pending_ = false;
         auto& voice = voices[channel_];
         if (checkStage_ && voice.firstStage != stage_) return Result::stageChanged;
-        return voice.block.advance(ticks,rates,tables,read,write) ? Result::updated : Result::invalidInput;
+        return Result::ready;
     }
 private:
     unsigned channel_ = 0;

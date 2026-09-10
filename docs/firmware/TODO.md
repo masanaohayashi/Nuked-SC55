@@ -3,13 +3,184 @@
 最優先はH8が担当する制御機能の意味単位での移植。既存PCMのDSPを
 作り直すことはゴールに含めない。判定の正解は既存H8の実行結果とする。
 
+次の実装選定は[責務ごとの現状判定](NATIVE_CONTROL_ACCEPTANCE.md)を先に読む。
+[現在の制御作業](CURRENT_CONTROL_WORK.md)は変更履歴と詳細根拠として参照する。
+下記には過去の時間再現実験も残っている。未チェックの数を未実装機能数と見なさない。
+
 ## 後回し（2026-09-10、ユーザー指示）
+
+- 隠し操作・拡張LCDメニューは後回し。音源制御のC++置換を先に進める。
+  公開パネル操作・表示は引き続きmessage threadで扱う。
+
+- MIDI出力（SysEx返信・設定一括送信）とそのUI接続は現状の対象外。
+  既存の送信診断は保存するが、未完成の必須機能として追わない。
+  SysEx受信による設定変更・GS reset・表示データ受信は対象内のまま。
+  通常の出力未接続時はRQ1の返信を生成・蓄積しない。オフライン返信比較は
+  `setParameterReplyCapture(true)`で明示的に有効化する。
+  製品経路でRQ1を16回受信しても返信待ち・蓄積・overflowが起きず、続くDT1の
+  音量変更が適用される試験を追加してPASS。既存の明示出力接続の比較も維持。
+  ログ `/tmp/sc55-no-output-test.log`。この変更後のXcode再ビルドは未実施。
 
 - [ ] NativeSynthのサンプルごとの互換PCM状態同期の削減。
   制御境界だけで同期する案は保留。実測した費用・必要性を確認してから再開する。
   H8制御の未実装機能より優先しない。既存PCMの演算とドラム開始保護を維持する。
 
 ## 制御機能の残り
+
+作業単位が完了するごとにコミットする（2026-09-10、ユーザー指示）。
+pushは別途指示がある場合だけ行う。
+
+### 最新方針: 命令時間の再現は通常経路から外す
+
+ユーザー確認により、H8エミュレーターとのサンプル一致そのものを完成条件にしない。
+製品は共通周期の制御passをC++で実行し、命令数由来の計算待ちは使用しない。
+PCMの発音開始・再利用待ち、EG初期化とドラムのkey-latch保護は維持する。
+`timedPhase`は比較診断用に残す。以下の時間接続の記録は過去の実験結果。
+ボイス選択差の既存テストは消さず、機能違反と単なる時刻差を区別して扱う。
+未実装機能を優先し、細かな時刻差は実際の発音不具合の根拠がある場合に調べる。
+
+この変更のheadless製品経路で再利用8回、他EG更新88回、0/1/127/257frameの
+出力一致、reserve48発音と保護済みmono拒否、再利用中CC7／held release、
+PCM通知受付を確認。コマンド順序は最初のreadback直後のstageを直接記録し、
+一括passでも後の修正で見かけ上通らないようにした（backlog0/64ともPASS）。
+音声処理から戻った時に命令時間待ちが残っていないことも検査する。
+ログ `/tmp/sc55-semantic-pass-*.log`。Xcode／Logicでの音・CPU負荷は未確認。
+
+### 2026-09-10: 第1／第2LFOの計算時間と乱数読取り位置を接続
+
+以下は過去の計時実験の記録。通常passはEG・filter・pitch・levelのC++更新を
+直接呼ぶように戻し、命令数計算と結果の一時コピーも通常経路から外した。
+明示的なphase／timedPhase診断は結果保持・中断テストのために維持する。
+直接更新と段階更新のPCM I/O比較、385toneの発音／停止／再利用を含む
+`--native-voice-control-pcm-test`がPASS（`/tmp/sc55-direct-control-pcm.log`）。
+製品経路のreserve48・再利用8回・PCM通知受付・可変block出力一致もPASS。
+CPU負荷改善やLogic上の実演奏の確認結果ではない。
+
+local LFO計算を`ModulationCalculation`で保持。共有元選択・解除・コピーは従来の
+ownerに残し、ローカル計算を二重に実行しない。ランダム波形はE034のラッチ位置
+まで進めてからPCM値を一度だけ読み、残りの計算時間後に確定する。その途中を
+IRQ/MIDI受付の隙間にはしない。H8の実命令入口で10982計算と597読取り位置が一致。
+H8で観測できた波形は0/1/3/4/5。全7波形のC++即時計算との一致も別に確認。
+PCM385tone、release111、reserve48、startup8／他EG90、通知受付、block一致、
+コマンド優先順、準備中MIDIがPASS。`/tmp/sc55-lfo-*.log`。
+共有／解除などの周辺処理・controller・readback／publish・他CPUサービスの時間は
+まだ未接続。625cycle単位への切上げも残り、全体の完成とはしない。
+
+### 2026-09-10: 4つの計算本体を製品のデバイス時間へ接続
+
+通常経路が`timedPhase`を使用。入力依存の命令数×12の計算本体時間をPCMの
+実進行量で減らし、完了後に結果を確定する。途中はIRQ／MIDI等の制御を保留し、
+PCMと次周期の時計は進める。周辺の未計時phaseへ固定sample待ちは追加しない。
+全体は未完成。LFO・controller・readback／publish・他CPUサービス等はまだ未計時、
+完了はPCMの625cycle単位へ切り上がる。通常capacity40の66/67差は残る。
+PCM385tone、release111、reserve48、startup8／他EG101、通知受付、block一致、
+コマンド優先順と4計算の完了直前／完了時テストがPASS。
+`/tmp/sc55-timed-calculation-*.log`。実ホストとCPU改善は未確認。
+
+### 2026-09-10: 周期計算の結果と公開を製品経路で分離
+
+続く接続でruntime自身がslot・計算段階・結果・処理量を保持するようになった。
+phase再開ではcalculateとcommitを分け、通常passも同じ段階を連続実行する。
+計算後に入力ticksを変更しても再計算せず、独立snapshotと同じ結果を確定する。
+途中結果がある間の発音準備開始を拒否し、宛先の再設定を保留する。
+runtime snapshotは自分の結果を値で所有する。音声所有者を共有するpointerはない。
+両target build、PCM385tone、release111、startup8／他EG88／block一致がPASS。
+`/tmp/sc55-runtime-calculation-*.log`。段階化に伴い、1呼出し=1計算と仮定していた
+試験はcalculate/commitの両方を進めるよう更新した。音声／停止の期待値は維持。
+時間待ち、全体の実行時間配分、通常capacityの修正は未完。
+
+`VoiceParameterCalculation` がEG・filter・pitch・levelの計算結果を型付きで所有する。
+既存の`CalculateVoiceControlStage`もこの計算を一度だけ呼び、担当する状態だけを
+commitする。全ボイスsnapshotの巻き戻し、入力参照の保持、二重計算はしない。
+move元を空にし二重commitを拒否。停止stageになった宛先には古い結果を反映しない。
+shared LFOとPCM操作は既存の継続ownerを維持し、この純粋計算には入れない。
+通常経路はまだ即時commitで、デバイス時間の待機／実行時間モデルは未接続。
+この変更をcapacity不一致の修正やCPU改善として扱わない。
+両診断target build、4計算の公開保留／move／二重commit／停止保護、既存PCM385tone、
+release111、startup8／他EG88更新／0・1・127・257frame一致がPASS。
+`/tmp/sc55-parameter-*.log`。Xcode／Logic／CPU実測はしていない。
+
+### 2026-09-10: PCM通知の受付と遅延処理を分離
+
+NativeVoiceEngineが固定長のボイス別通知を保持し、再利用待ち中でもPCMの
+単一IRQラッチをacknowledgeする。実際の境界処理は発音準備／再利用待ちが
+終わってから、ボイス操作を優先してslot23から降順で実行する。
+停止／波形再設定が消した通知は再実行しない。ROM根拠はCPU_SERVICESの
+「PCM通知の受付と処理」。PCM演算・key-latch保護・製品時計は変更なし。
+両診断targetのbuild、明示的な2デバイス通知の待機中受付、合流／降順／
+古い通知破棄、既存PCM制御385tone、release111、reserve48／protected mono、
+startup8／他EG88更新／0・1・127・257frame音声一致がPASS。
+ログ `/tmp/sc55-boundary-reception*.log` と `/tmp/sc55-boundary-mailbox-pcm.log`。
+自然なH8 MIDI入力では再利用待ちと通知受付の重なりはまだ観測できていない。
+通常capacity40のボイス選択差の解決や、Logicでの改善を意味しない。
+
+### 旧方針の診断記録: 割込み側も含む実行時間モデル（通常経路には追加しない）
+
+最新切分け`end-clock-start`はH8の開始時刻でC++共通時計の回数を確定し、
+H8完了時刻まで保持する。H8の経過回数は入力に使わず、48発音・保護による
+拒否・発音復帰までPASS。対象windowは9pass／25周期。時刻replayはまだ残り、
+通常製品や音声全体の合格ではない。`/tmp/sc55-elapsed-entry.log`。
+重要な訂正: 製品にもeffects前の`effectPassClock_`とruntimeの`controlTicks_`が
+既にあり、開始時回数と次回分は分離済み。時計や保持ownerを重複追加しない。
+次は既存の意味単位の処理の開始・再開・完了をデバイス時間へ接続する作業。
+
+追加切分け: PCM通知修正後の同一binaryで、同じH8周期完了時刻に対し
+経過回数だけを実測値／毎回1へ変更。実測値では48件と拒否／復帰がPASS、
+毎回1では40件目の66/67差が再現。対象windowは両方9pass・合流0、経過回数は
+26対9。時刻を合わせるだけでなく、処理待ち中の周期回数の蓄積が必要。
+回数だけを通常native時刻に与えれば十分、という証明ではない。
+`/tmp/sc55-elapsed-{observed,unit}.log`。製品への回数強制やreplayは入れない。
+続く`end-clock`はH8回数を使わず、C++の共通時計を音声frame数で進め、
+H8完了機会で蓄積回数を回収する診断。対象windowは同じ9pass／26周期でも
+40件目が不一致。過去windowと各passへの回数配分・初期位相は同一ではない。
+合計回数だけで十分とはいえず、開始時の回数確定と、実行中に来た次の通知の
+分離が必要。完了時回収を製品仕様にはしない。`/tmp/sc55-elapsed-clock.log`。
+
+優先順修正後も通常capacity40は不一致。診断のみで周期完了時刻と経過回数を
+H8に合わせると48件・リザーブ拒否・復帰まで一致するため、割当式を変更しない。
+全周期区間を実命令入口で分類したところ、24ボイス開始146周では音源制御68.6%、
+表示関連task4/7が15.2%、hardware IRQ10.4%、scheduler3.5%、その他2.3%。
+未分類時間0。平均460327cyclesのうちtask8自身は315800cycles。
+音源制御の計算量だけを時刻へ接続しても、割込み側を欠いたままでは完成しない。
+既存の意味単位の処理を共通のdevice時間へ接続することを中心作業とし、
+平均値の固定待ち、記録時刻replay、H8命令／kernel taskエミュレーションの復活はしない。
+JUCE GUI処理をaudio callbackへ移す意味でもない。
+詳細とコマンド・ログはNATIVE_CAPACITY_MODEの先頭。製品動作の修正ではなく、
+今後の実装対象を確定する診断結果。通常capacityの合格は引き続き未達。
+
+### 2026-09-10: 製品dispatcherのコマンド／周期順を接続
+
+`serviceCommandWork` を周期effects／voice制御より前へ移した。
+task1のコマンドリング（07e8–0850）がtask8（5af1）より優先されるため。
+以前はNote Offと周期イベントが同時にreadyだと、旧状態のEGを1回進めてから
+Note Offを処理していた。製品入口の回帰テストでは旧stage4、修正後stage12。
+64コマンドの処理上限を越える入力でも同じ問題を確認し、処理可能なキューが
+残る間は周期イベントをconsumeしないよう修正。待機中のadmission／PCM再利用／
+トランザクションは区別し、他ボイスの周期更新を妨げない。
+既存の固定長キューと回数上限は維持。推定待ち・H8時刻replay・PCM演算変更はなし。
+これはready状態の優先順の接続であり、各操作の実行時間モデルの完成ではない。
+検証ログ `/tmp/sc55-command-control-*.log`。製品TU buildと単独／64コマンド競合の
+順序テストがPASS。startup8・他EG88更新・0/1/127/257block一致、準備中のMIDI／
+hold release、release111、reserve48／protected monoもPASS。
+単純な順序移動の段階でbulk/reset8転送1864byteもPASS。
+capacity40のH8 key66／native key67差は最終コードでも残る（exit134）。
+Xcode／Logicでの確認やCPU負荷の改善測定はしていない。
+
+
+### 2026-09-10: 終了通知の優先順を訂正
+
+以前の「終了mailboxをコマンド／MIDIより先に消費する」は誤り。
+ROM 00:07c7–0850はevent0（コマンド）をevent1（終了通知）より先に選び、
+コマンドリングを空になるまで処理してから待機へ戻る。MIDI解析は別のtask0。
+NativeVoiceEngineはqueued command／admission／fanoutがある間の返却を保留し、
+MIDI解析入口での暗黙の返却を削除した。周期制御中に新たに終了が発生する場合も、
+返却を保留してtask1へ譲る。以前の「返却優先」を期待したテストをROM根拠で訂正。
+この修正は全体の実行時間配分・capacity40不一致の解決を意味しない。
+検証: `/tmp/sc55-command-event-order-*.log`。両診断targetのbuild、既存PCM制御と
+キュー／継続admission／周期更新中の新規終了を含む順序テスト、H8 release111件、
+reserve48件・protected mono、startup8件・他EG88更新・0/1/127/257block一致がPASS。
+通常capacityは再実行でも40件目でH8 key66／native key67の差が残る（exit134）。
+Xcode／Logicでの確認とCPU改善の測定はしていない。PCM演算・開始保護は変更なし。
 
 - [ ] 共通タイマの位相と、発火後の処理待ちを分離してスケジューラへ接続。
   共通位相の所有は接続済み。`ControlTaskClock` が位相と制御イベントを分離し、
@@ -42,7 +213,8 @@
   `serviceActivation` が再利用失敗時の次の共通kernel tickを保持する。
   プレイヤーは期限までPCMを進め、key-latch保護は従来どおりPCM passごとに確認。
   `handlePcmBoundary` が音程／停止処理とlifecycle・両LFO stageの反映を一括所有。
-  EG計算中5段階の割込みテストもこの製品入口を通す。開始準備中はイベントを消費しない。
+  EG計算中5段階の割込みテストもこの製品入口を通す。開始準備中は境界処理を保留する。
+  後続修正で受付を分離し、再利用待ち中はacknowledgeしてボイス別通知を保持する。
   `/tmp/sc55-activation-owner-*.log`。開始待ち8件・他EG更新88回、音声block一致、
   bulk/reset8転送1864byteがPASS。時刻モデルを変更する作業ではなく、全時間配分は未完。
 
@@ -104,13 +276,13 @@
   `/tmp/sc55-return-phase-pcm.log` は通知前後の使用状態・一度だけ返却する追加テストと
   既存テストがPASS。product TU buildとstartup-wakeもPASS。全イベント優先順位／
   時間配分とMIDI・再割当てとのinterleaveは未検証。PCM待ち時間は変更していない。
-  MIDI受付入口 `NativeVoiceEngine::serviceMidi` は、task1の順序に合わせて
-  終了mailboxを先に消費するよう接続した。通知消費はruntimeの一箇所へ集約。
+  過去にMIDI受付入口 `NativeVoiceEngine::serviceMidi` からも終了mailboxを消費したが、
+  task0／task1の混同だったため撤回した（上の訂正参照）。消費実装自体はruntimeに集約。
   `/tmp/sc55-completion-midi-test.log` は、MIDI受付時の空き数と、次の割当後に
   通知を二重消費しない追加検証を含みPASS。直接の発音APIとの競合や
   全体の時間配分は引き続き未完。通常のPCM演算・開始待ち時間は変更なし。
-  さらに `serviceVoiceCommand` の実行／再開入口へ通知消費を接続。
-  MIDI受信済みのコマンドも対象とし、startup/task待ちの判定より前に消費する。
+  `serviceVoiceCommand` の実行／再開入口からの無条件消費も訂正。
+  現在はキュー／継続中のadmission／fanoutが空のときだけ通知を消費する。
   終了したslotを含む全24slotを再割当てしてから旧passを再開し、新しいownerが
   返却されない追加テストがPASS。`/tmp/sc55-command-completion-pcm.log`。
   product TU build、startup-wake、準備中MIDI／held releaseもPASS。
@@ -396,7 +568,7 @@
 - [x] 通常RQ1の明示的な送信待ち／完了を音源のMIDI処理へ接続。
   送信中の入力保持、完了後のCC・発音再開をH8比較済み。
   watchdogのTX busy入力にも接続。実ホスト出力は引き続き未接続。
-- [ ] パネル起点の一括設定送信と転送終了時の境界。
+- 対象外（ユーザー指示）: パネル起点の一括設定送信と転送終了時の境界。
   CF02 bit0は通常RQ1の別設定ではなく、04:713e/715f/717dが所有する
   複数転送の外側の状態。停止・controller reset・受信禁止を最初に一度行い、
   全転送の終了後だけ受信を再開する。各RQ1に通常の開始/終了処理を繰り返さない。
@@ -421,6 +593,25 @@
   完了待ち／途中入力破棄／終了後再開も各caseで確認。通常RQ1の18要求62packetも維持。
   残りは製品UIからの操作・確認表示、solo表示時の選択、ホストMIDI出力接続。
 - [ ] 未解釈設定の機能、パネルの未対応操作・隠しモード。
+  ソロの音源制御を接続。通常画面ALL+MUTEの物理入力でCDCC bit3が切り替わる。
+  開始時に他partを停止し、選択part変更時も停止対象を更新する。
+  Note Receive/global muteの設定値を保存したまま、solo中だけ受信判定を上書きし、
+  解除時には元のmuteに従い停止する。solo中の通常MUTE操作はH8同様に無視する。
+  NativeSynth::toggleSoloと既存パネルキューのsoloコマンドまで接続済み。
+  `--native-panel-solo`で実H8の物理ボタンとMIDIを比較し18件PASS。
+  ALL soloによる全part受信、単partへの復帰、global muteの復帰も含む。
+  `/tmp/sc55-solo-test.log`。音色はprogram80、入力は3channel。
+  全音色・全演奏条件やLogicのGUI操作を網羅した結果ではない。
+  GUIはALL+MUTEの同時押し、およびdesktop用Shift+MUTEを既存キューへ接続。
+  同時押し後の単独ALL/MUTEクリックは抑止し、実押下とButtonの描画用flashを区別する。
+  nativeのsolo状態をatomic snapshotでUIへ公開しMUTE点滅とtooltipに表示する。
+  この点滅はGUIの表示でありH8のLED周期再現ではない。H8参照モードは従来LED表示。
+  実機タッチ／Logic上のGUI操作は未確認。
+  GS resetを単part solo中、GM resetをALL solo中に送り、後続Note Onとsolo解除を
+  含めH8比較27件PASS（`/tmp/sc55-solo-reset-test.log`）。H8もsoloとglobal muteを
+  保持するため、C++側でリセット時にこれらを初期化する変更は不要だった。
+  接続後のXcode Release/arm64 Standaloneと内蔵AUv3はBUILD SUCCEEDED
+  (`/tmp/sc55-native-solo-ui-release.log`)。Resave・署名・インストールはしていない。
   通常設定操作は16partとALLをH8の実ボタン入力と比較済み。
   ドラムINSTRUMENTの単純な番号加減算を修正し、有効kitだけを前後選択する。
   全kit往復・両端を含め比較済み。MIDI PCのfallback規則は変更しない。
@@ -443,6 +634,19 @@
 ホストMIDI出力接続は別の契約変更であり、内部制御の完了と混同しない。
 
 ## 製品ビルド確認（2026-09-10）
+
+最新確認: 通常passの命令時間待ちを外し、EG／filter／pitch／levelを直接更新する
+現状で、Xcode Release / arm64 Standaloneの `BUILD SUCCEEDED` を確認。
+内蔵AUv3のリンク・app内へのコピー・ValidateEmbeddedBinaryも成功。
+出力 `/tmp/sc55-native-product-validation/Products/Release/SC-55.app`、
+ログ `/tmp/sc55-native-direct-release.log`。
+Resaveなし、署名・Launch Services登録・インストールなし。
+ソースの既定選択はC++のまま。Logicの認識、実演奏、CPU負荷は未確認。
+
+今後の機能作業はパネル操作の未接続部分（同時押し／確認／solo選択）、
+表示の特殊モード、到達条件未確定の制御責務を対象とする。
+高音域の2ms程度の終了時刻差とcapacity40の生存key差は既存診断として残すが、
+その一致だけを目的とする命令時間モデルの追加は再開しない。
 
 最終Xcode確認: NoteGroup／VoiceAllocation集約、再利用の周期待機、
 待機中の他ボイス制御、pass再開、未処理停止stageの公開、

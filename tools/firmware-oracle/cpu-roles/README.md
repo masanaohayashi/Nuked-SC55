@@ -84,3 +84,123 @@ PCs are sampled before Step, so interrupt entry can affect per-PC accounting.
 Emulator cycles are not a claim of hardware-accurate H8 instruction timing.
 These are not performance benchmarks, exhaustive protocol tests or native audio
 equivalence tests. Findings and remaining boundaries are in docs/firmware/CPU_*.
+# Kernel event ordering audit
+
+Song identity observation: with the diagnostic target's `SC55_NATIVE_IO_AUDIT`
+enabled, set `SC55_SONG_IDENTITIES=1` for `--song-allocation`, `--song-part16`
+or `--song-first-kick`. Each PCM key-on records GS part, allocator group key and
+sample start. Reports count differences without comparing exact start times,
+plus per-part poly/mono/rhythm counts. This is not a MIDI-note completion verdict:
+partials, mono reuse and changed group keys can differ from input note identity.
+The observer reads H8 state only; it does not patch it. Collection uses allocating
+diagnostic containers, is opt-in and must not be used for CPU measurements.
+No observer is compiled into the normal product-check target or plug-in.
+It also compares mono retained keys when native queued work is empty, H8 RX and
+command rings are empty, and H8 pending voice operations are clear. A zero count
+of mismatches proves only these observations, not every intervening audible note.
+
+Pass start/end replay observations use the actual instruction-entry hook, not
+the pre-Step PC (interrupt dispatch can otherwise duplicate an opportunity).
+After this correction, `end` and `end-clock-start` still pass; `end-unit` and
+`end-clock` still fail the original admission40 survivor assertion. Earlier
+pre-Step logs contain three extra opportunities and are not exact pass counts.
+
+`SC55_REPLAY_CAPACITY_PASSES=end-clock-start` consumes the native clock at
+observed pass entry and holds that elapsed count until observed completion.
+Unlike `end`, it does not feed H8 elapsed counts into native control. It currently
+passes48 admissions and rejection/recovery, but still replays START/END times
+and runs native work at completion: neither default timing nor sample-level
+equivalence is established. The existing product already has captured-count
+ownership; this diagnostic identifies execution scheduling as the missing link.
+
+`SC55_REPLAY_CAPACITY_PASSES=end-clock` uses those completion opportunities but
+derives elapsed counts from a separate production `ControlTaskClock` advanced by
+native frames. Its own zero epoch is retained; `emptyClock` counts opportunities
+skipped because no timer event is pending. It is not the same count distribution
+or necessarily the same dispatch set as `end`. It currently fails admission40
+despite the same26-period total in that window. This diagnostic is not a proposal
+to collect elapsed counts at completion; the firmware captures them at entry.
+
+`SC55_REPLAY_CAPACITY_PASSES=end-unit` with `--native-capacity-stealing` is a
+counterfactual variant of `end`: identical observed completion times, but one
+elapsed period per notification. Compare it with `end` to isolate elapsed-count
+batching from the completion schedule. Both are diagnostic-only; neither is a
+product scheduler or an audio-equivalence test. The survivor assertion remains
+enabled (currently `end` passes while `end-unit` fails at admission40).
+
+`sc55-cpu-roles ROMDIR --native-boundary-reception` extends the full-voice
+startup-wake fixture with two explicit PCM device notifications during a reuse
+wait. It checks immediate acknowledgement, retained per-voice notifications,
+deferred handling, and zero/1/127/257-frame audio equality. These injected device
+inputs are not evidence of a naturally observed H8 interrupt/reuse overlap.
+`SC55_TRACE_KERNEL_EVENTS=1` with `--native-capacity-stealing` reports read-only
+H8 PCM acknowledgement/coalescing/wait-mask observations through admission 40;
+the known capacity mismatch is not waived by this diagnostic.
+
+`SC55_TRACE_CONTROL_ROUTINES=1` also reports `[DEBUG-pass-partition]` for
+complete5af9..5b70 periodic intervals. Task work, hardware interrupts and
+non-IRQ scheduler execution are mutually exclusive; `unobserved` is the
+remaining device time, not silently attributed to task8. Buckets use allocated
+voice count at pass entry. These are emulator-cycle costs, not host CPU times.
+
+`sc55-cpu-roles ROMDIR --native-command-control-order` checks product dispatch
+when Note Off and the periodic voice event are both ready, including a 64-command
+backlog crossing the per-service command budget. The first control pass must
+observe the release rather than update the old held-note state. The explicit
+control event is an order fixture, not a recorded H8 timing schedule.
+
+`sc55-cpu-roles ROMDIR --native-panel-solo` compares physical H8 ALL+MUTE
+operations with native solo, MIDI admission and sounding-part counts. It covers
+selected-part changes, ignored MUTE during solo, per-part/global mute restoration
+and ALL selection. GS reset during selected-part solo and GM reset during ALL
+solo are followed by notes and solo exit, checking retained selection/mute
+behavior as well as drained voices (27 comparisons). This does not exercise
+mouse/touch gestures in the plug-in UI.
+
+`sc55-cpu-roles ROMDIR --panel-options` observes standby option entry through
+physical H8 POWER/ALL/MUTE/INSTRUMENT-right switches. It asserts that fast-scroll
+can be enabled and disabled and survives return to the playing page. No H8 RAM
+is patched. It also drives NativeSynth's semantic standby and fast-scroll
+operations, comparing standby mode, option retention, sounding-part counts and
+CC7 state. Notes/CC during standby are discarded; new notes work after resume.
+This does not validate every standby option or the plug-in GUI mapping.
+
+`sc55-cpu-roles ROMDIR --kernel-notify-sites` inventories raw TRAPA2 byte
+matches and their preceding immediate arguments. It separately lists ROM1's
+direct interrupt jumps into the notification handler at 0419 (including the
+LCD notification omitted by a trap-only inventory). Other-bank matches are counted
+separately. This is not proof against branches bypassing argument setup, direct
+event writes, or timer notifications.
+
+`sc55-cpu-roles ROMDIR --kernel-events` runs the existing `--events` sequence
+with read-only observations at actual H8 instruction entry. It reports explicit
+notifications, timer registration/expiration, wait masks, event consumption and
+task5/6 entry/return counts. `contextTask` is not necessarily the notification
+sender: an ISR retains its interrupted task's current-task field. This is not a
+native scheduling replay or proof that unobserved firmware paths are unreachable.
+
+`sc55-cpu-roles ROMDIR --configuration-readers` requires configuring this
+diagnostic target with `-DSC55_ORACLE_CONFIG_READS=ON` (default OFF). It reports
+actual H8 reads of `UninterpretedSystemSettings` fields during boot, notes,
+program change, all CC numbers and GS reset. The observer is enabled only inside
+the execution loop, not during diagnostic state dumps. A missing read is not
+proof that a field is unused. Do not use this profiling build for H8 CPU-cost
+comparisons; the hook adds overhead. Normal product builds contain no hook.
+# Normal product control runtime
+
+`sc55-native-product-check` is an explicitly built target without
+`SC55_CONTROL_TIMING_ORACLE`. A compile-time check rejects any instruction-time
+API in its VoiceControlRuntime. It reuses the existing synth and song checks;
+it does not change their assertions or turn diagnostic timing on for playback.
+
+```sh
+cmake --build /tmp/sc55-cpu-roles-build --target sc55-native-product-check -j4
+/tmp/sc55-cpu-roles-build/sc55-native-product-check "$ROM_DIR" synth
+/tmp/sc55-cpu-roles-build/sc55-native-product-check "$ROM_DIR" part16 "$GATCHA_MID"
+SC55_KICK_ALL=1 /tmp/sc55-cpu-roles-build/sc55-native-product-check "$ROM_DIR" kick "$KTIZKE_MID"
+```
+
+The part16 fixture mutes parts1..15 through the H8 panel after initialization,
+not by filtering MIDI tracks. The kick fixture with `SC55_KICK_ALL` replays the
+first60seconds under full-song voice pressure. These test the native control
+runtime, not Logic/AUv3 registration or every sample of complete audio parity.

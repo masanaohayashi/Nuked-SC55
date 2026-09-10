@@ -14,6 +14,7 @@ inline void VerifyParameterReplies(Emulator& emu,const RomsetInfo& roms,bool che
     std::copy_n(emu.GetPCM().waverom3,sizeof(pcm->waverom3),pcm->waverom3);
     sc55::NativeMelodicPlayer player(sounds,*pcm,sc55::ImportSystemDefaults(r1,r2),
         sc55::ImportRhythmPresets(r1,r2),sc55::ImportMelodicPresets(r1,r2),sc55::ImportEffectsTables(r1,r2));
+    if(!player.setParameterReplyCapture(true)) throw std::runtime_error("Cannot enable diagnostic reply capture");
     auto& cpu=emu.GetMCU();
     const auto boot=cpu.cycles+120000000;
     while(cpu.cycles<boot) emu.Step();
@@ -96,6 +97,10 @@ inline void VerifyParameterReplies(Emulator& emu,const RomsetInfo& roms,bool che
     // RQ1 must return that byte, not a hardcoded zero or trigger a reset.
     send(0x12,{0x48,0,8,2,5}); request(0,0x7f,1);
     if(player.completedResets()!=0) throw std::runtime_error("Reading reset register triggered reset");
+    // Nonzero GS reset-command writes still update the stored command byte;
+    // they do not reset the synth. Inspect the existing state/readback path.
+    send(0x12,{0x40,0,0x7f,0x16}); request(0,0x7f,1);
+    if(player.completedResets()!=0) throw std::runtime_error("Nonzero reset command triggered reset");
     send(0x12,{0x40,0,4,93}); request(0,4,1);
     const auto midi=[&](std::initializer_list<uint8_t> message) {
         emu.PostMIDI(std::span(message.begin(),message.size()));

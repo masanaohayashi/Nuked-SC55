@@ -264,7 +264,7 @@ inline int verifyNativeEnvelopePcm()
         require(first.wave.phase == 14 && second.wave.phase == 15 && first.depth[0] == 16);
     }
     {
-        sc55::InstalledVoice installed{{12,345,1,2,60,64,100,0,67,false},32,2};
+        sc55::InstalledVoice installed{{12,345,1,2,60,64,100,0,67,false},32,sc55::VoiceOperation::prepare};
         uint8_t activity = 7;
         auto context = sc55::PrepareVoiceContext(23,installed,activity);
         using Table = sc55::VoicePreparationContext::KeyTable;
@@ -287,16 +287,16 @@ inline int verifyNativeEnvelopePcm()
         std::array<uint8_t,24> activity; activity.fill(7);
         const auto idle = sc55::DispatchNextVoiceTask(voices,links,activity);
         require(idle && idle->kind == sc55::VoiceTaskDispatch::Kind::idle && !idle->count);
-        voices[3].fieldCAF4 = voices[20].fieldCAF4 = 2;
+        voices[3].pendingOperation = voices[20].pendingOperation = sc55::VoiceOperation::prepare;
         links.first[20] = 3; links.second[20] = 24; // ignored when first exists
         const auto paired = sc55::DispatchNextVoiceTask(voices,links,activity);
         require(paired && paired->slots == std::array<uint8_t,2>{3,20} && paired->count == 2);
-        require(!voices[3].fieldCAF4 && !voices[20].fieldCAF4 && activity[20] == 7);
-        voices[20].fieldCAF4 = 2; links.first[20] = 255;
-        require(!sc55::DispatchNextVoiceTask(voices,links,activity) && voices[20].fieldCAF4 == 2);
-        voices[20].fieldCAF4 = 3;
-        require(!sc55::DispatchNextVoiceTask(voices,links,activity) && voices[20].fieldCAF4 == 3);
-        voices[20].fieldCAF4 = 4; voices[20].stages = {18,99,99};
+        require((voices[3].pendingOperation == sc55::VoiceOperation::none) && (voices[20].pendingOperation == sc55::VoiceOperation::none) && activity[20] == 7);
+        voices[20].pendingOperation = sc55::VoiceOperation::prepare; links.first[20] = 255;
+        require(!sc55::DispatchNextVoiceTask(voices,links,activity) && voices[20].pendingOperation == sc55::VoiceOperation::prepare);
+        voices[20].pendingOperation = static_cast<sc55::VoiceOperation>(3);
+        require(!sc55::DispatchNextVoiceTask(voices,links,activity) && voices[20].pendingOperation == static_cast<sc55::VoiceOperation>(3));
+        voices[20].pendingOperation = sc55::VoiceOperation::finishStop; voices[20].stages = {18,99,99};
         const auto stopped = sc55::DispatchNextVoiceTask(voices,links,activity);
         require(stopped && stopped->kind == sc55::VoiceTaskDispatch::Kind::finishStop);
         require(voices[20].stages == std::array<uint16_t,3>{14,14,14} && activity[20] == 0);
@@ -311,7 +311,7 @@ inline int verifyNativeEnvelopePcm()
         uint8_t flags = 0x40;
         require(installation.install(slot,input,flags,allocator));
         require(flags == 0xc0 && installation.voices[slot].input == input);
-        require(installation.voices[slot].taskState == 2 && allocator.allocations[slot].status == 0);
+        require(installation.voices[slot].operation == sc55::VoiceOperation::prepare && allocator.allocations[slot].status == 0);
         require(installation.pendingRelease[slot] == 0 && allocator.allocations[slot].releaseCommand == 0);
         auto invalid = input; invalid.part = 16;
         require(!installation.install(slot,invalid,flags,allocator));
@@ -1570,7 +1570,7 @@ inline int verifyNativeEnvelopePcm()
         entries[1].channel = 1;
         require(batch.begin(entries,mask));
         std::array<sc55::VoiceStopState,24> voices{};
-        voices[0].fieldCAF4 = 4;
+        voices[0].pendingOperation = sc55::VoiceOperation::finishStop;
         require(batch.advance(voices,mask,read,write) == Status::cancelled);
         require(mask.prepared == 3 && mask.enabled == 0);
         // A first voice can be cancelled while the second waits. The final
@@ -1581,7 +1581,7 @@ inline int verifyNativeEnvelopePcm()
         require(batch.begin(entries,mask));
         pcm->ram2[1][9] = pcm->ram2[1][10] = 10;
         require(batch.advance(voices,mask,read,write) == Status::waitingForReuse);
-        voices[0].fieldCAF4 = 4;
+        voices[0].pendingOperation = sc55::VoiceOperation::finishStop;
         pcm->ram2[1][9] = 0;
         unsigned writes = 0;
         require(batch.advance(voices,mask,read,[&](uint8_t a,uint8_t v) {
@@ -1620,7 +1620,7 @@ inline int verifyNativeEnvelopePcm()
     {
         sc55::VoiceKeyMask mask{0xffffffff,0x00123456};
         sc55::VoiceStopState state;
-        state.fieldCAF4 = 4;
+        state.pendingOperation = sc55::VoiceOperation::finishStop;
         unsigned writes = 0, reads = 0;
         const auto maskWrite = [&](uint8_t a,uint8_t v) {
             require(a == writes && reads == 0);
@@ -1632,7 +1632,7 @@ inline int verifyNativeEnvelopePcm()
         };
         require(!sc55::RemovePreparedVoiceKeys(mask,state,maskRead,maskWrite));
         require(writes == 0 && reads == 0 && mask.enabled == 0xffffffff);
-        state.fieldCAF4 = 0;
+        state.pendingOperation = sc55::VoiceOperation::none;
         require(sc55::RemovePreparedVoiceKeys(mask,state,maskRead,maskWrite));
         require(writes == 4 && reads == 1 && mask.enabled == 0xffedcba9 && mask.prepared == 0x00123456);
         require(pcm->voice_mask == 0x0fedcba9 && pcm->voice_mask_pending == 0x0fedcba9 && !pcm->voice_mask_updating);
@@ -1724,7 +1724,7 @@ inline int verifyNativeEnvelopePcm()
         const auto second = allocator.createGroup({0,60,46,0,2});
         require(first && second);
         std::array<sc55::VoiceStopState,24> states{};
-        for (auto& state : states) state = {{{2,4,6}},0x1234,0x5678,7,9};
+        for (auto& state : states) state = {{{2,4,6}},0x1234,0x5678,7,static_cast<sc55::VoiceOperation>(9)};
         if (fault == 0) allocator.groups.tail[second->group] = 24;
         if (fault == 1) allocator.noteGroups[second->group].next = 24;
         if (fault == 2)
@@ -1799,7 +1799,7 @@ inline int verifyNativeEnvelopePcm()
                 const auto allocated = allocator.createGroup({uint8_t(part),60,100,0,uint8_t(count)});
                 require(allocated.has_value());
                 std::array<sc55::VoiceStopState,24> stopState;
-                for (auto& state : stopState) state = {{{2,4,6}},0x1234,0x5678,7,9};
+                for (auto& state : stopState) state = {{{2,4,6}},0x1234,0x5678,7,static_cast<sc55::VoiceOperation>(9)};
                 for (auto& registers : pcm->ram2) { registers[3] = 0x1234; registers[4] = 0x5678; }
                 for (unsigned i = 0; i < count; ++i)
                 {
@@ -1817,7 +1817,7 @@ inline int verifyNativeEnvelopePcm()
                     const auto voice = allocated->voices[i];
                     const auto& state = stopState[voice];
                     require(state.stages == std::array<uint16_t,3>{uint16_t(i == 0 ? 0x12 : 0x14),uint16_t(i == 0 ? 0x12 : 0x14),uint16_t(i == 0 ? 0x12 : 0x14)});
-                    require(state.fieldCB30 == 0 && state.fieldCAF4 == 4);
+                    require(state.fieldCB30 == 0 && state.pendingOperation == sc55::VoiceOperation::finishStop);
                     require(state.cached16 == (i == 0 ? 0xb6 : 0x1234) && state.cached18 == (i == 0 ? 0x5678 : 0xb6));
                     require(pcm->ram2[voice][9] == 100 && pcm->ram2[voice][10] == (i == 0 ? 50 : 200));
                 }
@@ -1846,7 +1846,7 @@ inline int verifyNativeEnvelopePcm()
                     installed.pendingRelease[slot] = 77;
                     sc55::VoiceStopState state;
                     state.stages = {2,4,6}; state.cached16 = 0x1234; state.cached18 = 0x5678;
-                    state.fieldCB30 = 99; state.fieldCAF4 = 9;
+                    state.fieldCB30 = 99; state.pendingOperation = static_cast<sc55::VoiceOperation>(9);
                     pcm->ram2[slot][9] = 100; pcm->ram2[slot][10] = first ? 50 : 200;
                     uint8_t flags = restart ? 0xa0 : 0x20;
                     const sc55::VoiceInstallationInput input{0,uint16_t(absent ? 0xffff : 0),0,1,60,60,100,0,60,false};
@@ -1854,7 +1854,7 @@ inline int verifyNativeEnvelopePcm()
                     require(sc55::RestartAndInstallVoice(slot,input,flags,allocator,installed,state,
                         [&](uint8_t a) { ++io; return read(a); },[&](uint8_t a,uint8_t v) { ++io; write(a,v); }));
                     require(io == (restart ? 9 : 0));
-                    require(state.fieldCAF4 == (absent ? 9 : 2));
+                    require(state.pendingOperation == (absent ? static_cast<sc55::VoiceOperation>(9) : sc55::VoiceOperation::prepare));
                     require(state.fieldCB30 == (restart ? 0 : 99));
                     require(state.cached16 == (restart && first ? 0xb6 : 0x1234));
                     require(state.cached18 == (restart && !first ? 0xb6 : 0x5678));

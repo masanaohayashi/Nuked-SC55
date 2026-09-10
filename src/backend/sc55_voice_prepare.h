@@ -146,7 +146,7 @@ public:
             const auto& installed = request.installed; const auto& input = installed.input;
             if (entry.slot >= 24 || input.partial >= 2 || input.part >= 16 || input.originalKey >= 128
                 || input.sample != request.sample.sampleId || (!(installed.flags&128) && !entry.continuing)
-                || entry.lifecycle.fieldCAF4 != 0
+                || entry.lifecycle.pendingOperation != VoiceOperation::none
                 || request.firstControls.rateControl > 127 || request.firstControls.depthControl > 127
                 || request.firstControls.delayControl > 127) return std::nullopt;
             if (!(installed.flags&128) && (entry.continuing->pitch.envelope.stage>22

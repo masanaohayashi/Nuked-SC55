@@ -4,6 +4,9 @@
 #include "sc55_voice_prepare.h"
 #include "sc55_control_clock.h"
 #include "sc55_midi_queue.h"
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+#include "sc55_modulation_calculation.h"
+#endif
 
 namespace sc55
 {
@@ -22,10 +25,31 @@ public:
     std::array<VoiceControllerState,24> controllers{};
     std::array<std::optional<VoiceControlResult>,24> lastResults{};
     std::array<std::optional<VoicePcmUpdateResult>,24> lastWrites{};
+#if defined(SC55_NATIVE_IO_AUDIT)
+    std::array<uint32_t,24> readbackCounts{};
+    std::array<uint16_t,24> readbackStages{};
+#endif
 
     VoiceControlRuntime() noexcept { secondSources.fill(24); }
     bool failed() const noexcept { return failed_; }
     bool controlPending() const noexcept { return controlPending_; }
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+    bool calculationPending() const noexcept {return calculation_.has_value() || modulationCalculation_.has_value();}
+    bool parameterCalculationPending() const noexcept {return calculation_.has_value();}
+    unsigned calculationWork() const noexcept {return calculation_ ? calculation_->instructions : 0;}
+    uint32_t calculationCyclesRemaining() const noexcept
+    {return modulationCalculation_ ? modulationCalculation_->work.remainingCycles() : calculation_ ? calculation_->remainingCycles : 0;}
+    void advanceCalculationTime(uint64_t cycles) noexcept
+    {
+        if(modulationCalculation_) modulationCalculation_->work.advance(cycles);
+        if(calculation_) calculation_->remainingCycles=cycles>=calculation_->remainingCycles
+            ? 0 : calculation_->remainingCycles-uint32_t(cycles);
+    }
+#else
+    // Normal calculations finish synchronously; there is no staged result
+    // for note installation/reclamation to wait on.
+    static constexpr bool calculationPending() noexcept {return false;}
+#endif
 
     // Serialize delivery with startup/periodic DSP. The supplied receiver owns
     // MIDI interpretation and may start a prepared batch before accepting an
@@ -116,9 +140,9 @@ public:
         bool pendingTask = false;
         for (const auto& voice : lifecycle)
         {
-            if (voice.fieldCAF4 != 0 && voice.fieldCAF4 != 2 && voice.fieldCAF4 != 4)
+            if (voice.pendingOperation != VoiceOperation::none && voice.pendingOperation != VoiceOperation::prepare && voice.pendingOperation != VoiceOperation::finishStop)
             { failed_ = true; return {Status::failed,{},{}}; }
-            pendingTask |= voice.fieldCAF4 != 0;
+            pendingTask |= voice.pendingOperation != VoiceOperation::none;
         }
         if (pendingTask) return {Status::deferred,{},{}};
         const auto allocation = AllocateMelodicNote(event,channel,allocationInput,data,allocator);
@@ -147,7 +171,7 @@ public:
         if (failed_) return {Status::failed,{},{}};
         if (startupPending() || mask.prepared) return {Status::deferred,{},{}};
         for (const auto& state:lifecycle)
-            if (state.fieldCAF4) return {Status::deferred,{},{}};
+            if (state.pendingOperation != VoiceOperation::none) return {Status::deferred,{},{}};
         const auto allocation=PrepareMonoReuseAllocation(selection,part,data,allocator,group);
         if (allocation.status==MelodicAllocationResult::Status::velocityRejected)
             return {Status::velocityRejected,{},{}};
@@ -178,7 +202,7 @@ public:
     {
         using Status=MelodicStartResult::Status;
         if(failed_) return {Status::failed,{},{}};
-        if(startupPending() || mask.prepared) return {Status::deferred,{},{}};
+        if(startupPending() || calculationPending() || mask.prepared) return {Status::deferred,{},{}};
         const auto plan=MelodicSampleInstallation::prepare(allocation,part,samples,data,allocator,installation);
         if(!plan) { failed_=true; return {Status::failed,{},{}}; }
         preparation_.emplace(NotePreparation{*plan,*allocation.selection,dsp});
@@ -236,7 +260,7 @@ public:
     {
         using Status = MelodicStartResult::Status;
         if (failed_) return {Status::failed,{},{}};
-        if (startupPending() || mask.prepared != 0) return {Status::deferred,{},{}};
+        if (startupPending() || calculationPending() || mask.prepared != 0) return {Status::deferred,{},{}};
         const auto fail = [&]() -> MelodicStartResult { failed_ = true; return {Status::failed,{},{}}; };
         for(const auto& sample:samples) if(sample && !sample->installed && sample->slot<128) {
             const auto slot=sample->slot;
@@ -249,7 +273,7 @@ public:
             // clears the free status; only a return-only slot must be free.
             if(overwritten) continue;
             if(!(allocator.allocations[slot].status&128)) return fail();
-            if(lifecycle[slot].fieldCAF4) return fail();
+            if(lifecycle[slot].pendingOperation != VoiceOperation::none) return fail();
             // 113e's return does not destroy the old synthesis owner. Keep
             // its stopped stages/caches from53e6 so the next control pass
             // cannot resurrect the old envelopes or ramp commands.
@@ -267,7 +291,7 @@ public:
         if(anySample && onlyUnassigned) {
             // 124e/12cf updated part history, but125a/12db found no PCM
             // destination. There is no task2 or key-on to manufacture.
-            for(const auto& state:lifecycle) if(state.fieldCAF4) return fail();
+            for(const auto& state:lifecycle) if(state.pendingOperation != VoiceOperation::none) return fail();
             return {Status::preparedOnly,DispatchedNormalVoiceInputs{},PreparedNormalVoiceBatch{},
                 CapturePartialPitchHistory(samples)};
         }
@@ -296,7 +320,7 @@ public:
         VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data)
     {
-        if (failed_ || startupPending() || mask.prepared != 0 || entries.empty() || entries.size() > 2)
+        if (failed_ || startupPending() || calculationPending() || mask.prepared != 0 || entries.empty() || entries.size() > 2)
             return false;
         std::array<uint8_t,2> slots{};
         std::array<NormalVoicePreparationEntry,2> ownedEntries{};
@@ -433,7 +457,11 @@ public:
     }
 
     enum class ScheduledStatus { idle, deferred, working, updated, failed };
-    enum class ControlSlice { pass, phase };
+    enum class ControlSlice { pass, phase
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+        , timedPhase
+#endif
+    };
     struct ScheduledResult
     {
         ScheduledStatus status;
@@ -452,7 +480,7 @@ public:
     ScheduledResult serviceControl(ControlTaskClock& clock,const VoiceInstallationState& installed,
         const PartControllerState& parts,VoiceAllocator& allocator,const SoundData& data,
         const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write,
-        ControlSlice slice=ControlSlice::pass)
+        ControlSlice slice=ControlSlice::pass,bool dispatchCompletion=true)
     {
         if (failed_) return {ScheduledStatus::failed};
         if (preparationPending() || startupAwaitingKeyLatch()) return {ScheduledStatus::deferred};
@@ -466,16 +494,28 @@ public:
             scheduledPass_=true;
         }
         const auto elapsed=uint8_t(controlTicks_);
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+        const bool timed=slice==ControlSlice::timedPhase;
+        if(timed && calculationCyclesRemaining()) return {ScheduledStatus::deferred,elapsed};
+        const bool completingCalculation=calculationPending();
+#else
+        constexpr bool timed=false;
+#endif
         uint32_t changed=0;
-        for(unsigned group=0;group<=24;++group) {
-            const auto result=slice==ControlSlice::phase
-                ? resumeControlPhase(installed,parts,allocator,data,conversion,waves,read,write)
-                : resumeControlPass(installed,parts,allocator,data,conversion,waves,read,write);
+        for(unsigned group=0;group<(timed ? 24u*40u+1u : 25u);++group) {
+            const auto result=slice!=ControlSlice::pass
+                ? resumeControlPhase(installed,parts,allocator,data,conversion,waves,read,write,dispatchCompletion,timed)
+                : resumeControlPass(installed,parts,allocator,data,conversion,waves,read,write,dispatchCompletion);
             changed|=result.changedMask;
             if(result.status==ControlProgress::complete) return {ScheduledStatus::updated,elapsed,changed};
             if(result.status==ControlProgress::deferred) return {ScheduledStatus::deferred,elapsed,changed};
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+            if(timed && (calculationPending() || completingCalculation))
+                return {ScheduledStatus::working,elapsed,changed};
+#endif
             if(slice==ControlSlice::phase && (result.status==ControlProgress::advancedPhase
                 || result.status==ControlProgress::updatedGroup)) return {ScheduledStatus::working,elapsed,changed};
+            if(timed && result.status==ControlProgress::advancedPhase) continue;
             if(result.status!=ControlProgress::updatedGroup) return {ScheduledStatus::failed,elapsed,changed};
         }
         failed_=true;
@@ -531,16 +571,19 @@ public:
     template<class Read,class Write>
     ControlStep resumeControlPass(const VoiceInstallationState& installed,
         const PartControllerState& parts,VoiceAllocator& allocator,const SoundData& data,
-        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
+        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write,
+        bool dispatchCompletion=true)
     {
-        return resumeControlWork(false,installed,parts,allocator,data,conversion,waves,read,write);
+        return resumeControlWork(false,installed,parts,allocator,data,conversion,waves,read,write,dispatchCompletion);
     }
 
     PeriodicVoiceUpdatePass::Phase controlPhase() const noexcept { return pass_.phase(); }
     std::optional<uint8_t> controlVoice() const noexcept { return pass_.currentVoice(); }
     VoiceCalculationStage controlCalculationStage() const noexcept { return calculationStage_; }
 
-    // Task1 consumes the completion mailbox before its MIDI receive branch.
+    bool voiceCompletionPending() const noexcept { return pendingReturn_<24; }
+
+    // The engine dispatches task1's completion event after its command queue.
     // Serialized with admission; no PCM operation or time advancement here.
     bool consumeVoiceCompletion(VoiceAllocator& allocator) noexcept
     {
@@ -556,30 +599,37 @@ public:
 
     // PCM may advance after any phase. Voice installation/reclamation and
     // MIDI voice commands remain serialized outside an unfinished group; the
-    // normal product entry drains the same phases synchronously until a full
-    // execution-time scheduler is available. No estimated wait is encoded here.
+    // normal product entry drains the semantic phases synchronously. H8
+    // instruction-duration diagnostics exist only in explicitly opted-in tools.
     template<class Read,class Write>
     ControlStep resumeControlPhase(const VoiceInstallationState& installed,
         const PartControllerState& parts,VoiceAllocator& allocator,const SoundData& data,
-        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
+        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write,
+        bool dispatchCompletion=true,bool timedCalculations=false)
     {
-        return resumeControlWork(true,installed,parts,allocator,data,conversion,waves,read,write);
+        return resumeControlWork(true,installed,parts,allocator,data,conversion,waves,read,write,dispatchCompletion,timedCalculations);
     }
 private:
     template<class Read,class Write>
     ControlStep resumeControlWork(bool singlePhase,const VoiceInstallationState& installed,
         const PartControllerState& parts,VoiceAllocator& allocator,const SoundData& data,
-        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
+        const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write,
+        bool dispatchCompletion,[[maybe_unused]] bool timedCalculations=false)
     {
         if (failed_) return {ControlProgress::failed,controlUpdated_};
         // Installation is a higher-priority operation, not a PCM reuse wait.
         // Retain the interrupted scan/ticks until both partials are installed.
         // Once installation hands off to reuse, other voice groups run normally.
         if (preparationPending()) return {ControlProgress::deferred,controlUpdated_};
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+        if(modulationCalculation_ && modulationCalculation_->work.remainingCycles())
+            return {ControlProgress::deferred,controlUpdated_};
+#endif
         if (!controlPending()) return {ControlProgress::idle};
         // The completion notification is consumed before this low-priority
         // control pass resumes its scan. Keep the single mailbox owned here.
         if(pendingReturn_<24) {
+            if(!dispatchCompletion) return {ControlProgress::deferred,controlUpdated_};
             if(!consumeVoiceCompletion(allocator)) return {ControlProgress::failed,controlUpdated_};
             return {ControlProgress::updatedGroup,controlUpdated_,0};
         }
@@ -632,10 +682,40 @@ private:
             }
             return true;
         };
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+        const auto continueModulation = [&](unsigned slot,bool firstBlock) {
+            using Outcome=PeriodicVoiceUpdatePass::UpdateResult;
+            auto& pending=*modulationCalculation_;
+            if(pending.slot!=slot || pending.first!=firstBlock) return Outcome::invalidInput;
+            if(!voices[slot]) return Outcome::invalidInput;
+            if(voices[slot]->lifecycle.stages[0]!=pending.stage) {
+                modulationCalculation_.reset();return Outcome::proceed;
+            }
+            if(pending.work.needsRandom()) {
+                if(!pending.work.supplyRandom(ReadControlRandom(read,write),*data.modulationRates(),waves))
+                    return Outcome::invalidInput;
+                return Outcome::continueCalculation;
+            }
+            const auto result=pending.work.takeResult();
+            if(!result) return Outcome::invalidInput;
+            (firstBlock ? first[slot].block : second[slot].block)=*result;
+            modulationCalculation_.reset();return Outcome::proceed;
+        };
+        const auto beginModulation = [&](unsigned slot,bool firstBlock) {
+            const auto work=ModulationCalculation::begin(firstBlock ? first[slot].block : second[slot].block,
+                ticks,*data.modulationRates(),waves);
+            if(!work) return false;
+            modulationCalculation_.emplace(PendingModulation{uint8_t(slot),firstBlock,voices[slot]->lifecycle.stages[0],*work});
+            return true;
+        };
+#endif
         const auto firstUpdate = [&](unsigned slot) {
             const auto& input = firstInputs[slot];
             using Result = FirstVoiceModulationUpdate::Result;
             using Outcome = PeriodicVoiceUpdatePass::UpdateResult;
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+            if(modulationCalculation_) return continueModulation(slot,true);
+#endif
             if(!firstUpdatePending_) {
                 const bool wasSharing=first[slot].sharing.sharing!=0;
                 firstUpdate_={};
@@ -648,6 +728,13 @@ private:
                 if(wasSharing) return Outcome::continueCalculation;
             }
             firstUpdatePending_=false;
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+            if(timedCalculations) {
+                const auto result=firstUpdate_.prepareLocal(first,input.pitchDepth,input.rateControl,input.depthControl,depths);
+                if(result==Result::stageChanged) return Outcome::proceed;
+                return result==Result::ready && beginModulation(slot,true) ? Outcome::continueCalculation : Outcome::invalidInput;
+            }
+#endif
             const auto result=firstUpdate_.resume(first,ticks,input.pitchDepth,input.rateControl,input.depthControl,
                 depths,*data.modulationRates(),waves,read,write);
             return result==Result::updated || result==Result::stageChanged ? Outcome::proceed : Outcome::invalidInput;
@@ -684,6 +771,10 @@ private:
             auto& voice=*voices[slot];
             const bool runsEnvelopeControl=voice.lifecycle.stages[0]<14;
             const auto entry=ReadVoiceControl(slot,voice,second,data,read,write);
+#if defined(SC55_NATIVE_IO_AUDIT)
+            ++readbackCounts[slot];
+            readbackStages[slot]=voice.lifecycle.stages[0];
+#endif
             if(entry==VoiceControlReadback::invalidInput)
                 return finishUpdate(slot,VoiceControlResult::invalidInput);
             // Activity becomes visible at readback, not at eventual output
@@ -697,11 +788,62 @@ private:
             return PeriodicVoiceUpdatePass::UpdateResult::proceed;
         };
         const auto update = [&](unsigned slot) {
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+            if(modulationCalculation_) {
+                const auto progress=continueModulation(slot,false);
+                if(progress!=PeriodicVoiceUpdatePass::UpdateResult::proceed) return progress;
+                if(voices[slot]->lifecycle.stages[0]>=14) return finishUpdate(slot,VoiceControlResult::stopped);
+                calculationStage_=VoiceCalculationStage::amplitude;
+                return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
+            }
+#endif
             if(calculationStage_==VoiceCalculationStage::modulation && !secondUpdate_.pending()) {
                 const auto source=secondSources[slot];
                 if(source<24) second[source].firstStage=voices[source] ? voices[source]->lifecycle.stages[0] : 18;
             }
-            const auto result=CalculateVoiceControlStage(calculationStage_,slot,*voices[slot],second,secondSources,
+            VoiceControlResult result;
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+            if(timedCalculations && calculationStage_==VoiceCalculationStage::modulation
+                && voices[slot]->lifecycle.stages[0]<14) {
+                using ModResult=VoiceModulationUpdate::Result;
+                auto routed=ModResult::ready;
+                if(!secondUpdate_.pending()) {
+                    const bool sharing=second[slot].sharing!=0;
+                    routed=secondUpdate_.begin(slot,second,secondSources);
+                    if(routed==ModResult::ready && sharing)
+                        return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
+                }
+                if(routed==ModResult::ready) routed=secondUpdate_.prepareLocal(second);
+                if(routed==ModResult::ready)
+                    return beginModulation(slot,false) ? PeriodicVoiceUpdatePass::UpdateResult::continueCalculation
+                        : PeriodicVoiceUpdatePass::UpdateResult::invalidInput;
+                if(routed!=ModResult::shared && routed!=ModResult::stageChanged)
+                    return PeriodicVoiceUpdatePass::UpdateResult::invalidInput;
+                calculationStage_=VoiceCalculationStage::amplitude;
+                return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
+            }
+            if(calculation_) {
+                if(calculation_->slot!=slot || calculation_->stage!=calculationStage_)
+                    return PeriodicVoiceUpdatePass::UpdateResult::invalidInput;
+                VoiceParameterCalculation completed{std::move(calculation_->result),calculation_->instructions};
+                calculation_.reset();
+                result=completed.commit(*voices[slot]);
+                if(calculationStage_==VoiceCalculationStage::amplitude)
+                    second[slot].firstStage=voices[slot]->lifecycle.stages[0];
+            } else if((timedCalculations || singlePhase) && calculationStage_!=VoiceCalculationStage::modulation
+                && voices[slot]->lifecycle.stages[0]<14) {
+                // Explicit phase/timing diagnostics retain a result across
+                // calls. The normal complete pass uses domain updates below,
+                // without reference-work accounting or staged result copies.
+                auto computed=VoiceParameterCalculation::calculate(calculationStage_,*voices[slot],second[slot],
+                    first[slot].block,inputs[slot],data,conversion);
+                if(!computed) return PeriodicVoiceUpdatePass::UpdateResult::invalidInput;
+                calculation_.emplace(PendingCalculation{uint8_t(slot),calculationStage_,
+                    std::move(*computed->result_),computed->referenceInstructions(),computed->referenceInstructions()*12u});
+                return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
+            } else
+#endif
+                result=CalculateVoiceControlStage(calculationStage_,slot,*voices[slot],second,secondSources,
                 first[slot].block,inputs[slot],data,conversion,waves,read,write,&secondUpdate_);
             if(result==VoiceControlResult::suspended)
                 return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
@@ -722,13 +864,18 @@ private:
         // per phase. The explicit phase entry uses exactly the same delegates.
         auto result=PeriodicVoiceUpdatePass::Result::advanced;
         // Selection, first routing/update (including detach), paired copy,
-        // then two*(readback + five calculations + possible detach + publication).
-        for(unsigned phase=0;phase<(singlePhase ? 1u : 20u);++phase) {
+        // then two*(readback + LFO/detach + four calculate/commit pairs + publication).
+        for(unsigned phase=0;phase<(singlePhase ? 1u : 28u);++phase) {
             result=pass_.stepPhase(stages,links,refresh,firstUpdate,pairedUpdate,readback,update,publish);
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+            if(!singlePhase && modulationCalculation_ && modulationCalculation_->work.remainingCycles())
+                return {ControlProgress::deferred,controlUpdated_,changed};
+#endif
             if(result!=PeriodicVoiceUpdatePass::Result::advanced) break;
         }
         if(!singlePhase && result==PeriodicVoiceUpdatePass::Result::advanced) return fail();
         if(pendingReturn_<24) {
+            if(!dispatchCompletion) return {ControlProgress::deferred,controlUpdated_,changed};
             if(singlePhase) return {ControlProgress::advancedPhase,controlUpdated_,changed};
             // Immediate callers drain the same notification before returning;
             // explicit phase callers observe completion and return separately.
@@ -765,6 +912,25 @@ private:
     std::array<uint8_t,2> startSlots_{};
     PeriodicVoiceUpdatePass pass_;
     VoiceCalculationStage calculationStage_=VoiceCalculationStage::modulation;
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+    // Value-owned snapshots allow a diagnostic to fork the whole runtime.
+    // Inside each runtime only the current operation may publish this result.
+    struct PendingCalculation {
+        uint8_t slot;
+        VoiceCalculationStage stage;
+        VoiceParameterCalculation::Result result;
+        unsigned instructions;
+        uint32_t remainingCycles;
+    };
+    std::optional<PendingCalculation> calculation_;
+    struct PendingModulation {
+        uint8_t slot;
+        bool first;
+        uint16_t stage;
+        ModulationCalculation work;
+    };
+    std::optional<PendingModulation> modulationCalculation_;
+#endif
     FirstVoiceModulationUpdate firstUpdate_;
     VoiceModulationUpdate secondUpdate_;
     uint8_t pendingReturn_=24;

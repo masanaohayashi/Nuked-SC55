@@ -2,6 +2,7 @@
 #include "sc55_native_player.h"
 #include "sc55_sound_data_import.h"
 #include "sc55_synth_state.h"
+#include "sc55_synth_command.h"
 #include "sc55_signal_renderer.h"
 #include <memory>
 #include <stdexcept>
@@ -56,6 +57,8 @@ public:
     NativeSynth& operator=(const NativeSynth&)=delete;
     static constexpr unsigned sampleRate=32000;
     std::size_t push(std::span<const uint8_t> midi) noexcept { return player_->push(midi); }
+    void setMidiInputSettings(MidiInputSettings settings) noexcept {player_->setMidiInputSettings(settings);}
+    MidiInputSettings midiInputSettings() const noexcept {return player_->midiInputSettings();}
     // Same audio owner as push/render; the plug-in has no host MIDI-out yet.
     bool popParameterReply(ParameterReply& reply) noexcept { return player_->popParameterReply(reply); }
     bool setParameterOutputConnected(bool connected) noexcept {return player_->setParameterOutputConnected(connected);}
@@ -68,6 +71,43 @@ public:
     bool requestSettingsDump(BulkReplyTransfer::PanelScope scope) noexcept
     { return player_->requestSettingsDump(scope); }
     bool failed() const noexcept { return outputFailed_ || player_->failed(); }
+    // Audio-owner application only. Selection, button mapping and option
+    // toggles have already been resolved by the message-thread panel owner.
+    // False retains the command at the head of the caller's bounded queue.
+    bool applyCommand(const SynthCommand& command) noexcept
+    {
+        using Kind=SynthCommand::Kind;
+        const auto part=std::min<unsigned>(command.part,15);
+        // Each command carries its resolved sound-control target. A newly
+        // enabled secondary must not rely on an earlier focus command that
+        // was sent only to the primary (especially for SOLO admission).
+        if(selectedPart_!=part || allSelected_!=command.all) {
+            selectedPart_=uint8_t(part); allSelected_=command.all;
+            player_->selectDisplayPart(gsPart(part),command.all);
+        }
+        switch(command.kind) {
+        case Kind::focus:
+            selectedPart_=uint8_t(part); allSelected_=command.all;
+            player_->cancelDisplayMessages(command.cancelBitmap);
+            // Focus affects which voices are admitted/stopped in SOLO.
+            player_->selectDisplayPart(gsPart(part),command.all); break;
+        case Kind::adjust:
+            return command.all ? player_->adjustMaster(command.parameter,command.delta)
+                : player_->adjustPart(gsPart(part),command.parameter,command.delta);
+        case Kind::toggleMute: player_->toggleMute(gsPart(part),command.all); break;
+        case Kind::solo: player_->setSolo(command.enabled); break;
+        case Kind::standby: player_->setStandby(command.enabled); break;
+        default: {
+            auto settings=player_->midiInputSettings();
+            if(command.kind==Kind::receiveExclusive) settings.receiveExclusive=command.enabled;
+            else if(command.kind==Kind::receiveReset) settings.receiveReset=command.enabled;
+            else if(command.kind==Kind::ignoreChecksum) settings.ignoreChecksum=command.enabled;
+            else if(command.kind==Kind::receiveProgramChanges) settings.receiveProgramChanges=command.enabled;
+            player_->setMidiInputSettings(settings); break;
+        }
+        }
+        return true;
+    }
     void selectPart(int delta) noexcept
     {
         player_->cancelDisplayMessages(false);
@@ -87,6 +127,13 @@ public:
         allSelected_=!allSelected_; player_->selectDisplayPart(gsPart(selectedPart_),allSelected_);
     }
     void toggleMute() noexcept { player_->toggleMute(gsPart(selectedPart_),allSelected_); }
+    void toggleSolo() noexcept { player_->setSolo(!player_->soloEnabled()); }
+    // Semantic audio-owner operation. The plug-in's settings button is not
+    // automatically remapped to the hardware POWER switch.
+    void setStandby(bool enabled) noexcept { player_->setStandby(enabled); }
+    bool standby() const noexcept { return player_->standby(); }
+    bool setFastDisplayScroll(bool enabled) noexcept { return player_->setFastDisplayScroll(enabled); }
+    bool fastDisplayScroll() const noexcept { return player_->fastDisplayScroll(); }
     // Called by the audio owner, only when the UI requests a new snapshot.
     SynthState state() const noexcept
     {
@@ -96,15 +143,15 @@ public:
         result.failed=failed();
         result.selectedPart=selectedPart_;
         result.allSelected=allSelected_; result.globalMuted=player_->globallyMuted();
+        result.soloEnabled=player_->soloEnabled();
         result.masterVolume=player_->masterControls().volume;
         result.masterPan=player_->masterControls().pan;
+        result.midiInput=player_->midiInputSettings();
         result.masterKeyShift=player_->masterControls().keyShift;
         result.reverbLevel=player_->effectsSettings().reverb[2];
         result.chorusLevel=player_->effectsSettings().chorus[1];
-        result.displayText=player_->displayLine();
-        result.displayTextVisible=player_->displayTextVisible();
-        result.displayBitmap=player_->displayControl().bitmap();
-        result.displayBitmapVisible=player_->displayControl().bitmapActive();
+        result.displayEvents=player_->displayEvents();
+        result.voiceLevels=player_->voiceLevels();
         const auto& settings=player_->partSettings();
         for(unsigned part=0;part<16;++part) {
             const auto& source=settings.parts[part];
@@ -114,7 +161,6 @@ public:
                 source.keyShift,uint8_t(player_->partVoiceCount(part)),
                 bool(settings.routing[part].noteFlags&0x10)};
             result.parts[part].muted=player_->partMuted(part);
-            result.parts[part].envelopeLevel=player_->partEnvelopeLevel(part);
             result.parts[part].name=player_->instrumentName(part);
         }
         return result;

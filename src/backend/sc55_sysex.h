@@ -5,6 +5,16 @@
 
 namespace sc55
 {
+// Device-level reception, independent of GS part flags and GS-reset defaults.
+// H8: ac24 identity, cdf8 exclusive reception, cdf7 GM/GS-reset reception,
+// cdc8 bit9 checksum override. The audio owner applies configuration changes.
+struct MidiInputSettings
+{
+    uint8_t deviceId=0x10;
+    bool receiveExclusive=true,receiveReset=true,ignoreChecksum=false;
+    bool receiveProgramChanges=true;
+};
+
 // Serialized audio-owner receiver. The wire packet is staged until EOX; no
 // settings are changed by a partial, interrupted or bad-checksum transaction.
 // This replaces reception, not the GS address dispatcher/reset state machine.
@@ -101,8 +111,9 @@ struct MasterControls
     uint16_t tune = 1024;
     uint8_t volume = 100, keyShift = 64, pan = 64;
     uint8_t portamentoController = 84;
+    uint8_t resetCommand = 0x42; // Stored GS command; only zero requests reset.
 
-    enum class WriteResult { applied, unsupported, invalidLength };
+    enum class WriteResult { applied, unsupported, invalidLength, resetRequested };
     WriteResult write(std::span<const uint8_t> payload) noexcept
     {
         if (payload.size() < 3) return WriteResult::invalidLength;
@@ -117,7 +128,7 @@ struct MasterControls
         // numeric address. Earlier settings stay committed if a later one fails.
         while (!data.empty())
         {
-            if (address != 0 && address != 4 && address != 5 && address != 6 && address != 0x7e)
+            if (address != 0 && address != 4 && address != 5 && address != 6 && address != 0x7e && address != 0x7f)
                 return WriteResult::unsupported;
             if (address == 0)
             {
@@ -134,7 +145,11 @@ struct MasterControls
                 if (address == 4) volume = data[0];
                 else if (address == 5) keyShift = data[0] < 40 ? 40 : data[0] > 88 ? 88 : data[0];
                 else if(address==6) pan = data[0] == 0 ? 1 : data[0];
-                else portamentoController=data[0];
+                else if(address==0x7e) portamentoController=data[0];
+                else {
+                    resetCommand=data[0];
+                    if(resetCommand==0) return WriteResult::resetRequested;
+                }
                 data = data.subspan(1); address = address == 6 ? 0x7e : uint8_t(address+1);
             }
         }

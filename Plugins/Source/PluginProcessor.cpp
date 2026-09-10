@@ -32,6 +32,8 @@ constexpr uint8_t gmResetMessage[] =
 constexpr uint32_t midiPauseCommand = 1u << 0;
 constexpr uint32_t midiStopCommand = 1u << 1;
 constexpr const char* romNameStateProperty = "romName";
+constexpr const char* midiInputStateProperty = "nativeMidiInputV1";
+constexpr const char* secondaryMidiInputStateProperty = "nativeMidiInputSecondaryV1";
 // Strip this property from newly-written state blobs.  It is not used for
 // loading because ROMs must come from the App Group's shared library.
 constexpr const char* romDirectoryStateProperty = "romDirectory";
@@ -1190,15 +1192,23 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
 
 void NukedSC55AudioProcessor::pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button)
 {
-    emulators[0].pressFrontPanelButton (button);
-    if (twoXEnabled.load (std::memory_order_acquire))
-        emulators[1].pressFrontPanelButton (button);
+    emulators[0].pressFrontPanelButton (button,
+        twoXEnabled.load (std::memory_order_acquire) ? &emulators[1] : nullptr);
 }
 
 void NukedSC55AudioProcessor::requestGsReset()
 {
     sc55debug::log ("GS reset requested by GS button");
-    sendMidiToEmulators (gsResetMessage, static_cast<int> (sizeof (gsResetMessage)));
+    const unsigned count = twoXEnabled.load (std::memory_order_acquire) ? 2u : 1u;
+    for (unsigned i = 0; i < count; ++i)
+    {
+        std::array<uint8_t, sizeof (gsResetMessage)> message;
+        std::copy (std::begin (gsResetMessage), std::end (gsResetMessage), message.begin());
+        if (emulators[i].getDebugState().nativeEngine)
+            message[2] = NativeMidiInputState::decode (emulators[i].savedMidiInputState())->deviceId;
+        // Roland's checksum covers address/data, not the device identifier.
+        emulators[i].sendMidi (message.data(), int (message.size()));
+    }
 }
 
 void NukedSC55AudioProcessor::requestGmReset()
@@ -1493,6 +1503,8 @@ juce::AudioProcessorEditor* NukedSC55AudioProcessor::createEditor()
 void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
+    state.setProperty (midiInputStateProperty, int (emulators[0].savedMidiInputState()), nullptr);
+    state.setProperty (secondaryMidiInputStateProperty, int (emulators[1].savedMidiInputState()), nullptr);
     const auto selectedRomIsStored = selectedRomDirectory.isDirectory()
                                   && selectedRomDirectory.getParentDirectory()
                                          == getRomStorageDirectory();
@@ -1516,6 +1528,15 @@ void NukedSC55AudioProcessor::setStateInformation (const void* data, int sizeInB
     if (! state.isValid())
         return;
 
+    const auto inputValue = [&](const char* property, int64_t fallback)
+    {
+        const auto value = state.getProperty (property).toString().toStdString();
+        const auto parsed = NativeMidiInputState::parse (value);
+        return parsed ? int64_t (*parsed) : fallback;
+    };
+    const auto primaryInput = inputValue (midiInputStateProperty, NativeMidiInputState::defaultValue);
+    emulators[0].restoreMidiInputState (primaryInput);
+    emulators[1].restoreMidiInputState (inputValue (secondaryMidiInputStateProperty, primaryInput));
     parameters.replaceState (state);
 
     const auto savedRomName = state.getProperty (

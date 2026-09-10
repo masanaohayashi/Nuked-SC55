@@ -10,10 +10,10 @@ namespace sc55
 // all live settings. These offsets describe the wire format, not CPU memory.
 struct UninterpretedSystemSettings
 {
-    static constexpr std::array<unsigned,18> globalOffsets{
-        4,7,0x29,0x31,0x3a,0x3b,0x3c,0x3d,0x3e,0x3f,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47};
+    static constexpr std::array<unsigned,17> globalOffsets{
+        7,0x29,0x31,0x3a,0x3b,0x3c,0x3d,0x3e,0x3f,0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47};
     static constexpr std::array<unsigned,8> partOffsets{0x18,0x19,0x2b,0x37,0x43,0x4f,0x5b,0x67};
-    std::array<uint8_t,18> global{};
+    std::array<uint8_t,17> global{};
     std::array<std::array<uint8_t,8>,16> parts{};
 
     void reset(std::span<const uint8_t,0x748> defaults) noexcept
@@ -74,7 +74,7 @@ struct SystemDefaults
     std::array<uint8_t,0x748> bytes{};
     std::array<uint8_t,32> identity{}; // Immutable firmware identification, not bulk settings.
     MasterControls master() const noexcept
-    { return {uint16_t((bytes[0]<<8)|bytes[1]),bytes[2],bytes[5],bytes[6],bytes[3]}; }
+    { return {uint16_t((bytes[0]<<8)|bytes[1]),bytes[2],bytes[5],bytes[6],bytes[3],bytes[4]}; }
 
     PartSettings parts(bool afterReset = false) const noexcept
     {

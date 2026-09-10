@@ -1,5 +1,7 @@
 #pragma once
 #include "MidiFilePlayer.h"
+#include <map>
+#include <tuple>
 
 // Exploratory real-song replay. Allocation differences are observations, not
 // an audio-fidelity verdict: H8 dispatch and native dispatch have different latency.
@@ -53,6 +55,36 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         struct Voice { uint64_t begin=0; uint32_t address=0; unsigned age=0; uint64_t peakGain=0; };
         std::array<Voice,24> voices{};
         unsigned starts=0;
+#if defined(SC55_NATIVE_IO_AUDIT)
+        mcu_t* cpu=nullptr;
+        const sc55::NativeMelodicPlayer* player=nullptr;
+        // Diagnostic only: musical identity, not physical slot or exact time.
+        using Identity=std::tuple<unsigned,unsigned,uint32_t>;
+        std::map<Identity,unsigned> identities;
+        std::array<std::array<unsigned,3>,16> partModes{}; // poly, mono, rhythm
+        unsigned unknownIdentity=0;
+        void recordIdentity(unsigned slot,uint32_t sample) {
+            if(!cpu && !player) return;
+            unsigned part=255,group=255,key=255;
+            if(cpu) {
+                part=MCU_Read(*cpu,0xa318+slot);
+                group=MCU_Read(*cpu,0xa330+slot);
+                if(group<24) key=MCU_Read(*cpu,0xa2e8+group);
+            } else {
+                const auto& allocator=player->allocatorAudit();
+                part=allocator.allocations[slot].part;
+                group=allocator.allocations[slot].noteGroup;
+                if(group<24) key=allocator.noteGroups[group].key;
+            }
+            if(part<16 && key<128) {
+                ++identities[{part,key,sample}];
+                const auto flags=cpu ? MCU_Read(*cpu,0x804d+0x70*part)
+                                     : player->partSettings().routing[part].noteFlags;
+                ++partModes[part][(flags&0x10) ? 2 : (flags&0x80) ? 0 : 1];
+            }
+            else ++unknownIdentity;
+        }
+#endif
         static void sample(void* context,const AudioFrame<int32_t>&) {
             auto& self=*static_cast<Attacks*>(context); const auto& p=*self.pcm;
             const auto active=p.voice_mask&p.voice_mask_pending;
@@ -62,6 +94,9 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
                 // installing a reused slot clears its latched mode bit 5.
                 if((active&(1u<<slot)) && !(p.ram2[slot][7]&0x20)) {
                     voice={p.cycles-self.base,p.ram1[slot][4],0,0}; ++self.starts;
+#if defined(SC55_NATIVE_IO_AUDIT)
+                    self.recordIdentity(slot,voice.address);
+#endif
                 }
                 if((active&(1u<<slot)) && voice.age<(self.probeTime>=0?1024u:128u)) {
                     voice.peakGain=std::max(voice.peakGain,uint64_t(p.ram2[slot][9])*p.ram2[slot][10]);
@@ -87,6 +122,11 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
             }
         }
     } h8Attacks{&h8.GetPCM(),"H8",h8.GetPCM().cycles},nativeAttacks{pcm.get(),"CPP",pcm->cycles};
+#if defined(SC55_NATIVE_IO_AUDIT)
+    if(std::getenv("SC55_SONG_IDENTITIES")) {
+        h8Attacks.cpu=&cpu;nativeAttacks.player=&player;
+    }
+#endif
     if(firstKick) h8Attacks.probeTime=nativeAttacks.probeTime=kickTime-0.0001;
     const bool allKicks=firstKick && std::getenv("SC55_KICK_ALL")!=nullptr;
     h8Attacks.allKicks=nativeAttacks.allKicks=allKicks;
@@ -94,6 +134,9 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
     h8.SetSampleCallback(Attacks::sample,&h8Attacks);
     pcm->output_context=&nativeAttacks; pcm->output_sample=Attacks::sample;
     size_t next=0; unsigned mismatches=0,full=0,notes=0,panelStep=0;
+#if defined(SC55_NATIVE_IO_AUDIT)
+    std::array<unsigned,16> monoChecks{},monoDifferences{};
+#endif
     const auto limit=uint64_t(std::min(song.totalSeconds(),firstKick&&!allKicks?kickTime+0.15:part16Only?18.0:60.0)*32000);
     std::printf("SONG %s events=%zu duration=%.3f replay=%.3f\n",path,song.events.size(),song.totalSeconds(),limit/32000.0);
     for(uint64_t frame=0;frame<limit;) {
@@ -128,6 +171,24 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
         while(cpu.cycles<base+until*625) h8.Step();
         player.renderFrames(until-frame); frame=until;
         if(player.failed()) throw std::runtime_error("native song playback failed");
+#if defined(SC55_NATIVE_IO_AUDIT)
+        if(h8Attacks.cpu && !player.queuedEvents()
+            && MCU_Read(cpu,0xaaf8)==MCU_Read(cpu,0xaaf9)
+            && MCU_Read16(cpu,0xabf8)==MCU_Read16(cpu,0xabf6)) {
+            bool settled=true;
+            for(unsigned slot=0;slot<24;++slot)
+                settled &= MCU_Read(cpu,0xcaf4+slot)==0;
+            if(settled) for(unsigned part=0;part<16;++part) {
+                const auto key=player.currentMonoKey(part);
+                if(!key || (MCU_Read(cpu,0x804d+part*0x70)&0x90)) continue;
+                ++monoChecks[part];
+                const auto expected=MCU_Read(cpu,0xa070+part);
+                if(*key!=expected && ++monoDifferences[part]<=5)
+                    std::printf("MONO_KEY_DIFF t=%.6f gs_part=%u H8=%u CPP=%u\n",
+                        frame/32000.0,part,expected,*key);
+            }
+        }
+#endif
         unsigned a=0,b=0; bool same=true;
         for(unsigned part=0;part<16;++part) {
             const auto expected=MCU_Read(cpu,0xa1f0+part);
@@ -146,6 +207,33 @@ inline int CompareSongAllocation(Emulator& h8,const RomsetInfo& roms,const char*
     std::printf("SONG observations: notes=%u full_capacity_samples=%u allocation_difference_samples=%u queued=%zu\n",
         notes,full,mismatches,size_t(player.queuedEvents()));
     std::printf("PCM key-on edges: H8=%u CPP=%u\n",h8Attacks.starts,nativeAttacks.starts);
+#if defined(SC55_NATIVE_IO_AUDIT)
+    if(h8Attacks.cpu) {
+        auto counts=h8Attacks.identities;
+        for(const auto& [identity,count]:nativeAttacks.identities) counts.try_emplace(identity,0);
+        unsigned differences=0;
+        for(const auto& [identity,h8Count]:counts) {
+            const auto it=nativeAttacks.identities.find(identity);
+            const auto nativeCount=it==nativeAttacks.identities.end() ? 0u : it->second;
+            if(h8Count==nativeCount) continue;
+            ++differences;
+            const auto [part,key,sample]=identity;
+            std::printf("KEY_IDENTITY_DIFF gs_part=%u key=%u sample=%x H8=%u CPP=%u\n",
+                part,key,sample,h8Count,nativeCount);
+        }
+        std::printf("KEY_IDENTITIES differences=%u unknown=%u/%u (counts are PCM starts, not MIDI note verdicts)\n",
+            differences,h8Attacks.unknownIdentity,nativeAttacks.unknownIdentity);
+        for(unsigned part=0;part<16;++part) {
+            const auto& a=h8Attacks.partModes[part];const auto& b=nativeAttacks.partModes[part];
+            if(a[0]+a[1]+a[2]+b[0]+b[1]+b[2])
+                std::printf("KEY_PART gs_part=%u poly=%u/%u mono=%u/%u rhythm=%u/%u\n",
+                    part,a[0],b[0],a[1],b[1],a[2],b[2]);
+            if(monoChecks[part])
+                std::printf("MONO_KEY_CHECK gs_part=%u checks=%u differences=%u\n",
+                    part,monoChecks[part],monoDifferences[part]);
+        }
+    }
+#endif
     h8.SetSampleCallback(nullptr,nullptr);
     if(firstKick) {
         if(h8Attacks.kicks.empty() || h8Attacks.kicks.size()!=nativeAttacks.kicks.size())

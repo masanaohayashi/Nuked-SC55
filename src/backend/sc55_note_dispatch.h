@@ -1,5 +1,6 @@
 #pragma once
 #include "sc55_channel.h"
+#include "sc55_voice_operation.h"
 #include "sc55_preset.h"
 #include "sc55_sound_data.h"
 #include "sc55_voice_allocator.h"
@@ -63,7 +64,8 @@ struct VoiceInstallationInput
 struct InstalledVoice
 {
     VoiceInstallationInput input;
-    uint8_t flags = 0, taskState = 0;
+    uint8_t flags = 0;
+    VoiceOperation operation = VoiceOperation::none;
 };
 
 // 113a..11cf, including the negative-sample return path. Data identity replaces
@@ -87,7 +89,7 @@ struct VoiceInstallationState
             return true; // Old metadata, pending release and preparation flags survive.
         }
         if (input.restarted) preparationFlags |= 128;
-        voices[slot] = {input,preparationFlags,2};
+        voices[slot] = {input,preparationFlags,VoiceOperation::prepare};
         allocator.allocations[slot].status = 0;
         allocator.allocations[slot].releaseCommand = 0;
         pendingRelease[slot] = 0;

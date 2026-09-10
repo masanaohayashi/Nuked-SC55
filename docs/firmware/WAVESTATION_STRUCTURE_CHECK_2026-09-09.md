@@ -17,14 +17,28 @@ behavioral evidence.
 
 Required end state:
 
+Latest user priority (2026-09-10): defer hidden features and extended LCD menus;
+sound-engine control comes first. Deferred UI is not claimed implemented.
+Commit each completed work unit; push only when separately requested.
+
+User thread-ownership constraint: panel input, interaction/selection logic and
+display presentation belong to the message thread, never processBlock. Audio
+applies resolved sound commands and publishes immutable sound/event state.
+SOLO's target and sound parameters are audio state, not reads of UI widgets.
+
 - NativeSynth owns MIDI/control/configuration state and exposes a small MIDI,
   render and state interface. Its normal path executes no H8 instructions,
   program counter, stack or emulated kernel tasks.
 - H8 responsibilities are implemented as connected C++ behavior: reception,
   routing, configuration/reset, melodic/rhythm/mono admission, allocation and
   stealing, EG/LFO/pitch/filter/level updates, effects control, device events,
-  panel commands, display data and supported firmware protocol responses.
+  panel commands, display data and incoming firmware configuration protocols.
   Unknown/reachable firmware branches are not declared complete by omission.
+
+User scope exclusion: MIDI output (SysEx replies/settings dumps and their UI
+connection) is not required at present. Keep incoming SysEx configuration and
+reset handling. Existing optional reply diagnostics may remain, but do not
+implement host MIDI output or make output-only paths a completion gate.
 - The existing PCM engine continues oscillator/filter/mixing/ramp DSP. A PCM
   interface and references to PCM-owned state are not by themselves failures.
   Startup/reuse readiness and common PCM clock semantics must be preserved.
@@ -32,9 +46,16 @@ Required end state:
   an explicit reference option. No arbitrary waits, removed failing assertions
   or changes to the H8 reference are allowed to manufacture parity.
 - Compatibility must be demonstrated through actual MIDI/control/render paths,
-  including the user-confirmed mono/drum fixes. Remaining control-event batching
-  and capacity-survivor differences remain open even though the reference uses
-  approximate instruction timing. This clarification does NOT waive them.
+  including the user-confirmed mono/drum fixes. Allocation/reserve rules and
+  event ordering must hold. A different capacity survivor is diagnostic evidence,
+  not by itself proof of a functional bug or a requirement for sample parity.
+
+Latest user clarification: reproducing the H8 emulator's instruction durations
+or matching its PCM-write sample is not the goal. Run semantic updates on the
+common control cadence, retaining actual PCM activation/reuse handshakes and
+causally required ordering. Investigate fine timing only when it explains a
+functional failure (missing note, attack loss, reserve violation, etc.). Do not
+weaken or delete differential diagnostics to claim parity; label their scope.
 
 The next work is missing or mismatching H8 behavior, not further independent
 PCM cleanup. In particular, see the current capacity/scheduling investigation

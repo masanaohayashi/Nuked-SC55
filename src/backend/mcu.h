@@ -328,6 +328,12 @@ uint8_t MCU_Read_Slow(mcu_t& mcu, uint32_t address);
 // MK1も8000..dfffは同じSRAM配置。PCM/LCD/デバイス範囲は従来のSlowへ渡す。
 inline uint8_t MCU_Read(mcu_t& mcu, uint32_t address)
 {
+#if defined(SC55_ORACLE_CONFIG_READS)
+    if(address>=0x8000 && address<0x8748) {
+        extern void Oracle_ConfigurationRead(const mcu_t&,uint32_t);
+        Oracle_ConfigurationRead(mcu,address);
+    }
+#endif
     const uint32_t page = address & 0xf0000;
 
     if (page == 0)

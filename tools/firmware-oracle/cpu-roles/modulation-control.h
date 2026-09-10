@@ -2,6 +2,7 @@
 #include "mcu.h"
 #include "sc55_lfo.h"
 #include "modulation-work.h"
+#include "sc55_modulation_calculation.h"
 #include <map>
 #include <optional>
 #include <cstdio>
@@ -18,6 +19,7 @@ struct ModulationControlProbe
     bool loaded=false;
     unsigned base=0,returnPc=0,ticks=0;
     unsigned instructions=0;
+    std::optional<unsigned> randomLatchInstructions;
     std::map<unsigned,uint64_t> budgets;
     uint64_t checks=0,randomChecks=0;
     std::array<uint64_t,7> shapes{};
@@ -40,9 +42,13 @@ struct ModulationControlProbe
             if(word(20)>12 || (word(20)&1)) throw std::runtime_error("Invalid LFO shape");
             block.waveform=uint8_t(word(20)/2);block.delay=word(24);block.attack=word(26);
             block.wave={word(22),word(28),word(30),word(32)};
-            before=block;random.reset();instructions=0;
+            before=block;random.reset();randomLatchInstructions.reset();instructions=0;
         }
         if(!before) return;
+        if(cpu.pc==0x3cbf || cpu.pc==0x3ce9) {
+            if(randomLatchInstructions) throw std::runtime_error("Multiple random latches in LFO update");
+            randomLatchInstructions=instructions;
+        }
         if(cpu.pc==0x3cc3 || cpu.pc==0x3ced) {
             if(random) throw std::runtime_error("Multiple random inputs in LFO update");
             random=cpu.r[4];
@@ -61,12 +67,40 @@ struct ModulationControlProbe
         if(!expected.advance(uint16_t(ticks),rates,tables,unused,input))
             throw std::runtime_error("Invalid native LFO inputs");
         if(input.reads!=unsigned(random.has_value())) throw std::runtime_error("Missing native LFO random read");
+        auto scheduled=sc55::ModulationCalculation::begin(*before,uint16_t(ticks),rates,tables);
+        if(!scheduled || scheduled->takeResult() || scheduled->needsRandom())
+            throw std::runtime_error("LFO calculation published at entry");
+        const auto firstDuration=scheduled->remainingCycles();
+        if(!firstDuration) throw std::runtime_error("Missing LFO calculation duration");
+        scheduled->advance(firstDuration-1);
+        if(scheduled->takeResult() || scheduled->needsRandom()) throw std::runtime_error("Early LFO boundary");
+        scheduled->advance(1);
+        if(random) {
+            if(!scheduled->needsRandom() || scheduled->takeResult()
+                || !scheduled->supplyRandom(*random,rates,tables)
+                || scheduled->supplyRandom(*random,rates,tables))
+                throw std::runtime_error("LFO random latch was not consumed exactly once");
+            scheduled->advance(scheduled->remainingCycles());
+        }
+        const auto scheduledWork=scheduled->referenceInstructions();
+        const auto scheduledResult=scheduled->takeResult();
+        if(!scheduledResult || scheduled->takeResult()) throw std::runtime_error("LFO result ownership failed");
+        if(scheduledResult->depth!=expected.depth || scheduledResult->output!=expected.output
+            || scheduledResult->delay!=expected.delay || scheduledResult->attack!=expected.attack
+            || scheduledResult->wave.phase!=expected.wave.phase || scheduledResult->wave.held!=expected.wave.held
+            || scheduledResult->wave.smoothed!=expected.wave.smoothed || scheduledResult->wave.output!=expected.wave.output)
+            throw std::runtime_error("Scheduled LFO result differs from immediate calculation");
         for(unsigned i=0;i<3;++i)
             if(expected.output[i]!=word(6+i*2)) throw std::runtime_error("Native LFO depth differs");
         if(expected.delay!=word(24) || expected.attack!=word(26) || expected.wave.phase!=word(22)
             || expected.wave.held!=word(28) || expected.wave.smoothed!=word(30) || expected.wave.output!=word(32))
             throw std::runtime_error("Native LFO state differs");
-        const auto work=ModulationWork(*before,uint16_t(ticks),rates,tables,random.value_or(0));
+        unsigned predictedLatch=0;
+        const auto work=ModulationWork(*before,uint16_t(ticks),rates,tables,random.value_or(0),&predictedLatch);
+        if(scheduledWork!=work) throw std::runtime_error("Scheduled LFO work differs");
+        if(randomLatchInstructions.has_value()!=bool(predictedLatch)
+            || (randomLatchInstructions && *randomLatchInstructions!=predictedLatch))
+            throw std::runtime_error("Native LFO random-latch time differs from H8");
         if(work!=instructions) {
             std::fprintf(stderr,"[DEBUG-modulation-work] shape=%u instructions=%u/%u\n",before->waveform,instructions,work);
             throw std::runtime_error("Native LFO work differs");

@@ -16,6 +16,20 @@ int main()
     Receiver receiver;
     sc55::MasterControls master;
     {
+        sc55::MasterControls controls;
+        const uint8_t range[]{0x40,0,4,37,68,75,23,0};
+        require(controls.write(range)==sc55::MasterControls::WriteResult::resetRequested);
+        require(controls.volume==37 && controls.keyShift==68 && controls.pan==75
+            && controls.portamentoController==23);
+        // The non-mutating transaction preview uses this same parser. Neither
+        // an incomplete suffix nor an invalid tune block may request a reset.
+        require(controls.write(std::span(range).first(7))==sc55::MasterControls::WriteResult::applied);
+        const uint8_t invalidTune[]{0x40,0,0,4,0,0,0,0};
+        require(controls.write(invalidTune)==sc55::MasterControls::WriteResult::invalidLength);
+        const uint8_t reset[]{0x40,0,0x7f,0};
+        require(controls.write(reset)==sc55::MasterControls::WriteResult::resetRequested);
+    }
+    {
         std::array<sc55::RhythmPresetTable::Record,2> maps{};
         const auto before=maps;
         const uint8_t outside[]{0x49,0x0f,0,0,0};

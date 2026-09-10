@@ -36,6 +36,7 @@
 #include "control-work.h"
 #include "control-groups.h"
 #include "display-control.h"
+#include "midi-input-settings.h"
 #include "source-controller.h"
 #include "parameter-transport.h"
 #include "panel-settings.h"
@@ -43,9 +44,14 @@
 #include "release-integration.h"
 #include "startup-wake.h"
 #include "midi-during-prepare.h"
+#include "kernel-events.h"
+#include "configuration-readers.h"
 
 namespace {
 ControlWorkProbe* activeControlWork=nullptr;
+KernelEventProbe* activeKernelEvents=nullptr;
+ConfigurationReaders* activeConfigurationReaders=nullptr;
+std::function<void(const mcu_t&)> controlScheduleInstruction;
 bool trackControlInterrupts=false;
 struct HardwareFrame { const mcu_t* cpu; uint16_t stack,task; };
 std::vector<HardwareFrame> hardwareFrames;
@@ -55,7 +61,8 @@ void Oracle_H8InterruptEntered(const mcu_t& source,uint32_t,int32_t mask)
     if(!trackControlInterrupts || mask<0) return; // TRAPA/exception frames are not hardware IRQ work.
     auto& cpu=const_cast<mcu_t&>(source); // MCU_Read is not const-qualified.
     const auto task=MCU_Read16(cpu,0xfdca);
-    if(task!=8) return; // Only task8-exclusive work is being measured.
+    // Track every context for whole-pass partitioning, including interrupts
+    // that arrive while display or voice-admission work preempts task8.
     for(const auto& frame:hardwareFrames)
         if(frame.cpu==&source && frame.stack==source.r[7])
             throw std::runtime_error("IRQ stack frame was reused without an observed return");
@@ -69,8 +76,19 @@ void Oracle_H8InterruptReturn(const mcu_t& source,unsigned restoredStatusBytes)
         return frame.cpu==&source && uint16_t(frame.stack+restoredStatusBytes)==source.r[7];
     });
 }
+void Oracle_ConfigurationRead(const mcu_t& source,uint32_t address)
+{
+    if(activeConfigurationReaders) activeConfigurationReaders->read(source,address);
+}
 void Oracle_H8Fallback(const mcu_t& source)
 {
+    if(activeConfigurationReaders) activeConfigurationReaders->instruction(source);
+    // 04af installs the idle scheduler stack afresh. Task9 is not a saved
+    // task-table entry, so its old hardware frame is abandoned, not RTE'd.
+    if(trackControlInterrupts && source.cp==0 && source.pc==0x4af)
+        std::erase_if(hardwareFrames,[&](const auto& frame) {return frame.cpu==&source && frame.task==9;});
+    if(activeKernelEvents) activeKernelEvents->instruction(const_cast<mcu_t&>(source));
+    if(controlScheduleInstruction) controlScheduleInstruction(source);
     if(panelBulkInstruction) panelBulkInstruction((unsigned(source.cp)<<16)|source.pc);
     if(!activeControlWork) return;
     auto& cpu=const_cast<mcu_t&>(source);
@@ -108,6 +126,12 @@ int main(int argc,char** argv) {
     if(argc==3 && std::strcmp(argv[2],"--native-startup-wake")==0) {
         VerifyStartupWake(emu,roms.romset_info); return 0;
     }
+    if(argc==3 && std::strcmp(argv[2],"--native-boundary-reception")==0) {
+        VerifyStartupWake(emu,roms.romset_info,true); return 0;
+    }
+    if(argc==3 && std::strcmp(argv[2],"--native-command-control-order")==0) {
+        VerifyCommandControlOrder(emu,roms.romset_info); return 0;
+    }
     if(argc==3 && std::strcmp(argv[2],"--native-panel-during-startup")==0) {
         VerifyPanelSettings(emu,roms.romset_info,true); return 0;
     }
@@ -120,6 +144,20 @@ int main(int argc,char** argv) {
     if(argc==3 && std::strcmp(argv[2],"--native-release-integration")==0) {
         VerifyReleaseIntegration(emu,roms.romset_info); return 0;
     }
+    if(argc==3 && std::strcmp(argv[2],"--native-panel-solo")==0) {
+        VerifyPanelSettings(emu,roms.romset_info,false,true); return 0;
+    }
+    if(argc==3 && std::strcmp(argv[2],"--panel-options")==0) {
+        InspectPanelOptions(emu,roms.romset_info); return 0;
+    }
+    if(argc==3 && std::strcmp(argv[2],"--midi-input-panel-route")==0) {
+        InspectMidiInputPanel(emu); return 0;
+    }
+    if(argc==3 && std::strcmp(argv[2],"--kernel-notify-sites")==0) {
+        const auto& raw=roms.romset_info.rom_data;
+        ReportKernelNotificationSites(raw[size_t(RomLocation::ROM1)],raw[size_t(RomLocation::ROM2)]);
+        return 0;
+    }
     if(argc==3 && std::strcmp(argv[2],"--native-panel-settings")==0) {
         VerifyPanelSettings(emu,roms.romset_info); return 0;
     }
@@ -131,6 +169,9 @@ int main(int argc,char** argv) {
     }
     if(argc==3 && std::strcmp(argv[2],"--native-display-control")==0) {
         VerifyDisplayControl(emu,roms.romset_info); return 0;
+    }
+    if(argc==3 && std::strcmp(argv[2],"--native-midi-input-settings")==0) {
+        VerifyMidiInputSettings(emu,roms.romset_info); return 0;
     }
     if(argc==3 && std::strcmp(argv[2],"--panel-bulk-sequence")==0) {
         VerifyPanelBulkSequence(emu,roms.romset_info); return 0;
@@ -660,9 +701,17 @@ int main(int argc,char** argv) {
             const bool controllerWorkOnly=std::strcmp(argv[2],"--native-controller-work")==0;
             const bool traceRoutines=controllerWorkOnly || std::getenv("SC55_TRACE_CONTROL_ROUTINES")!=nullptr;
             ControlWorkProbe routineWork;
+            KernelEventProbe kernelEvents;
+            if(std::strcmp(argv[2],"--native-capacity-stealing")==0 && std::getenv("SC55_TRACE_KERNEL_EVENTS"))
+                activeKernelEvents=&kernelEvents;
             if(traceRoutines) activeControlWork=&routineWork;
             const bool replayPasses=std::getenv("SC55_REPLAY_CAPACITY_PASSES")!=nullptr;
-            const bool replayPassEnd=replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"end")==0;
+            const bool replayUnitElapsed=replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"end-unit")==0;
+            const bool replayEntryElapsed=replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"end-clock-start")==0;
+            const bool replayNativeElapsed=replayEntryElapsed || (replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"end-clock")==0);
+            const bool replayPassEnd=replayUnitElapsed || replayNativeElapsed || (replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"end")==0);
+            sc55::ControlTaskClock replayElapsedClock;
+            std::optional<uint8_t> replayCapturedElapsed;
             const bool replayGroupsAtStart=replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"groups-start")==0;
             const bool replayHolds=replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"holds")==0;
             const bool replayGroups=replayHolds || replayGroupsAtStart || (replayPasses && std::strcmp(std::getenv("SC55_REPLAY_CAPACITY_PASSES"),"groups")==0);
@@ -714,6 +763,17 @@ int main(int argc,char** argv) {
                     }
                 }
                 std::vector<std::pair<unsigned,uint8_t>> controlPasses;
+                std::vector<unsigned> controlEntries;
+                if(replayPasses) controlScheduleInstruction=[&](const mcu_t& source) {
+                    if(&source!=&cpu || source.cp!=0) return;
+                    const auto frame=unsigned((source.cycles-windowStart+624)/625);
+                    if(source.pc==(replayPassEnd ? 0x5b70 : 0x5af9))
+                        controlPasses.emplace_back(frame,uint8_t(MCU_Read16(cpu,0xac5a)));
+                    if(replayEntryElapsed && source.pc==0x5af9) controlEntries.push_back(frame);
+                };
+                struct ClearControlSchedule {
+                    ~ClearControlSchedule() {controlScheduleInstruction={};}
+                } clearControlSchedule;
                 std::vector<ControlGroupProbe::Event> controlGroups;
                 // Diagnostic only: separate UART/ISR ingress latency from
                 // control ownership. Observe the actual receive-ring commit,
@@ -762,8 +822,6 @@ int main(int argc,char** argv) {
                     }
                     if(traceRoutines) routineWork.before(cpu);
                     if(replayGroups) groupProbe.observe(cpu,windowStart,controlGroups);
-                    if(replayPasses && cpu.cp==0 && cpu.pc==(replayPassEnd ? 0x5b70 : 0x5af9))
-                        controlPasses.emplace_back(unsigned((cpu.cycles-windowStart+624)/625),uint8_t(MCU_Read16(cpu,0xac5a)));
                     if(traceWork && cpu.cp==0) {
                         if(cpu.pc==0x5af9) { passStart=cpu.cycles; currentOwnCycles=0; }
                         if(cpu.pc==0x5b0b && passStart) voiceStart=cpu.cycles;
@@ -834,8 +892,23 @@ int main(int argc,char** argv) {
 #endif
                     player.renderFrames(target-nativeFrame);nativeFrame=target;
                 };
+                std::size_t controlEntryIndex=0;
                 const auto advanceNative=[&](unsigned count) {
                     const auto target=nativeFrame+count;
+                    if(replayNativeElapsed) {
+                        auto clockFrame=nativeFrame;
+                        while(controlEntryIndex<controlEntries.size() && controlEntries[controlEntryIndex]<=target) {
+                            const auto entry=controlEntries[controlEntryIndex++];
+                            replayElapsedClock.advance(uint64_t(entry-clockFrame)*625);clockFrame=entry;
+                            // Capture at actual entry, before work, not at
+                            // its eventual end. Empty means no native event.
+                            if(const auto pending=replayElapsedClock.consume()) {
+                                if(replayCapturedElapsed) throw std::runtime_error("Overlapping observed control entries");
+                                replayCapturedElapsed=pending;
+                            }
+                        }
+                        replayElapsedClock.advance(uint64_t(target-clockFrame)*625);
+                    }
                     while(ingressIndex<ingress.size() && ingress[ingressIndex].first<=target) {
                         const auto [frame,byte]=ingress[ingressIndex++];
                         renderNativeUntil(frame);
@@ -966,15 +1039,28 @@ int main(int argc,char** argv) {
                 }
                 else if(replayPasses) {
 #if defined(SC55_NATIVE_IO_AUDIT)
-                    unsigned frame=0,totalTicks=0,coalesced=0;
+                    unsigned frame=0,totalTicks=0,coalesced=0,emptyClock=0;
                     for(auto [target,ticks]:controlPasses) {
                         advanceNative(target-frame); frame=target;
-                        if(!player.signalControlPassAudit(ticks)) ++coalesced;
-                        totalTicks+=ticks;
+                        // Counterfactual diagnostic: preserve the exact end
+                        // schedule, changing only the elapsed-count input.
+                        // Never use this schedule or unit count in production.
+                        auto elapsed=replayUnitElapsed ? uint8_t(1) : ticks;
+                        if(replayNativeElapsed) {
+                            const auto pending=replayEntryElapsed ? replayCapturedElapsed : replayElapsedClock.consume();
+                            if(replayEntryElapsed) replayCapturedElapsed.reset();
+                            // The native clock has its own startup epoch. An
+                            // observed opportunity does not manufacture an
+                            // expiration (zero is a wrapped256, not no work).
+                            if(!pending) {++emptyClock;continue;}
+                            elapsed=*pending;
+                        }
+                        if(!player.signalControlPassAudit(elapsed)) ++coalesced;
+                        totalTicks+=elapsed;
                     }
                     advanceNative(6400-frame);
-                    std::printf("[DEBUG-capacity-replay] midi=%02x/%02x passes=%zu ticks=%u coalesced=%u\n",
-                        packet[0],packet.size()>1 ? packet[1] : 0,controlPasses.size(),totalTicks,coalesced);
+                    std::printf("[DEBUG-capacity-replay] midi=%02x/%02x passes=%zu ticks=%u coalesced=%u emptyClock=%u\n",
+                        packet[0],packet.size()>1 ? packet[1] : 0,controlPasses.size(),totalTicks,coalesced,emptyClock);
 #endif
                 }
                 else if(!traceEg) advanceNative(6400);
@@ -1114,6 +1200,7 @@ int main(int argc,char** argv) {
             for(unsigned note=0;note<48;++note) {
 #if defined(SC55_NATIVE_IO_AUDIT)
                 if(note==40) {
+                    if(activeKernelEvents) {kernelEvents.report(cpu);activeKernelEvents=nullptr;}
                     if(traceRoutines) routineWork.report();
                     const auto& native=player.allocatorAudit();
                     for(unsigned slot=0;slot<24;++slot) {
@@ -1309,6 +1396,53 @@ int main(int argc,char** argv) {
         std::puts("Native adapter: 200000-frame host block matches 257-frame partitions exactly");
         return 0;
     }
+    if(argc == 3 && std::strcmp(argv[2],"--native-panel-two-x") == 0) {
+        const auto* cache=std::getenv("SC55_TEST_CACHE");if(!cache) return 6;
+        NukedSC55Emulator primary,secondary;
+        if(!primary.initialise(argv[1],48000,cache) || !secondary.initialise(argv[1],48000,cache)) return 5;
+        using Button=NukedSC55Emulator::FrontPanelButton;
+        std::array<float,513> left{},right{};
+        const auto settle=[&] {
+            for(unsigned i=0;i<16;++i) {
+                primary.render(left.data(),right.data(),513);
+                secondary.render(left.data(),right.data(),513);
+            }
+        };
+        primary.pressFrontPanelButton(Button::partInc);
+        primary.pressFrontPanelButton(Button::partInc);settle();
+        // Same fan-out entry as the processor when 2X becomes active.
+        primary.pressFrontPanelButton(Button::partInc,&secondary);
+        primary.pressFrontPanelButton(Button::levelDec,&secondary);settle();
+        sc55::SynthState a,b;primary.getNativeState(a);secondary.getNativeState(b);settle();
+        primary.getNativeState(a);secondary.getNativeState(b);
+        std::printf("2X selected=%u/%u part4 volume=%u/%u\n",a.selectedPart,b.selectedPart,a.parts[4].volume,b.parts[4].volume);
+        std::fflush(stdout);
+        if(a.selectedPart!=3 || b.selectedPart!=3 || a.parts[4].volume!=99 || b.parts[4].volume!=99)
+            throw std::runtime_error("2X panel command targeted different parts after single-engine selection");
+        const auto snapshot=[&] {
+            settle();primary.getNativeState(a);secondary.getNativeState(b);settle();
+            primary.getNativeState(a);secondary.getNativeState(b);
+        };
+        // Enabling 2X need not be followed by a PART key. SOLO must use the
+        // command's target, not the secondary's previous selection.
+        primary.pressFrontPanelButton(Button::partInc);
+        primary.pressFrontPanelButton(Button::solo,&secondary);snapshot();
+        if(a.selectedPart!=4 || b.selectedPart!=4 || !a.soloEnabled || !b.soloEnabled)
+            throw std::runtime_error("2X SOLO lost the resolved target");
+        primary.pressFrontPanelButton(Button::solo,&secondary);snapshot();
+        for(unsigned i=0;i<63;++i) secondary.pressFrontPanelButton(Button::partDec);
+        primary.pressFrontPanelButton(Button::partInc,&secondary);snapshot();
+        if(a.selectedPart!=4 || b.selectedPart!=0)
+            throw std::runtime_error("Full secondary queue accepted half of a 2X gesture");
+        primary.pressFrontPanelButton(Button::partInc,&secondary);snapshot();
+        if(a.selectedPart!=5 || b.selectedPart!=5)
+            throw std::runtime_error("Rejected 2X gesture advanced UI selection");
+        primary.pressFrontPanelButton(Button::levelDec,&primary);snapshot();
+        if(a.parts[6].volume!=99)
+            throw std::runtime_error("Self mirror applied a command twice");
+        std::puts("2X panel: shared target, SOLO, queue backpressure and self mirror PASS");
+        return 0;
+    }
     if(argc == 3 && std::strcmp(argv[2],"--native-adapter") == 0) {
         const auto* cache=std::getenv("SC55_TEST_CACHE");
         if(!cache) return 6;
@@ -1396,6 +1530,37 @@ int main(int argc,char** argv) {
             if(!adapter.getNativeState(state) || !state.allSelected || !state.globalMuted || state.masterVolume!=126
                 || state.masterPan!=65 || state.masterKeyShift!=65 || state.reverbLevel!=65 || state.chorusLevel!=65)
                 throw std::runtime_error("Native ALL/master/mute commands were not connected");
+            // Resolve a whole interaction burst before the audio owner runs.
+            // Standby must not let an ignored PART press redirect later edits;
+            // two SOLO presses must not both read the same stale UI snapshot.
+            for(const auto button:{Button::all,Button::standbyOn,Button::fastScrollOn,Button::partInc,
+                Button::standbyOff,Button::partInc,Button::levelInc,Button::solo,Button::solo})
+                adapter.pressFrontPanelButton(button);
+            adapter.render(left.data(),right.data(),513);
+            adapter.getNativeState(state); adapter.render(left.data(),right.data(),513);
+            if(!adapter.getNativeState(state) || state.allSelected || state.selectedPart!=1
+                || state.parts[2].volume!=101 || state.soloEnabled || !adapter.getDebugState().fastDisplayScroll)
+                throw std::runtime_error("UI-resolved command burst lost standby, focus or toggle ordering");
+            adapter.pressFrontPanelButton(Button::programReceiveOff);
+            adapter.render(left.data(),right.data(),513);
+            // This fixture moved part2's RX channel from1 to2 above.
+            const uint8_t gatedProgram[]{0xc2,20};adapter.sendMidi(gatedProgram,2);
+            for(unsigned i=0;i<16;++i) adapter.render(left.data(),right.data(),513);
+            adapter.getNativeState(state);adapter.render(left.data(),right.data(),513);
+            if(!adapter.getNativeState(state) || state.parts[2].program!=1
+                || adapter.getDebugState().receiveProgramChanges || !(adapter.savedMidiInputState()&0x800))
+                throw std::runtime_error("Panel Program Change gate was not applied/published/saved");
+            adapter.pressFrontPanelButton(Button::programReceiveOn);
+            adapter.render(left.data(),right.data(),513);
+            adapter.sendMidi(gatedProgram,2);
+            // Let an admitted program change finish its existing voice work.
+            for(unsigned i=0;i<16;++i) adapter.render(left.data(),right.data(),513);
+            adapter.getNativeState(state);adapter.render(left.data(),right.data(),513);
+            if(!adapter.getNativeState(state) || state.parts[2].program!=20) {
+                std::fprintf(stderr,"Program gate: program=%u channel=%u receive=%u\n",state.parts[2].program,
+                    state.parts[2].channel,unsigned(adapter.getDebugState().receiveProgramChanges));
+                throw std::runtime_error("Panel Program Change gate did not reenable MIDI");
+            }
             std::printf("Native adapter rate=%.0f peak=%.6f passed\n",rate,peak);
             adapter.release();
             if(adapter.getNativeState(state)) throw std::runtime_error("Released native state still active");
@@ -1579,16 +1744,27 @@ int main(int argc,char** argv) {
         block(0x32,{127},"cutoff-clamp");
         return 0;
     }
-    if(argc == 3 && std::strcmp(argv[2],"--events") == 0) {
+    if(argc == 3 && (std::strcmp(argv[2],"--events") == 0
+        || std::strcmp(argv[2],"--kernel-events") == 0
+        || std::strcmp(argv[2],"--configuration-readers") == 0)) {
+        KernelEventProbe kernelEvents;
+        ConfigurationReaders configurationReaders;
+        const bool inspectConfiguration=std::strcmp(argv[2],"--configuration-readers")==0;
+#if !defined(SC55_ORACLE_CONFIG_READS)
+        if(inspectConfiguration) throw std::runtime_error("Configure with -DSC55_ORACLE_CONFIG_READS=ON to observe configuration reads");
+#endif
+        if(std::strcmp(argv[2],"--kernel-events")==0) activeKernelEvents=&kernelEvents;
         auto run=[&](unsigned duration,const char* label) {
             const auto end=cpu.cycles+duration;
             std::map<unsigned,unsigned> calls;
+            if(inspectConfiguration) activeConfigurationReaders=&configurationReaders;
             while(cpu.cycles<end) {
                 const bool dispatch=cpu.cp==0 && cpu.pc==0x84e;
                 const auto target=cpu.r[6];
                 emu.Step();
                 if(dispatch && cpu.cp==0 && cpu.pc==target) ++calls[target];
             }
+            activeConfigurationReaders=nullptr;
             for(auto [target,count]:calls)
                 std::printf("EVENT %s target=%04x count=%u\n",label,target,count);
         };
@@ -1610,6 +1786,11 @@ int main(int argc,char** argv) {
         }
         const uint8_t gsReset[]{0xf0,0x41,0x10,0x42,0x12,0x40,0x00,0x7f,0x00,0x41,0xf7};
         emu.PostMIDI(gsReset); run(40000000,"gs-reset");
+        if(activeKernelEvents) {
+            kernelEvents.report(cpu);
+            activeKernelEvents=nullptr;
+        }
+        if(inspectConfiguration) configurationReaders.report();
         return 0;
     }
     for(unsigned phase=0;phase<4;++phase) {

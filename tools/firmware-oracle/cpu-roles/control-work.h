@@ -14,6 +14,7 @@
 #include "modulation-control.h"
 #include "modulation-routing.h"
 #include "first-modulation-routing.h"
+#include "control-pass-work.h"
 
 // Read-only task8 routine accounting. Call-site/return-site pairs delimit real
 // invocations, including linked voices; no CPU timing or state is changed.
@@ -55,6 +56,7 @@ struct ControlWorkProbe
     uint64_t abandonedHolds=0;
     std::array<uint64_t,5> calculationGates{},stoppedAtGate{};
     ControlStageWork stageWork;
+    ControlPassWork passWork;
     PitchControlProbe pitchControl;
     VoiceOutputProbe voiceOutput;
     AmplitudeControlProbe amplitudeControl;
@@ -191,6 +193,7 @@ struct ControlWorkProbe
     // does not attribute an interrupt's first instruction to the old task PC.
     void instruction(mcu_t& cpu,bool inHardwareInterrupt)
     {
+        passWork.instruction(cpu,inHardwareInterrupt);
         stageWork.instruction(cpu,inHardwareInterrupt);
         pitchControl.instruction(cpu,inHardwareInterrupt);
         voiceOutput.instruction(cpu,inHardwareInterrupt);
@@ -339,6 +342,7 @@ struct ControlWorkProbe
     }
     void report() const
     {
+        passWork.report();
         stageWork.report();
         pitchControl.report();
         voiceOutput.report();

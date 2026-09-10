@@ -4,6 +4,7 @@
 #include "SC55Debug.h"
 #include "NativeSoundDataCache.h"
 #include "sc55_synth.h"
+#include "sc55_display.h"
 
 #include <algorithm>
 #include <array>
@@ -75,6 +76,13 @@ uint32_t frontPanelButtonMask (NukedSC55Emulator::FrontPanelButton button) noexc
         case Button::midiChannelInc:   return 1u << MCU_BUTTON_MIDI_CH_R;
         case Button::all:              return 1u << MCU_BUTTON_INST_ALL;
         case Button::mute:             return 1u << MCU_BUTTON_INST_MUTE;
+        case Button::solo:             return (1u << MCU_BUTTON_INST_ALL) | (1u << MCU_BUTTON_INST_MUTE);
+        case Button::standbyOn: case Button::standbyOff:
+        case Button::fastScrollOn: case Button::fastScrollOff:
+        case Button::exclusiveOn: case Button::exclusiveOff:
+        case Button::resetReceiveOn: case Button::resetReceiveOff:
+        case Button::checksumIgnoreOn: case Button::checksumIgnoreOff:
+        case Button::programReceiveOn: case Button::programReceiveOff: return 0;
     }
 
     return 0;
@@ -116,6 +124,19 @@ const char* frontPanelButtonName (NukedSC55Emulator::FrontPanelButton button) no
         case Button::midiChannelInc:   return "midi-channel-inc";
         case Button::all:              return "all";
         case Button::mute:             return "mute";
+        case Button::solo:             return "solo";
+        case Button::standbyOn:        return "standby on";
+        case Button::standbyOff:       return "standby off";
+        case Button::fastScrollOn:     return "fast scroll on";
+        case Button::fastScrollOff:    return "fast scroll off";
+        case Button::exclusiveOn:      return "SysEx receive on";
+        case Button::exclusiveOff:     return "SysEx receive off";
+        case Button::resetReceiveOn:   return "Reset receive on";
+        case Button::resetReceiveOff:  return "Reset receive off";
+        case Button::checksumIgnoreOn: return "Ignore checksum on";
+        case Button::checksumIgnoreOff:return "Ignore checksum off";
+        case Button::programReceiveOn: return "Program Change receive on";
+        case Button::programReceiveOff:return "Program Change receive off";
     }
 
     return "unknown";
@@ -205,8 +226,9 @@ public:
     }
 
     // Message-thread rendering model. No firmware or audio-thread LCD writes.
-    void captureNativeState (const sc55::SynthState& state)
+    void captureNativeState (const sc55::SynthState& state, bool fastScroll)
     {
+        const auto display = nativeDisplay.update (state.displayEvents, fastScroll);
         Snapshot next;
         next.valid = next.enabled = ! state.failed;
         next.width = LCD_DISPLAY_WIDTH; next.height = LCD_DISPLAY_HEIGHT;
@@ -236,9 +258,15 @@ public:
             number (43, int (state.masterPan) - 64);
             number (49, state.reverbLevel); number (46, state.chorusLevel);
             number (52, int (state.masterKeyShift) - 64);
+            number (55, state.midiInput.deviceId + 1);
         }
-        if (state.displayTextVisible)
-            std::copy (state.displayText.begin(), state.displayText.end(), next.data.begin() + 3);
+        if (display.text.visible)
+        {
+            sc55::DisplayFrame::Line normal;
+            std::copy_n (next.data.begin() + 3, normal.size(), normal.begin());
+            const auto text = display.text.compose (normal);
+            std::copy (text.begin(), text.end(), next.data.begin() + 3);
+        }
         for (unsigned matrix = 0; matrix < 2; ++matrix)
         {
             for (unsigned group = 0; group < 4; ++group)
@@ -253,8 +281,8 @@ public:
         }
         // 04:3065..3072 selects the received 64-byte CG bank while CF34
         // is active; the LCD consumes it in the same order as normal bars.
-        if (state.displayBitmapVisible)
-            std::copy (state.displayBitmap.begin(), state.displayBitmap.end(), next.cg.begin());
+        if (display.bitmapVisible)
+            std::copy (display.bitmap.begin(), display.bitmap.end(), next.cg.begin());
         const std::lock_guard lock (mutex);
         snapshot = next;
     }
@@ -593,6 +621,7 @@ private:
     mutable std::mutex mutex;
     const lcd_t* lcd = nullptr;
     Snapshot snapshot;
+    sc55::DisplayPresentation nativeDisplay; // Message-thread only.
 };
 
 NukedSC55Emulator::NukedSC55Emulator()
@@ -830,6 +859,8 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     midiDropMessage = false;
     gsResetSent = false;
 
+    if (nativePlayer != nullptr)
+        nativePlayer->setMidiInputSettings (midiInputState.read());
     publishDebugState();
     if (nativePlayer != nullptr)
         nativeStateExchange.publish (nativePlayer->state());
@@ -887,6 +918,9 @@ void NukedSC55Emulator::release()
     gsResetSent = false;
     debugAllLed.store (false, std::memory_order_relaxed);
     debugMuteLed.store (false, std::memory_order_relaxed);
+    debugSoloEnabled.store (false, std::memory_order_relaxed);
+    debugStandby.store (false, std::memory_order_relaxed);
+    debugFastDisplayScroll.store (false, std::memory_order_relaxed);
 }
 
 void NukedSC55Emulator::clearPendingMidi() noexcept
@@ -898,6 +932,7 @@ void NukedSC55Emulator::clearPendingMidi() noexcept
 void NukedSC55Emulator::clearFrontPanelButtons() noexcept
 {
     nativePanelRead.store (nativePanelWrite.load (std::memory_order_acquire), std::memory_order_release);
+    nativePanelGeneration.fetch_add (1, std::memory_order_release);
     frontPanelPendingMask.store (0, std::memory_order_release);
     frontPanelPressedMask.store (0, std::memory_order_release);
     frontPanelReleaseFrame.store (0, std::memory_order_release);
@@ -920,21 +955,113 @@ void NukedSC55Emulator::sendMidi (const uint8_t* data, int size)
     }
 }
 
-void NukedSC55Emulator::pressFrontPanelButton (FrontPanelButton button)
+void NukedSC55Emulator::pressFrontPanelButton (FrontPanelButton button, NukedSC55Emulator* mirror)
 {
+    if (mirror == this) mirror = nullptr;
+    // Message-thread fan-out: resolve the gesture once, never independently
+    // against the secondary engine's stale selection after enabling 2X.
+    const bool nativeMirror = mirror != nullptr
+        && mirror->nativeEngineActive.load (std::memory_order_acquire);
     if (nativeEngineActive.load (std::memory_order_acquire))
     {
+        const auto generation = nativePanelGeneration.load (std::memory_order_acquire);
+        if (panelGeneration != generation)
+        {
+            panelGeneration = generation;
+            panelPart = 0;
+            panelAll = panelSolo = panelStandby = false;
+        }
+        const auto value = static_cast<unsigned> (button);
+        if (panelStandby && value <= static_cast<unsigned> (FrontPanelButton::solo))
+            return;
+        if (button == FrontPanelButton::fastScrollOn || button == FrontPanelButton::fastScrollOff)
+        {
+            // Display-only preference. Never enqueue it for processBlock.
+            if (panelStandby)
+            {
+                debugFastDisplayScroll.store (button == FrontPanelButton::fastScrollOn, std::memory_order_relaxed);
+                if (nativeMirror)
+                    mirror->debugFastDisplayScroll.store (button == FrontPanelButton::fastScrollOn, std::memory_order_relaxed);
+            }
+            return;
+        }
         const auto write = nativePanelWrite.load (std::memory_order_relaxed);
         const auto next = (write + 1) % nativePanelCapacity;
-        if (next == nativePanelRead.load (std::memory_order_acquire))
+        const auto mirrorWrite = nativeMirror ? mirror->nativePanelWrite.load (std::memory_order_relaxed) : 0;
+        const auto mirrorNext = (mirrorWrite + 1) % nativePanelCapacity;
+        if (next == nativePanelRead.load (std::memory_order_acquire)
+            || (nativeMirror && mirrorNext == mirror->nativePanelRead.load (std::memory_order_acquire)))
         {
             sc55debug::log ("Native panel command queue is full");
             return;
         }
-        nativePanelQueue[write] = button;
+        sc55::SynthCommand command;
+        using Kind = sc55::SynthCommand::Kind;
+        command.part = panelPart;
+        command.all = panelAll;
+        const auto delta = (value & 1u) != 0 ? 1 : -1;
+        if (value < 2)
+        {
+            panelPart = static_cast<uint8_t> (std::clamp (int (panelPart) + delta, 0, 15));
+            command.part = panelPart;
+        }
+        else if (value < 16)
+        {
+            command.kind = Kind::adjust;
+            command.parameter = static_cast<sc55::PartParameter> ((value - 2) / 2);
+            command.delta = delta;
+        }
+        else switch (button)
+        {
+            case FrontPanelButton::all:
+                panelAll = ! panelAll;
+                command.all = panelAll;
+                command.cancelBitmap = true;
+                break;
+            case FrontPanelButton::mute: command.kind = Kind::toggleMute; break;
+            case FrontPanelButton::solo:
+                command.kind = Kind::solo;
+                command.enabled = panelSolo = ! panelSolo;
+                break;
+            case FrontPanelButton::standbyOn: case FrontPanelButton::standbyOff:
+                command.kind = Kind::standby;
+                command.enabled = panelStandby = button == FrontPanelButton::standbyOn;
+                break;
+            case FrontPanelButton::exclusiveOn: case FrontPanelButton::exclusiveOff:
+                command.kind = Kind::receiveExclusive;
+                command.enabled = button == FrontPanelButton::exclusiveOn;
+                break;
+            case FrontPanelButton::resetReceiveOn: case FrontPanelButton::resetReceiveOff:
+                command.kind = Kind::receiveReset;
+                command.enabled = button == FrontPanelButton::resetReceiveOn;
+                break;
+            case FrontPanelButton::checksumIgnoreOn: case FrontPanelButton::checksumIgnoreOff:
+                command.kind = Kind::ignoreChecksum;
+                command.enabled = button == FrontPanelButton::checksumIgnoreOn;
+                break;
+            case FrontPanelButton::programReceiveOn: case FrontPanelButton::programReceiveOff:
+                command.kind = Kind::receiveProgramChanges;
+                command.enabled = button == FrontPanelButton::programReceiveOn;
+                break;
+            default: return;
+        }
+        nativePanelQueue[write] = command;
+        if (nativeMirror)
+        {
+            mirror->nativePanelQueue[mirrorWrite] = command;
+            mirror->panelGeneration = mirror->nativePanelGeneration.load (std::memory_order_acquire);
+            mirror->panelPart = panelPart;
+            mirror->panelAll = panelAll;
+            mirror->panelSolo = panelSolo;
+            mirror->panelStandby = panelStandby;
+            mirror->nativePanelWrite.store (mirrorNext, std::memory_order_release);
+        }
+        else if (mirror != nullptr)
+            mirror->pressFrontPanelButton (button);
         nativePanelWrite.store (next, std::memory_order_release);
         return;
     }
+    if (mirror != nullptr) mirror->pressFrontPanelButton (button);
     const auto mask = frontPanelButtonMask (button);
     if (mask == 0)
         return;
@@ -1020,17 +1147,8 @@ void NukedSC55Emulator::drainNativePanel() noexcept
     const auto write = nativePanelWrite.load (std::memory_order_acquire);
     while (read != write)
     {
-        const auto button = nativePanelQueue[read];
-        const auto value = static_cast<unsigned> (button);
-        const auto delta = (value & 1u) != 0 ? 1 : -1;
-        if (value < 2) nativePlayer->selectPart (delta);
-        else if (value < 16)
-        {
-            if (! nativePlayer->adjustSelectedPart (static_cast<sc55::PartParameter> ((value - 2) / 2), delta))
-                break; // Keep this command until the audio-owner queue has room.
-        }
-        else if (button == FrontPanelButton::all) nativePlayer->toggleAll();
-        else if (button == FrontPanelButton::mute) nativePlayer->toggleMute();
+        if (! nativePlayer->applyCommand (nativePanelQueue[read]))
+            break; // Backpressure: retain this command and its resolved target.
         read = (read + 1) % nativePanelCapacity;
     }
     nativePanelRead.store (read, std::memory_order_release);
@@ -1131,6 +1249,8 @@ void NukedSC55Emulator::publishDebugState() noexcept
         const unsigned part = state.selectedPart == 9 ? 0 : state.selectedPart < 9 ? state.selectedPart + 1 : state.selectedPart;
         debugAllLed.store (state.allSelected, std::memory_order_relaxed);
         debugMuteLed.store (state.allSelected ? state.globalMuted : state.parts[part].muted, std::memory_order_relaxed);
+        debugSoloEnabled.store (state.soloEnabled, std::memory_order_relaxed);
+        debugStandby.store (nativePlayer->standby(), std::memory_order_relaxed);
         return;
     }
     if (core == nullptr)
@@ -1184,6 +1304,14 @@ NukedSC55Emulator::DebugState NukedSC55Emulator::getDebugState() const noexcept
     state.uartRead = debugUartRead.load (std::memory_order_relaxed);
     state.allLed = debugAllLed.load (std::memory_order_relaxed);
     state.muteLed = debugMuteLed.load (std::memory_order_relaxed);
+    state.soloEnabled = debugSoloEnabled.load (std::memory_order_relaxed);
+    state.standby = debugStandby.load (std::memory_order_relaxed);
+    state.fastDisplayScroll = debugFastDisplayScroll.load (std::memory_order_relaxed);
+    const auto input = midiInputState.read();
+    state.receiveExclusive = input.receiveExclusive;
+    state.receiveReset = input.receiveReset;
+    state.ignoreChecksum = input.ignoreChecksum;
+    state.receiveProgramChanges = input.receiveProgramChanges;
     state.sourceFrames = availableSourceFrames();
     state.midiPackets = midiPacketCount.load (std::memory_order_relaxed);
     state.midiDroppedBytes = midiDroppedBytes.load (std::memory_order_relaxed);
@@ -1201,6 +1329,8 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
 
     if (nativePlayer != nullptr)
     {
+        if (const auto input = midiInputState.takeRestore())
+            nativePlayer->setMidiInputSettings (*input);
         drainMidi();
         drainNativePanel();
         std::array<AudioFrame<int32_t>, 256> frames;
@@ -1214,6 +1344,7 @@ void NukedSC55Emulator::driveCoreUntilSourceFrames (uint32_t minimumFrames) noex
         }
         if (nativePlayer->failed())
             ready.store (false, std::memory_order_release);
+        midiInputState.publish (nativePlayer->midiInputSettings());
         if (nativeStateRequested.exchange (false, std::memory_order_acquire))
             nativeStateExchange.publish (nativePlayer->state());
         if (debugStateRequested.exchange (false, std::memory_order_acquire))
@@ -1269,6 +1400,8 @@ bool NukedSC55Emulator::getNativeState (sc55::SynthState& destination) const noe
     if (! nativeEngineActive.load (std::memory_order_acquire))
         return false;
     destination = nativeStateExchange.read();
+    // Snapshot consumer (UI): no live synth access, PCM reads or audio locks.
+    destination.calculateDisplayLevels();
     nativeStateRequested.store (true, std::memory_order_release);
     return true;
 }
@@ -1290,7 +1423,7 @@ bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destination
     // 以前は音声コールバックの中で毎ブロック取り込んでいたが、これは表示のための
     // データ作成であって信号処理ではない。
     sc55::SynthState nativeState;
-    if (getNativeState (nativeState)) lcdBackend->captureNativeState (nativeState);
+    if (getNativeState (nativeState)) lcdBackend->captureNativeState (nativeState, debugFastDisplayScroll.load (std::memory_order_relaxed));
     else lcdBackend->captureState();
     return lcdBackend->copyMask (destination, destinationStride);
 }
@@ -1323,12 +1456,12 @@ bool NukedSC55Emulator::copyMergedLcdDisplay (const NukedSC55Emulator& alternate
                 (primaryState.failed ? 0u : a.envelopeLevel)
                 + (secondaryState.failed ? 0u : b.envelopeLevel)));
         }
-        lcdBackend->captureNativeState (merged);
+        lcdBackend->captureNativeState (merged, (primaryState.failed ? alternate.debugFastDisplayScroll : debugFastDisplayScroll).load (std::memory_order_relaxed));
         return lcdBackend->copyMask (destination, destinationStride);
     }
-    if (primaryNative) lcdBackend->captureNativeState (primaryState);
+    if (primaryNative) lcdBackend->captureNativeState (primaryState, debugFastDisplayScroll.load (std::memory_order_relaxed));
     else lcdBackend->captureState();
-    if (secondaryNative) alternate.lcdBackend->captureNativeState (secondaryState);
+    if (secondaryNative) alternate.lcdBackend->captureNativeState (secondaryState, alternate.debugFastDisplayScroll.load (std::memory_order_relaxed));
     else alternate.lcdBackend->captureState();
     return lcdBackend->copyMergedMask (*alternate.lcdBackend,
                                        destination, destinationStride);

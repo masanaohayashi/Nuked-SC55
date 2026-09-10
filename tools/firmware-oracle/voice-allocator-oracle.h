@@ -612,7 +612,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
         {
             const unsigned slot = seed%24;
             sc55::InstalledVoice installed{{uint16_t(seed%224),uint16_t(seed%758),uint8_t(seed%2),
-                uint8_t(seed%16),60,64,100,uint8_t(seed),uint8_t(seed*17),false},uint8_t(seed/16),2};
+                uint8_t(seed%16),60,64,100,uint8_t(seed),uint8_t(seed*17),false},uint8_t(seed/16),sc55::VoiceOperation::prepare};
             uint8_t activity = uint8_t(seed*13);
             const auto word = [&](unsigned a) { return uint16_t((MCU_Read(cpu,a)<<8)|MCU_Read(cpu,a+1)); };
             const auto base = word(0x676a+slot*2);
@@ -655,13 +655,13 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             std::array<uint8_t,24> activity; activity.fill(93);
             const unsigned slot = seed%24, mode = (seed/24)%4;
             const auto word = [&](unsigned a) { return uint16_t((MCU_Read(cpu,a)<<8)|MCU_Read(cpu,a+1)); };
-            state[slot].fieldCAF4 = mode == 3 ? 4 : 2;
+            state[slot].pendingOperation = mode == 3 ? sc55::VoiceOperation::finishStop : sc55::VoiceOperation::prepare;
             if (mode == 1) links.first[slot] = uint8_t((slot+7)%24);
             if (mode == 2) links.second[slot] = uint8_t((slot+11)%24);
             for (unsigned i = 0; i < 24; ++i)
             {
                 state[i].stages = {uint16_t((seed/96)%32),3,5};
-                MCU_Write(cpu,0xcaf4+i,state[i].fieldCAF4);
+                MCU_Write(cpu,0xcaf4+i,uint8_t(state[i].pendingOperation));
                 MCU_Write(cpu,0xcac4+i,links.first[i]); MCU_Write(cpu,0xcadc+i,links.second[i]);
                 MCU_Write(cpu,0xac42+i,activity[i]);
                 const auto base = word(0x676a+i*2);
@@ -677,7 +677,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 throw std::runtime_error("Native task dispatch ordering differs");
             for (unsigned i = 0; i < 24; ++i)
             {
-                if (state[i].fieldCAF4 != MCU_Read(cpu,0xcaf4+i) || activity[i] != MCU_Read(cpu,0xac42+i))
+                if (uint8_t(state[i].pendingOperation) != MCU_Read(cpu,0xcaf4+i) || activity[i] != MCU_Read(cpu,0xac42+i))
                     throw std::runtime_error("Native task dispatch flags/activity differ");
                 const auto base = word(0x676a+i*2);
                 for (unsigned j = 0; j < 3; ++j)
@@ -733,7 +733,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             if (!absent && !(record.input == input)) throw std::runtime_error("Native installed identity differs");
             const std::array<uint8_t,11> expectedBytes{record.input.part,record.input.originalKey,record.input.adjustedKey,
                 record.flags,record.input.velocity,record.input.sampleMode,record.input.sampleKey,1,1,
-                uint8_t(sampleOffset>>16),record.taskState};
+                uint8_t(sampleOffset>>16),uint8_t(record.operation)};
             for (unsigned i = 0; i < words.size(); ++i)
                 if (unsigned(MCU_Read(cpu,words[i]+slot*2))*256+MCU_Read(cpu,words[i]+slot*2+1)
                     != (absent ? 0x5a5a : expectedWords[i])) throw std::runtime_error("Installation data identity differs");
@@ -3315,18 +3315,18 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                 sc55::VoiceKeyMask mask{uint32_t(0xffffffffu-variant*0x01010101u),
                     uint32_t((1u<<channel) | (variant*0x0013579bu))};
                 sc55::VoiceStopState state;
-                state.fieldCAF4 = variant%4 == 0 ? 0 : uint8_t(variant);
-                MCU_Write16(cpu,0x93fe,uint16_t(channel)); MCU_Write(cpu,0xcaf4+channel,state.fieldCAF4);
+                state.pendingOperation = static_cast<sc55::VoiceOperation>(variant%4 == 0 ? 0 : uint8_t(variant));
+                MCU_Write16(cpu,0x93fe,uint16_t(channel)); MCU_Write(cpu,0xcaf4+channel,uint8_t(state.pendingOperation));
                 MCU_Write16(cpu,0xcb24,uint16_t(mask.enabled>>16)); MCU_Write16(cpu,0xcb26,uint16_t(mask.enabled));
                 MCU_Write16(cpu,0xcb28,uint16_t(mask.prepared>>16)); MCU_Write16(cpu,0xcb2a,uint16_t(mask.prepared));
                 cpu.r[0] = 0x9400; cpu.br = 0xe0;
-                execute(0x573f,state.fieldCAF4 ? 0x56d9 : 0x576f);
+                execute(0x573f,uint8_t(state.pendingOperation) ? 0x56d9 : 0x576f);
                 const bool result = sc55::RemovePreparedVoiceKeys(mask,state,
                     [&](uint8_t a) { return PCM_Read(*nativeHardware,a); },
                     [&](uint8_t a,uint8_t v) { PCM_Write(*nativeHardware,a,v); });
                 uint32_t actual = 0;
                 for (unsigned i = 0; i < 4; ++i) actual = (actual<<8)|MCU_Read(cpu,0xcb24+i);
-                if (result != (state.fieldCAF4 == 0) || actual != mask.enabled
+                if (result != (state.pendingOperation == sc55::VoiceOperation::none) || actual != mask.enabled
                     || hardware->voice_mask != nativeHardware->voice_mask
                     || hardware->voice_mask_pending != nativeHardware->voice_mask_pending
                     || hardware->voice_mask_updating != nativeHardware->voice_mask_updating)
@@ -3503,7 +3503,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                         const auto address = [&](unsigned voice) { return uint16_t((cpu.rom1[0x676a+voice*2]<<8)|cpu.rom1[0x676b+voice*2]); };
                         for (unsigned voice = 0; voice < 24; ++voice)
                         {
-                            stopped[voice] = {{{2,4,6}},0x1234,0x5678,7,9};
+                            stopped[voice] = {{{2,4,6}},0x1234,0x5678,7,static_cast<sc55::VoiceOperation>(9)};
                             const auto base = address(voice);
                             for (unsigned i = 0; i < 3; ++i) MCU_Write16(cpu,base+i*2,stopped[voice].stages[i]);
                             MCU_Write16(cpu,base+0x1a,0x1234); MCU_Write16(cpu,base+0x1e,0x5678);
@@ -3562,7 +3562,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
                                 if (word(base+i*2) != stopped[voice].stages[i]) throw std::runtime_error("Group stop stage differs");
                             if (word(base+0x1a) != stopped[voice].cached16 || word(base+0x1e) != stopped[voice].cached18
                                 || MCU_Read(cpu,0xcb30+voice) != stopped[voice].fieldCB30
-                                || MCU_Read(cpu,0xcaf4+voice) != stopped[voice].fieldCAF4)
+                                || MCU_Read(cpu,0xcaf4+voice) != uint8_t(stopped[voice].pendingOperation))
                                 throw std::runtime_error("Group stop metadata differs");
                         }
                         if (std::memcmp(hardware->ram2,nativeHardware->ram2,sizeof(hardware->ram2)) != 0)
@@ -3714,7 +3714,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             const auto base = word(0x676a+slot*2);
             sc55::VoiceStopState state;
             state.stages = {2,4,6}; state.cached16 = 0x1234; state.cached18 = 0x5678;
-            state.fieldCB30 = 77; state.fieldCAF4 = 99;
+            state.fieldCB30 = 77; state.pendingOperation = static_cast<sc55::VoiceOperation>(99);
             const auto resetPcm = [&] {
                 cpu.pcm->ram2[slot][3] = 0x1234; cpu.pcm->ram2[slot][4] = 0x5678;
                 cpu.pcm->ram2[slot][9] = uint16_t(seed*4096);
@@ -3734,7 +3734,7 @@ inline void verifyVoiceAllocator(mcu_t& cpu)
             for (unsigned i = 0; i < 3; ++i)
                 if (word(base+i*2) != state.stages[i]) throw std::runtime_error("Complete stop stage mismatch");
             if (word(base+0x1a) != state.cached16 || word(base+0x1e) != state.cached18
-                || MCU_Read(cpu,0xcb30+slot) != state.fieldCB30 || MCU_Read(cpu,0xcaf4+slot) != state.fieldCAF4
+                || MCU_Read(cpu,0xcb30+slot) != state.fieldCB30 || MCU_Read(cpu,0xcaf4+slot) != uint8_t(state.pendingOperation)
                 || cpu.pcm->ram2[slot][3] != first || cpu.pcm->ram2[slot][4] != second)
                 throw std::runtime_error("Complete stop state/device mismatch");
             ++completeStopChecks;

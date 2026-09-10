@@ -1,5 +1,6 @@
 #pragma once
 #include "sc55_voice_render_update.h"
+#include "sc55_voice_operation.h"
 #include "sc55_voice_allocator.h"
 #include "sc55_envelope_pcm.h"
 #include "sc55_voice_setup.h"
@@ -591,7 +592,8 @@ struct VoiceStopState
 {
     std::array<uint16_t,3> stages{}; // voice +00/+02/+04
     uint16_t cached16 = 0, cached18 = 0; // voice +1a/+1e
-    uint8_t fieldCB30 = 0, fieldCAF4 = 0;
+    uint8_t fieldCB30 = 0;
+    VoiceOperation pendingOperation = VoiceOperation::none;
     uint16_t savedStage = 0, progress = 0, delayAccumulator = 0, pcm10 = 0;
     uint8_t flagMinus3B = 0; // branch input at voice-3b, meaning not inferred
     uint8_t fieldC8B3 = 0;
@@ -875,7 +877,7 @@ template<class Read,class Write>
 bool RemovePreparedVoiceKeys(VoiceKeyMask& mask,const VoiceStopState& voice,
     Read&& read,Write&& write)
 {
-    if (voice.fieldCAF4 != 0) return false;
+    if (voice.pendingOperation != VoiceOperation::none) return false;
     mask.enabled &= ~mask.prepared;
     if constexpr(requires { write.commitVoiceKeys(mask.enabled); })
     {
@@ -977,7 +979,7 @@ public:
             for (; cursor_ < count_; ++cursor_)
             {
                 const auto channel = entries_[cursor_].channel;
-                const auto ready = *PollVoiceReuse(channel,voices[channel].fieldCAF4,read,write);
+                const auto ready = *PollVoiceReuse(channel,(voices[channel].pendingOperation != VoiceOperation::none),read,write);
                 if (ready == VoiceReuseReadiness::cancelled) return status_ = Status::cancelled;
                 if (ready == VoiceReuseReadiness::pending) return status_;
             }
@@ -1037,7 +1039,7 @@ std::optional<uint8_t> StopAndReclaimGroup(VoiceAllocator& allocator,
         const auto voice = order[i];
         auto& state = voices[voice];
         (void)StopPreparedVoice(voice,state,read,write); // validated logical slot
-        state.fieldCAF4 = 4;
+        state.pendingOperation = VoiceOperation::finishStop;
         // Validated above, no external allocator mutation is permitted.
         (void)allocator.reclaimStoppedVoice(voice,group,part,prepend);
     }

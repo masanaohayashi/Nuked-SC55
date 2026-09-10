@@ -6,6 +6,332 @@ not counted as progress toward that target.
 
 ## Current recheck and attribution limitation
 
+Latest user clarification supersedes the timed-product descriptions below:
+the normal player now drains semantic control passes on the common cadence.
+It does not turn H8 instruction counts into PCM-time waits. Actual PCM reuse
+and key-latch handshakes remain unchanged. Timed calculations remain available
+in the runtime for diagnostics, not as the normal product scheduler.
+The last timed-product capacity run still differed at admission40 (66/67),
+`/tmp/sc55-lfo-timed-capacity.log`. This is not by itself evidence of a reserve
+rule violation or audible failure. The diagnostic assertion is retained, and
+neither exact parity nor functional equivalence is claimed from that result.
+
+### First and second LFO bodies connected, including the random latch boundary
+
+The product's timed path now uses `ModulationCalculation` for both local LFO
+blocks. Routing, follower relinking, shared copies and detach-stage checks still
+belong to the existing voice-modulation owners. Their `prepareLocal` boundary
+separates that responsibility from oscillator calculation without repeating it.
+Shared blocks do not spuriously run a new local oscillator.
+
+For random shapes, the calculation first waits to the PCM latch instruction:
+3cbf/3ce9 reads E034, capturing channel30 RAM2[10]. The subsequent E03A word read
+uses that latch. It is NOT a fresh sample at3cc3/3ced and must not be taken at
+calculation entry. The input-derived work model now provides this prefix; at its
+deadline the product samples `ReadControlRandom` once, calculates the result and
+remaining work, then stays protected until completion. No IRQ/MIDI service runs
+at this internal latch point. The result is published only at completion.
+
+Actual-instruction H8 observation verifies10982 block state/work comparisons,
+597 random-latch positions, and no extra/missing random reads. Observed shapes
+are0,1,3,4,5; this is NOT dynamic H8 coverage of2 or6. The native PCM suite checks
+all seven shapes against the existing immediate mathematical operation across
+zero/small/large increments and positive/negative random values, including early
+read rejection and single consumption. Logs `/tmp/sc55-lfo-latch-oracle.log`,
+`/tmp/sc55-lfo-calculation-oracle.log`, `/tmp/sc55-lfo-timed-pcm.log`.
+
+Product startup8/otherEG90/variable-block equality, release111, reserve48/protected
+mono, boundary reception, command priority and MIDI during preparation pass in
+`/tmp/sc55-lfo-timed-*.log`. The priority fixture observes the first readback of
+the sole externally supplied pass; it no longer assumes LFO work finishes in one
+frame. H8 observer/core/ROM and audio expectations were not changed.
+
+This still is not the complete execution-time scheduler. Shared-routing work,
+controller refresh, caller/gap instructions, PCM readback/publication, admission
+and other CPU services remain uncharged. PCM-frame quantization of deadlines
+also remains. No Xcode/Logic runtime or CPU-performance measurement is claimed.
+
+### Default product now advances device time for four protected calculations
+
+`ControlSlice::timedPhase` retains each parameter result for its input-derived
+body instruction count times12 (the reference interpreter's cycle convention).
+`NativeMelodicPlayer` advances that work with actual rendered PCM cycles and
+includes completion in its next-service deadline. Before accepting IRQ/MIDI/
+voice-control work it commits any completed protected calculation. While it is
+unfinished, PCM and timer counters progress but control handlers remain deferred.
+Zero-duration surrounding phases drain synchronously rather than adding one
+invented sample delay per phase. The product default uses this path.
+
+This is a PARTIAL execution-time connection, not a complete scheduler. It covers
+amplitude/filter/pitch/level calculation bodies only. Caller instructions, LFO,
+controller refresh, readback/publication and other CPU services are not yet
+charged. PCM still advances in whole625-cycle passes, so completion can overshoot
+a body deadline to the next PCM frame; that quantization is not claimed to match
+H8 instruction timing. No measured average, recorded event schedule or change to
+PCM DSP/key-latch protection was introduced. Earlier counterfactual replay logs
+describe the preceding product and are not new results for this default.
+
+The timed-runtime test checks all four bodies at duration-1 and duration, no I/O
+before completion, and separately accumulated next-period events. PCM385tone,
+release111, reserve48/protected mono, startup8 (101 other-EG updates), boundary
+reception (100 other-EG updates), variable-block audio, and command-priority
+fixtures pass. Normal capacity still fails admission40, retaining67 instead of66.
+Logs `/tmp/sc55-timed-calculation-*.log`. CPU/Logic performance is unmeasured.
+
+Two old test assumptions were updated, without changing voice/audio expectations:
+startup may resume AFTER its timer deadline if protected work blocked dispatch;
+the test now rejects early resumes and requires protected work for late dispatch.
+The simultaneous-command fixture first drains warmup work and checks the first
+scanned voice, rather than requiring the whole paired pass to finish in one frame.
+The MIDI-during-preparation fixture waits for the actual reuse-wait entry before
+sending CC, matching its H8 trigger instead of assuming entry after one sample.
+
+### Product calculation results separated from publication
+
+Runtime connection: `VoiceControlRuntime` now owns a pending slot/stage/result/
+work record. Phase service calculates once, retains the result, and commits on
+resumption. Whole-pass service drains the same phases; its bounded phase count
+includes four calculate/commit pairs per voice. Preparation entry points defer
+while a result is pending, rather than allowing its destination to be reassigned.
+Runtime copies used by diagnostics copy value-owned results into independent
+voice owners; they do not share a pending result pointer.
+
+The phased PCM test now explicitly advances both halves. It changes input ticks
+after calculation and compares with an independent unchanged snapshot at commit,
+verifying no recalculation. Existing five pre-calculation stop gates, PCM output,
+and pair publication assertions remain. Both targets build and PCM385tone,
+release111, startup8/otherEG88/variable-block audio tests pass; logs
+`/tmp/sc55-runtime-calculation-*.log`. Default service does not yet advance device
+time between calculate and commit, so this is not the completed scheduler.
+
+`VoiceParameterCalculation` in `sc55_voice_control.h` now evaluates the four
+pure parameter operations (amplitude, filter, pitch and level) without mutating
+the live voice. Its move-only variant contains only that operation's result;
+commit updates only the owned fields and associated lifecycle cache. It holds no
+caller pointers or CPU/PCM state. A move consumes the source, repeat commit is
+rejected, and a destination that has stopped discards the old result. Destination
+reassignment while pending remains prohibited by the audio owner's contract.
+
+The real `CalculateVoiceControlStage` uses this path, replacing the former
+in-place calculation branches rather than computing both paths. Shared LFO
+updates retain their existing separate continuation/device contract. The normal
+caller still commits immediately: no execution duration or inferred delay was
+introduced, and the capacity timing discrepancy is not claimed fixed.
+
+The four result evaluators and their cutoff-conversion dependency subsequently
+moved from diagnostic headers into `src/backend/sc55_{amplitude,filter,pitch,
+output,envelope}_work.h`. Diagnostic headers now import those implementations;
+there is no separate product copy of the math. `VoiceParameterCalculation` uses
+each evaluator once and retains its `referenceInstructions` beside the result.
+Move transfers both, and committed/discarded results expose no pending work.
+These counts cover the documented calculation bodies, not caller/IRQ/scheduler
+cost. In particular the amplitude delay exit excludes its unmask/return tail.
+They have NOT been installed as whole-voice delays.
+
+Validation after that connection: `/tmp/sc55-work-owner-oracle.log` contains the
+full value/work comparisons; `/tmp/sc55-work-owner-release.log` and
+`/tmp/sc55-work-owner-startup.log` pass111 release comparisons and8 reuse waits/
+88 unrelated EG updates/variable-block audio equality respectively. The separate
+PCM suite is `/tmp/sc55-work-owner-pcm.log`, including result/work move ownership.
+This does not establish host performance; unused work metadata may be optimized
+away by the compiler, but no performance improvement is claimed.
+
+Builds of both diagnostic targets pass (the CPU-roles target includes the product
+emulator TU). The added pending-result tests plus existing PCM385tone, release111
+and startup8/otherEG88/zero-1-127-257 block checks pass. Logs
+`/tmp/sc55-parameter-calculation-{build,pcm}.log`,
+`/tmp/sc55-parameter-{product-build,release,startup}.log`.
+No host/format runtime or CPU-performance claim follows from these checks.
+
+### Input-derived calculation work revalidated before product connection
+
+The current diagnostic binary's `--native-controller-work` completed with exit0
+(`/tmp/sc55-controller-work-current.log`). Full state/work comparisons include:
+amplitude5802 (21 ends, no delay-stage coverage), filter5781 (87 budgets),
+pitch5781 (661 moving-glide cases), level/output5781, modulation10982,
+controller scaling5238. These verify the existing semantic work calculators on
+this workload, not every possible input or the entire control-pass duration.
+
+The product's five calculation stages are already distinct in
+`CalculateVoiceControlStage`; the runtime owns readback, calculation continuation,
+linked-voice traversal and publication. The existing diagnostic work calculators
+evaluate a copy and return the resulting typed state. A product connection must
+use that result once, not run the old calculation plus a second timing copy.
+Likewise, mutating live state immediately and merely sleeping afterward is not
+equivalent to an atomic protected calculation: device time must advance while
+the completion result remains pending, with higher-priority control work admitted
+only at verified interruptible boundaries. There must be no audio-thread sleep.
+
+The existing stage-work observation distinguishes the five protected calculations
+from the gaps between them; in the capacity trace each calculation's own time
+equals its wall time, whereas the gaps include other control responsibilities.
+This is a reason NOT to promote the five local budgets as the complete scheduler.
+Controller refresh, first-LFO routing, entry/readback/publication, admission,
+receive, device notification and display-service work remain part of the full
+connection. None of these results authorizes a fitted whole-pass delay or changes
+the default scheduling behavior. No work calculator was moved into the product
+in this check.
+
+### Replay observation corrected to actual instruction entry
+
+The pass start/end collectors now run from `Oracle_H8Fallback`, after interrupt
+dispatch, rather than sampling the next PC before `Step`. The observer is scoped
+to each send with automatic cleanup and reads only the selected reference MCU.
+This matters: the previous `end-clock-start` log counted three extra completion
+opportunities (c2/00, the later90/31, and protected91/48). All three disappear at
+actual entry. Do not use the old per-window pass counts as exact evidence.
+
+Rebuilt and reran the four counterfactuals without changing H8 or product state:
+
+| Mode | Result with actual-entry observation |
+| --- | --- |
+| end |48 admissions, protected rejection/recovery PASS|
+| end-clock-start |48 admissions, protected rejection/recovery PASS|
+| end-unit |Original admission40 survivor mismatch, exit134|
+| end-clock |Original admission40 survivor mismatch, exit134|
+
+The former failing window remains9 opportunities: observed-count end totals26,
+native entry capture totals25, native completion capture totals26, unit totals9.
+Thus the preceding conclusions survive removal of duplicate observations.
+Logs `/tmp/sc55-{entry,end,unit,clock}-observer.log`; successful build
+`/tmp/sc55-entry-observer-build.log`. These remain diagnostic schedules, not
+product execution-time implementation or a measurement of host CPU performance.
+
+### Native timer counts captured at entry pass the capacity fixture
+
+`end-clock-start` extends the preceding `end-clock` diagnostic by consuming the
+same native timer at observed5af9 entry, retaining that count until the observed
+5b70 completion. New expirations remain in the clock for the next entry.
+It never uses AC5A/H8 elapsed values as native control inputs. The shadow clock
+and optional captured count persist across MIDI windows; empty entry events are
+not manufactured, and overlapping nonempty captures fail the diagnostic.
+
+With the native zero epoch retained, all48 admissions, protected-capacity
+rejection and subsequent playback pass (exit0). In the former failing window
+there are9 completion opportunities,25 elapsed periods,0 coalescing and0 empty
+captures. Log `/tmp/sc55-elapsed-entry.log`; build
+`/tmp/sc55-elapsed-entry-build.log` (exit0).
+
+This removes dependence on observed H8 elapsed values for this fixture. It still
+uses observed START and END opportunities, and computes the whole native pass at
+the latter. It does not demonstrate within-pass device-read/write timing, full
+audio parity, or default scheduler correctness. Do not ship the replay.
+
+Source reinspection also corrects an earlier progress description: the product
+ALREADY captures the clock before effects in `serviceWork` (`effectPassClock_`),
+and `VoiceControlRuntime::serviceControl` retains `controlTicks_` for a pending
+pass. The common clock continues accumulating separately. Do not add another
+snapshot/accumulator or rename this existing behavior as new implementation.
+The missing connection is input-dependent execution time and the start/resume/
+completion of those existing semantic operations, not the counter arithmetic
+or the existence of a captured-count owner.
+
+### Native elapsed accumulation at completion is not sufficient
+
+`end-clock` keeps observed H8 completion opportunities but removes the H8
+elapsed-count input. A separate instance of the production `ControlTaskClock`
+advances by the rendered native frames (625 device cycles each), persists across
+MIDI windows, and consumes only at those opportunities. Its epoch starts at zero
+like the native external-control setup. An opportunity with no expiration is
+skipped, not converted to zero (which represents byte wrap, not absence).
+Thus its actual dispatch set can differ from `end`; `emptyClock` reports this.
+
+The first prototype rejected an opportunity before the native clock expired;
+that was a diagnostic epoch assumption, not a product failure. The final
+counterfactual preserves the native epoch and skips such empty opportunities.
+It builds successfully but fails the original survivor assertion at admission40.
+In that input window there are9 opportunities,26 elapsed periods,0 coalescing,
+and0 empty opportunities: the same totals as successful `end`, yet H8 retains66
+and native67. Earlier windows and per-pass count distribution need not match.
+Log `/tmp/sc55-elapsed-clock.log`, build `/tmp/sc55-elapsed-clock-build.log`.
+
+This rules out treating a window's total elapsed count, consumed at completion,
+as sufficient. It does not identify a unique cause: initial phase and previous
+history differ too. H8 captures the count at the control-pass entry (5af1/5af9),
+before executing its work; the semantic continuation must retain that captured
+count while subsequent expirations accumulate separately. Completion-time
+collection is not a proposed implementation. Product behavior remains unchanged.
+
+### Elapsed-count isolation on the same completion schedule
+
+After the PCM notification reception changes, the same binary was run with
+`SC55_REPLAY_CAPACITY_PASSES=end` and the new diagnostic-only `end-unit`.
+Both select the same H8 completion observations at5b70 and render the same
+intervals. Only the count supplied to `signalControlPassAudit` changes:
+the observed byte versus one per observed completion. H8 state and input are
+unchanged. The original survivor assertion is retained.
+
+- `end`: all48 admissions, protected-capacity rejection and recovery pass (exit0).
+- `end-unit`: fails admission40, H8 retains66/native67 (exit134).
+- In the failing input window both schedules contain9 passes and no coalesced
+  notifications. Their elapsed totals are26 versus9 respectively.
+
+Logs `/tmp/sc55-elapsed-observed.log`, `/tmp/sc55-elapsed-unit.log`;
+build `/tmp/sc55-elapsed-isolation-build.log` (exit0).
+
+This establishes that elapsed-count batching matters even with the completion
+schedule held fixed. Matching completion times alone, with one EG update unit
+per completion, does not repair the survivor result. It does NOT establish that
+timing is irrelevant, that an arbitrary larger count is correct, or that counts
+alone at native default times would pass. The default remains uncorrected.
+The semantic scheduler must retain timer expirations independently of pending
+work and consume their accumulated count at the appropriate control boundary.
+No recorded schedule, fitted delay, or forced unit count belongs in the product.
+
+### Whole-pass execution time, after command-priority corrections
+
+The current default still fails admission40 (H8 retains66, native67).
+`SC55_REPLAY_CAPACITY_PASSES=end` on the same current code passes all48
+admissions, reserve rejection and subsequent playback. It supplies observed
+periodic completion times **and elapsed counts**, not native timing. This
+supports investigating scheduling, not changing the allocator to choose66.
+It does not prove whole-render parity or isolate timing from elapsed counts.
+
+`ControlPassWork` partitions the complete5af9..5b70 interval at actual H8
+instruction entry. It tracks hardware frames in all task contexts, not just8.
+The idle scheduler's stack replacement at04af abandons task9's old frame;
+other suspended task frames remain tracked until their RTE. No CPU/ROM/PCM
+state is modified. Instruction cost12 is the existing emulator's assumption.
+
+For146 completed passes starting with24 allocated voices:
+
+| Executing responsibility | Device cycles | Share |
+| --- | ---: | ---: |
+| Voice control/task8 |46,106,796|68.60%|
+| Display-related task7 |8,055,012|11.99%|
+| Display-related task4 |2,158,464|3.21%|
+| Hardware interrupt execution |6,983,460|10.39%|
+| Non-IRQ scheduler execution |2,374,716|3.53%|
+| Other task execution |1,529,328|2.28%|
+| Unobserved remainder |0|0%|
+| Total |67,207,776|100%|
+
+Mean elapsed pass460,327 cycles; mean task8-own work315,800 cycles.
+This is reference **device time**, not host CPU usage or the native plugin's
+profile. The existing sampling estimate was close but could not establish
+this exclusive partition. The new observer accounts for the whole interval.
+
+Consequently, a voice-only work-duration model would still omit about31% of
+the observed pass interval. The next scheduler implementation must connect
+semantic voice operations with timer/receive/device/display service work and
+their interruption boundaries. It must not replay these totals, add an average
+delay, run JUCE GUI code on the audio thread, or reintroduce an H8 instruction
+interpreter/kernel-task emulator into the normal path. Display-related
+firmware work is not the same thing as painting the JUCE editor.
+
+Commands used (ROMDIR is the local v1.21 directory):
+
+```sh
+SC55_REPLAY_CAPACITY_PASSES=end /tmp/sc55-cpu-roles-build/sc55-cpu-roles "$ROMDIR" --native-capacity-stealing
+SC55_TRACE_CONTROL_ROUTINES=1 /tmp/sc55-cpu-roles-build/sc55-cpu-roles "$ROMDIR" --native-capacity-stealing
+```
+
+Logs `/tmp/sc55-current-capacity-end.log` (exit0),
+`/tmp/sc55-pass-partition.log` (original capacity assertion, exit134),
+`/tmp/sc55-pass-partition-build.log` (exit0). The unobserved remainder is zero
+for every reported voice-count bucket. This turn changes diagnostics only;
+it does not claim that product timing or audio was repaired.
+
 ### Later readback failure is an activation overlap, not an LFO failure
 
 The readback replay adapter previously converted every non-advanced result to
@@ -116,10 +442,12 @@ PCM control and stop/continuation tests pass. Product emulator TU build succeeds
 (`/tmp/sc55-return-phase-product-build.log`, existing u8path warnings), and
 `--native-startup-wake` exits0 (`/tmp/sc55-return-phase-startup.log`).
 
-The complete event arbiter must still preserve consumption priority over MIDI
-admission/reinstallation when timed phase execution is enabled. This test does
-not exercise that interleave or establish elapsed notification latency. No
-product wait, PCM algorithm, Xcode project, install or host validation changed.
+Correction: completion does NOT have priority over queued commands. ROM task1
+drains event0's command ring before selecting event1's completion mailbox.
+The product now retains the mailbox while commands/admission/fanout remain;
+the earlier unconditional consumption at MIDI/command entry was removed.
+Full elapsed notification latency remains unresolved. No product wait, PCM
+algorithm, Xcode project, install or host validation changed.
 
 ### Product second-LFO continuation ownership
 

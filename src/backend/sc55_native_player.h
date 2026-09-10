@@ -3,15 +3,16 @@
 #include "pcm.h"
 #include "sc55_sysex.h"
 #include "sc55_part_settings.h"
-#include "sc55_rhythm_presets.h"
+#include "sc55_rhythm_settings.h"
 #include "sc55_system_defaults.h"
 #include "sc55_effects_control.h"
 #include "sc55_synth_state.h"
 #include "sc55_midi_receive.h"
 #include "sc55_parameter_reply.h"
 #include "sc55_bulk_reply.h"
-#include "sc55_display.h"
+#include "sc55_display_events.h"
 #include "sc55_voice_commands.h"
+#include "sc55_system_settings.h"
 
 namespace sc55
 {
@@ -34,11 +35,11 @@ public:
         : NativeMelodicPlayer(data,pcm,defaults.parts(),std::move(rhythm),std::move(melodic))
     {
         defaults_ = defaults;
-        master_ = defaults.master();
+        system_.master = defaults.master();
         transferSettings_.reset(defaults.bytes);
-        std::copy_n(defaults.bytes.begin()+8,16,systemName_.begin());
-        std::copy_n(defaults.bytes.begin()+0x18,16,capacityPolicy_.reserves.begin());
-        capacityPolicy_.startPartControl=defaults.bytes[0x28];
+        std::copy_n(defaults.bytes.begin()+8,16,system_.name.begin());
+        std::copy_n(defaults.bytes.begin()+0x18,16,system_.capacity.reserves.begin());
+        system_.capacity.startPartControl=defaults.bytes[0x28];
         for(unsigned part=0;part<16;++part) seedPitchHistory(part);
         controllers_ = defaults.controllers();
         effectsTables_=std::move(effects);
@@ -56,8 +57,7 @@ public:
         {
             const auto program = rhythm_->resolve(0);
             if (!program) { failed_ = true; return; }
-            rhythmRecords_.fill(rhythm_->records[rhythm_->programs[*program]]);
-            rhythmMaps_.fill(RhythmPresetTable::decode(rhythmRecords_[0]));
+            rhythmSettings_.reset(rhythm_->records[rhythm_->programs[*program]]);
         }
         for (unsigned part = 0; part < 16; ++part)
         {
@@ -83,9 +83,47 @@ public:
     }
 
     bool failed() const noexcept { return failed_ || engine_.failed() || queue_.failed(); }
+    // Same serialized owner as MIDI ingestion. UI must use its command queue;
+    // never mutate receiver settings concurrently with render/EOX preview.
+    void setMidiInputSettings(MidiInputSettings settings) noexcept
+    {settings.deviceId=std::min<uint8_t>(settings.deviceId,31);midiInput_=settings;}
+    MidiInputSettings midiInputSettings() const noexcept {return midiInput_;}
+    bool standby() const noexcept { return standby_; }
+    bool fastDisplayScroll() const noexcept { return fastDisplayScroll_; }
+    bool setFastDisplayScroll(bool enabled) noexcept
+    {
+        if(!standby_ || failed()) return false;
+        if(fastDisplayScroll_!=enabled) displayEvents_.fastScroll(enabled,elapsedCycles_);
+        fastDisplayScroll_=enabled; return true;
+    }
+    void setStandby(bool enabled) noexcept
+    {
+        if(failed() || standby_==enabled) return;
+        standby_=enabled;
+        queue_.discardReceived(); sysex_={}; receiveState_={};
+        if(enabled) {
+            standbyStopPending_=true;
+            panelHead_=panelCount_=0;
+            cancelDisplayMessages(true);
+        }
+        serviceRequested_=true;
+    }
     bool partMuted(unsigned part) const noexcept
     { return part<16 && !(parts_.routing[part].flags&0x0200); }
     bool globallyMuted() const noexcept { return globalMuted_; }
+    bool soloEnabled() const noexcept { return soloEnabled_; }
+    void setSolo(bool enabled) noexcept
+    {
+        if(failed() || soloEnabled_==enabled) return;
+        soloEnabled_=enabled;
+        // 3d2f/415d: entering solo silences other parts without editing
+        // their Note Receive bits. Exiting restores the existing mute policy.
+        if(enabled) {
+            if(!displayAll_) engine_.requestPartStops(uint16_t(0xffffu^(1u<<displayPart_)));
+        } else for(unsigned part=0;part<16;++part)
+            if(globalMuted_ || partMuted(part)) engine_.requestPartStops(uint16_t(1u<<part));
+        serviceRequested_=true;
+    }
     bool adjustMaster(PartParameter parameter,int delta) noexcept
     { return enqueuePanelEdit({parameter,delta,0,true}); }
     bool adjustPart(unsigned part,PartParameter parameter,int delta) noexcept
@@ -99,18 +137,22 @@ private:
             return uint8_t(std::clamp(int(value)+delta,low,high));
         };
         switch(parameter) {
-        case PartParameter::volume: master_.volume=adjusted(master_.volume); break;
-        case PartParameter::pan: master_.pan=adjusted(master_.pan,1); break;
-        case PartParameter::keyShift: master_.keyShift=adjusted(master_.keyShift,40,88); break;
+        case PartParameter::channel:
+            // ALL + MIDI CH edits the device identifier, not any part's RX
+            // channel. Panel record04:4b72 clamps the raw value to0..31.
+            midiInput_.deviceId=adjusted(midiInput_.deviceId,0,31); return true;
+        case PartParameter::volume: system_.master.volume=adjusted(system_.master.volume); break;
+        case PartParameter::pan: system_.master.pan=adjusted(system_.master.pan,1); break;
+        case PartParameter::keyShift: system_.master.keyShift=adjusted(system_.master.keyShift,40,88); break;
         case PartParameter::reverb:
             if(!effectsTables_) return false;
-            effectSettings_.reverb[2]=adjusted(effectSettings_.reverb[2]);
-            effects_.reverb.request(effectSettings_.reverb);
+            system_.effects.reverb[2]=adjusted(system_.effects.reverb[2]);
+            effects_.reverb.request(system_.effects.reverb);
             serviceRequested_=true; return true;
         case PartParameter::chorus:
             if(!effectsTables_) return false;
-            effectSettings_.chorus[1]=adjusted(effectSettings_.chorus[1]);
-            effects_.chorus.request(effectSettings_.chorus);
+            system_.effects.chorus[1]=adjusted(system_.effects.chorus[1]);
+            effects_.chorus.request(system_.effects.chorus);
             serviceRequested_=true; return true;
         default: return false;
         }
@@ -120,13 +162,13 @@ private:
 public:
     void toggleMute(unsigned part,bool all) noexcept
     {
-        if(part>=16 || failed()) return;
+        if(part>=16 || failed() || soloEnabled_) return;
         if(all) {
             globalMuted_=!globalMuted_;
-            if(globalMuted_) muteStops_|=0xffff;
+            if(globalMuted_) engine_.requestPartStops(0xffff);
         } else {
             parts_.routing[part].flags^=0x0200;
-            if(partMuted(part)) muteStops_|=uint16_t(1u<<part);
+            if(partMuted(part)) engine_.requestPartStops(uint16_t(1u<<part));
         }
         serviceRequested_=true;
     }
@@ -191,18 +233,18 @@ public:
             }
         return result;
     }
-    uint16_t partEnvelopeLevel(unsigned part) const noexcept
+    std::array<SynthState::VoiceLevel,24> voiceLevels() const noexcept
     {
-        unsigned level=0;
+        std::array<SynthState::VoiceLevel,24> levels{};
         const auto active=pcm_.voice_mask&pcm_.voice_mask_pending;
         for(unsigned slot=0;slot<24;++slot)
-            if(((active>>slot)&1) && engine_.installation.voices[slot].input.part==part) {
+            if((active>>slot)&1) {
                 const auto gains=PCM_PeekVoiceGainLevels(pcm_,slot);
-                level=std::max(level,unsigned(gains[0])+gains[1]);
+                levels[slot]={gains[0],gains[1],engine_.installation.voices[slot].input.part,true};
             }
-        return uint16_t(std::min(level,65535u));
+        return levels;
     }
-    const MasterControls& masterControls() const noexcept { return master_; }
+    const MasterControls& masterControls() const noexcept { return system_.master; }
     // Audio-owner view of GS bulk48 settings. No H8 RAM or cached duplicate
     // of live part/controller values. Invalid offsets are explicitly absent.
     std::optional<uint8_t> readSystemConfiguration(unsigned offset) const noexcept
@@ -210,19 +252,20 @@ public:
         if(offset>=0x748) return {};
         if(const auto value=transferSettings_.read(offset)) return value;
         if(offset<0x48) {
-            if(offset==0) return uint8_t(master_.tune>>8);
-            if(offset==1) return uint8_t(master_.tune);
-            if(offset==2) return master_.volume;
-            if(offset==3) return master_.portamentoController;
-            if(offset==5) return master_.keyShift;
-            if(offset==6) return master_.pan;
-            if(offset>=8 && offset<0x18) return systemName_[offset-8];
-            if(offset>=0x18 && offset<0x28) return capacityPolicy_.reserves[offset-0x18];
-            if(offset==0x28) return capacityPolicy_.startPartControl;
-            if(offset==0x2a) return effectSettings_.reverbMacro;
-            if(offset>=0x2b && offset<0x31) return effectSettings_.reverb[offset-0x2b];
-            if(offset==0x32) return effectSettings_.chorusMacro;
-            if(offset>=0x33 && offset<0x3a) return effectSettings_.chorus[offset-0x33];
+            if(offset==0) return uint8_t(system_.master.tune>>8);
+            if(offset==1) return uint8_t(system_.master.tune);
+            if(offset==2) return system_.master.volume;
+            if(offset==3) return system_.master.portamentoController;
+            if(offset==4) return system_.master.resetCommand;
+            if(offset==5) return system_.master.keyShift;
+            if(offset==6) return system_.master.pan;
+            if(offset>=8 && offset<0x18) return system_.name[offset-8];
+            if(offset>=0x18 && offset<0x28) return system_.capacity.reserves[offset-0x18];
+            if(offset==0x28) return system_.capacity.startPartControl;
+            if(offset==0x2a) return system_.effects.reverbMacro;
+            if(offset>=0x2b && offset<0x31) return system_.effects.reverb[offset-0x2b];
+            if(offset==0x32) return system_.effects.chorusMacro;
+            if(offset>=0x33 && offset<0x3a) return system_.effects.chorus[offset-0x33];
             return {};
         }
         const unsigned index=(offset-0x48)/0x70,field=(offset-0x48)%0x70;
@@ -266,6 +309,13 @@ public:
         return true;
     }
     uint64_t droppedParameterReplies() const noexcept { return droppedReplies_; }
+    // Offline diagnostics may capture replies without a transport. Normal
+    // playback has no MIDI output and must not prepare or accumulate packets.
+    bool setParameterReplyCapture(bool enabled) noexcept
+    {
+        if(parameterOutputConnected_ || parameterReplyWaiting_ || replyCount_) return false;
+        parameterReplyCapture_=enabled; return true;
+    }
     // Explicit transport mode: consuming a packet is not transmission
     // completion. The legacy disconnected capture queue never blocks MIDI.
     bool setParameterOutputConnected(bool connected) noexcept
@@ -326,7 +376,7 @@ public:
     {
         if(replyCount_ || failed()) return false; // Older normal replies first.
         const auto emitted=bulkReply_.next(packet,[&](uint8_t region,unsigned map,unsigned offset) {
-            if(region==0x49) return rhythmRecords_[map][offset];
+            if(region==0x49) return rhythmSettings_.records()[map][offset];
             const auto value=readSystemConfiguration(offset);
             if(!value) { failed_=true; return uint8_t(0); }
             return *value;
@@ -339,7 +389,7 @@ public:
         if(completed) serviceRequested_=true;
         return completed;
     }
-    const VoiceCapacityPolicy& capacityPolicy() const noexcept { return capacityPolicy_; }
+    const VoiceCapacityPolicy& capacityPolicy() const noexcept { return system_.capacity; }
 #if defined(SC55_NATIVE_IO_AUDIT)
     void holdVoiceAdmissionsAudit(bool hold) noexcept
     { holdAdmissionsAudit_=hold; serviceRequested_=true; }
@@ -408,32 +458,42 @@ public:
     auto controlPositionAudit() const noexcept
     { return std::pair(engine_.runtime.controlPhase(),engine_.runtime.controlVoice()); }
     auto startupAudit() const noexcept { return engine_.runtime.startupAudit(); }
+    auto activationDeadlineAudit() const noexcept {return engine_.activationDeadline(elapsedCycles_);}
+    bool protectedCalculationAudit() const noexcept {return engine_.runtime.calculationPending();}
+    auto controlReadbackAudit(unsigned slot) const noexcept
+    {return std::pair(engine_.runtime.readbackCounts.at(slot),engine_.runtime.readbackStages.at(slot));}
+    bool controlPassPendingAudit() const noexcept {return engine_.runtime.controlPending() || effectPassClock_.has_value();}
     const PartControllerState& controllerSettingsAudit() const noexcept { return controllers_; }
     const VoiceControlState* voiceControlAudit(unsigned slot) const noexcept
     { return slot<24 && engine_.runtime.voices[slot] ? &*engine_.runtime.voices[slot] : nullptr; }
 #endif
-    const EffectsSettings& effectsSettings() const noexcept { return effectSettings_; }
+    const EffectsSettings& effectsSettings() const noexcept { return system_.effects; }
     const DisplayData& displayData() const noexcept { return display_; }
     // Normal play screen: instrument/part keys cancel text; ALL also
     // cancels the bitmap (04:3a10..3a6a). Other value edits preserve it.
     void cancelDisplayMessages(bool bitmap) noexcept
     {
-        displayControl_.cancelText(); displayTextVisible_=false;
-        if(bitmap) displayControl_.cancelBitmap();
+        displayEvents_.cancel(bitmap,elapsedCycles_);
     }
     void selectDisplayPart(unsigned part,bool all) noexcept
-    { displayPart_=std::min(part,15u); displayAll_=all; }
-    const DisplayControl::Line& displayLine() const noexcept {return displayLine_;}
-    bool displayTextVisible() const noexcept {return displayTextVisible_;}
-    const DisplayControl& displayControl() const noexcept {return displayControl_;}
+    {
+        const auto next=std::min(part,15u);
+        // 4131..415c: in solo, changing the selected part stops the old one.
+        if(soloEnabled_ && !all && (displayAll_ || displayPart_!=next)) {
+            engine_.requestPartStops(uint16_t(0xffffu^(1u<<next)));
+            serviceRequested_=true;
+        }
+        displayPart_=next; displayAll_=all;
+    }
+    DisplayEvents displayEvents() const noexcept {return displayEvents_.snapshot(elapsedCycles_);}
     uint64_t rejectedSysEx() const noexcept { return rejectedSysEx_; }
-    bool resetPending() const noexcept { return resetPhase_ != ResetPhase::idle; }
+    bool resetPending() const noexcept { return resetRequested_; }
     uint64_t completedResets() const noexcept { return completedResets_; }
     uint64_t completedReceiveRecoveries() const noexcept { return completedReceiveRecoveries_; }
     bool effectsSettled() const noexcept
     { return !effectsTables_ || (effects_.reverb.phase==0 && effects_.chorus.phase==0); }
     const PartSettings& partSettings() const noexcept { return parts_; }
-    const std::array<RhythmPresetTable::Record,2>& rhythmRecords() const noexcept { return rhythmRecords_; }
+    const std::array<RhythmPresetTable::Record,2>& rhythmRecords() const noexcept { return rhythmSettings_.records(); }
     std::optional<uint8_t> currentMonoKey(unsigned part) const noexcept
     { return part<16 && !(parts_.routing[part].noteFlags&0x90) ? std::optional<uint8_t>(engine_.mono[part].current) : std::nullopt; }
     std::optional<uint16_t> selectedTone(unsigned part) const noexcept
@@ -450,7 +510,7 @@ public:
             const auto program=selectedRhythmProgram_[part];
             if(rhythm_ && rhythm_->programs[program]!=255) {
                 const unsigned map=(parts_.routing[part].noteFlags&0x20) ? 0 : 1;
-                std::copy_n(rhythmRecords_[map].begin()+0x480,name.size(),name.begin());
+                name=rhythmSettings_.name(map);
             }
         } else if(selectedTone_[part]) {
             if(const auto* patch=data_.patch(*selectedTone_[part]))
@@ -465,7 +525,7 @@ public:
         if (failed()) return 0;
         // Normal bulk disables RX, then04:2738 drains pending UART bytes
         // before restoring interrupts. Transfer-time input is not replayed.
-        if(bulkReply_.active()) return bytes.size();
+        if(standby_ || bulkReply_.active()) return bytes.size();
         if (!bytes.empty()) serviceRequested_=true;
         std::size_t consumed=0;
         for (const auto byte:bytes) {
@@ -533,10 +593,6 @@ private:
     uint32_t cyclesUntilNextService() const noexcept
     {
         auto next=std::min(engine_.clock.untilNextExpiration(),MidiReceiveTimer::periodCycles-receiveTimerPhase_);
-        if(displayControl_.textActive() || displayControl_.bitmapActive() || displayTextVisible_) {
-            next=std::min(next,uint32_t(displayTimerCycles-elapsedCycles_%displayTimerCycles));
-            next=std::min(next,uint32_t(displayServiceCycles-elapsedCycles_%displayServiceCycles));
-        }
         if(const auto ticks=bulkReply_.spacingTicksRemaining())
             next=std::min(next,uint32_t((ticks-1)*ControlTaskClock::kernelTickCycles
                 +engine_.clock.untilNextKernelTick()));
@@ -550,14 +606,6 @@ private:
         elapsedCycles_+=cycles;
         if(engine_.activationWaiting(previousCycles) && !engine_.activationWaiting(elapsedCycles_)) {
             serviceRequested_=true;
-        }
-        if(displayControl_.textActive() || displayControl_.bitmapActive() || displayTextVisible_
-            || displayControl_.scrollTicks()) {
-            displayControl_.timerTicks(unsigned(elapsedCycles_/displayTimerCycles-previousCycles/displayTimerCycles));
-            if(elapsedCycles_/displayServiceCycles!=previousCycles/displayServiceCycles) {
-                displayTextVisible_=displayControl_.textActive();
-                if(displayTextVisible_) displayLine_=displayControl_.service(normalDisplayLine());
-            }
         }
         if(bulkReply_.active()) {
             const bool panelTransfer=bulkReply_.panelTransferActive();
@@ -585,19 +633,6 @@ private:
             }
         }
     }
-    DisplayControl::Line normalDisplayLine() const noexcept
-    {
-        DisplayControl::Line line; line.fill(' ');
-        if(displayAll_) {std::copy_n("ALL PARTS",9,line.begin()+4);return line;}
-        const auto& part=parts_.parts[displayPart_];
-        const unsigned program=unsigned(part.controls.program)+1;
-        line[0]=program>=100 ? uint8_t('0'+program/100) : uint8_t(' ');
-        line[1]=program>=10 ? uint8_t('0'+program/10%10) : uint8_t(' ');
-        line[2]=uint8_t('0'+program%10);
-        const auto name=instrumentName(displayPart_);
-        std::copy(name.begin(),name.end(),line.begin()+4);
-        return line;
-    }
     void seedPitchHistory(unsigned part) noexcept
     { seedPitchHistory(part,selectedTone_[part]); }
     void seedPitchHistory(unsigned part,std::optional<uint16_t> tone) noexcept
@@ -607,7 +642,7 @@ private:
         if(!patch) return;
         const auto& settings=parts_.parts[part];
         const auto key=TransposeMasterKey(TransposePartKey(60,settings.keyShift,
-            uint8_t(settings.controls.coarseTuning)),master_.keyShift);
+            uint8_t(settings.controls.coarseTuning)),system_.master.keyShift);
         for(unsigned p=0;p<2;++p) if(patch->partial[p].used)
             engine_.preparation.partKeys[part][p]=TransposePartialKey(key,patch->partial[p].raw[10]);
     }
@@ -615,7 +650,6 @@ private:
     {
         return engine_.stopPartGroups(part,[&](uint8_t a) { return read(a); },ControlWriter{pcm_});
     }
-    enum class ResetPhase { idle, requested, draining };
     void setPartModeValue(unsigned part,bool poly) noexcept
     {
         if(poly) parts_.routing[part].noteFlags|=0x80;
@@ -651,31 +685,32 @@ private:
     }
     void requestDefaultEffects() noexcept
     {
-        std::copy_n(defaults_->bytes.begin()+0x2b,6,effectSettings_.reverb.begin());
-        std::copy_n(defaults_->bytes.begin()+0x33,7,effectSettings_.chorus.begin());
-        effectSettings_.reverbMacro=defaults_->bytes[0x2a];
-        effectSettings_.chorusMacro=defaults_->bytes[0x32];
+        std::copy_n(defaults_->bytes.begin()+0x2b,6,system_.effects.reverb.begin());
+        std::copy_n(defaults_->bytes.begin()+0x33,7,system_.effects.chorus.begin());
+        system_.effects.reverbMacro=defaults_->bytes[0x2a];
+        system_.effects.chorusMacro=defaults_->bytes[0x32];
         // Boot/reset must configure even a default matching the zero cache.
         effects_.reverb.phase=2; effects_.chorus.phase=2;
-        effects_.reverb.request(effectSettings_.reverb); effects_.chorus.request(effectSettings_.chorus);
+        effects_.reverb.request(system_.effects.reverb); effects_.chorus.request(system_.effects.chorus);
     }
     void storeBulkSystemByte(unsigned offset,uint8_t value) noexcept
     {
         if(transferSettings_.write(offset,value)) return;
         if(offset<0x48) {
-            if(offset==0) master_.tune=uint16_t((master_.tune&255)|(unsigned(value)<<8));
-            else if(offset==1) master_.tune=uint16_t((master_.tune&0xff00)|value);
-            else if(offset==2) master_.volume=value;
-            else if(offset==3) master_.portamentoController=value;
-            else if(offset==5) master_.keyShift=value;
-            else if(offset==6) master_.pan=value;
-            else if(offset>=8 && offset<0x18) systemName_[offset-8]=value;
-            else if(offset>=0x18 && offset<0x28) capacityPolicy_.reserves[offset-0x18]=value;
-            else if(offset==0x28) capacityPolicy_.startPartControl=value;
-            else if(offset==0x2a) effectSettings_.reverbMacro=value;
-            else if(offset>=0x2b && offset<0x31) effectSettings_.reverb[offset-0x2b]=value;
-            else if(offset==0x32) effectSettings_.chorusMacro=value;
-            else if(offset>=0x33 && offset<0x3a) effectSettings_.chorus[offset-0x33]=value;
+            if(offset==0) system_.master.tune=uint16_t((system_.master.tune&255)|(unsigned(value)<<8));
+            else if(offset==1) system_.master.tune=uint16_t((system_.master.tune&0xff00)|value);
+            else if(offset==2) system_.master.volume=value;
+            else if(offset==3) system_.master.portamentoController=value;
+            else if(offset==4) system_.master.resetCommand=value;
+            else if(offset==5) system_.master.keyShift=value;
+            else if(offset==6) system_.master.pan=value;
+            else if(offset>=8 && offset<0x18) system_.name[offset-8]=value;
+            else if(offset>=0x18 && offset<0x28) system_.capacity.reserves[offset-0x18]=value;
+            else if(offset==0x28) system_.capacity.startPartControl=value;
+            else if(offset==0x2a) system_.effects.reverbMacro=value;
+            else if(offset>=0x2b && offset<0x31) system_.effects.reverb[offset-0x2b]=value;
+            else if(offset==0x32) system_.effects.chorusMacro=value;
+            else if(offset>=0x33 && offset<0x3a) system_.effects.chorus[offset-0x33]=value;
             return;
         }
         const unsigned index=(offset-0x48)/0x70,field=(offset-0x48)%0x70;
@@ -729,7 +764,7 @@ private:
             void beginReverbDrain() const noexcept { PCM_BeginReverbDrain(pcm); }
         };
         const EffectWriter word{pcm_};
-        if(!effects_.advance(*effectsTables_,effectSettings_.reverb[0],word)) {
+        if(!effects_.advance(*effectsTables_,system_.effects.reverb[0],word)) {
             failed_=true; return false;
         }
         return true;
@@ -738,7 +773,7 @@ private:
     void requestReset() noexcept
     {
         if (!defaults_ || !rhythm_ || !melodic_) { ++unsupported_; return; }
-        resetPhase_ = ResetPhase::requested;
+        resetRequested_ = true;
     }
     // Runs after normal stop-task/periodic service, never instead of PCM time
     // progression. Later MIDI remains owned by queue_ until this completes.
@@ -746,62 +781,37 @@ private:
     {
         const auto load = [&](uint8_t a) { return read(a); };
         const auto store = ControlWriter{pcm_};
-        if (resetPhase_ == ResetPhase::requested)
+        const auto progress=engine_.resetVoices(load,store);
+        using Progress=NativeVoiceEngine::ResetProgress;
+        if(progress==Progress::failed) { failed_=true; return; }
+        if(progress==Progress::waiting) return;
+        if(progress==Progress::stopped)
         {
-            if (engine_.runtime.startupPending() || tasksPending()) return;
-            for (unsigned slot=0;slot<24;++slot)
-                if (engine_.runtime.voices[slot] && !(engine_.notes.allocator.allocations[slot].status&0x80))
-                    if (engine_.requestStop(slot,load,store) != NativeVoiceEngine::StopRequest::queued)
-                    { failed_=true; return; }
             for (unsigned part=0;part<16;++part)
                 if (!resetPart(part,false)) { failed_=true; return; }
-            resetPhase_=ResetPhase::draining;
             return;
         }
-        if (tasksPending() || freeVoices()!=24) return;
-        for (unsigned slot=0;slot<24;++slot)
-            if (engine_.runtime.voices[slot])
-            {
-                const auto ready=PollVoiceReuse(uint8_t(slot),engine_.lifecycle[slot].fieldCAF4,load,store);
-                if (!ready || *ready==VoiceReuseReadiness::cancelled) { failed_=true; return; }
-                if (*ready!=VoiceReuseReadiness::ready) return;
-            }
-        // Logical free slots alone are not enough: retain old DSP owners until
-        // the PCM envelopes above have actually reached reuse readiness.
-        const auto clock=engine_.clock;
-        const auto enabled=engine_.mask.enabled;
-        const auto retainedKeys=engine_.preparation.partKeys;
-        const auto retainedReference=engine_.preparation.reference;
-        // Reset rebuilds the sounding owners, not already received commands.
-        const auto commands=engine_.commands;
-        const auto admission=engine_.admission;
-        engine_=NativeVoiceEngine{};
-        engine_.commands=commands; engine_.admission=admission;
-        engine_.clock=clock; engine_.mask.enabled=enabled;
-        engine_.preparation.partKeys=retainedKeys;
-        engine_.preparation.reference=retainedReference;
-        if (!engine_.notes.allocator.initializeTables()) { failed_=true; return; }
-        for (unsigned slot=0;slot<24;++slot)
-            engine_.runtime.first[slot].firstStage=engine_.runtime.second[slot].firstStage=22;
-        parts_=defaults_->parts(true); master_=defaults_->master(); controllers_=defaults_->controllers();
+        // GS/GM reset restores sound settings, not front-panel solo/global mute
+        // or selection. Physical-panel + reset + subsequent-note comparison:
+        // --native-panel-solo. Do not clear those independently owned modes here.
+        parts_=defaults_->parts(true); system_.master=defaults_->master(); controllers_=defaults_->controllers();
         transferSettings_.reset(defaults_->bytes);
-        displayControl_.cancelText(); displayControl_.cancelBitmap(); displayTextVisible_=false;
-        std::copy_n(defaults_->bytes.begin()+8,16,systemName_.begin());
-        std::copy_n(defaults_->bytes.begin()+0x18,16,capacityPolicy_.reserves.begin());
-        capacityPolicy_.startPartControl=defaults_->bytes[0x28];
+        displayEvents_.cancel(true,elapsedCycles_);
+        std::copy_n(defaults_->bytes.begin()+8,16,system_.name.begin());
+        std::copy_n(defaults_->bytes.begin()+0x18,16,system_.capacity.reserves.begin());
+        system_.capacity.startPartControl=defaults_->bytes[0x28];
         rhythmRejected_={}; selectedRhythmProgram_={}; rhythmMapPrograms_={};
         reuseInvalidation_=0;
         const auto program=rhythm_->resolve(0);
         if (!program) { failed_=true; return; }
-        rhythmRecords_.fill(rhythm_->records[rhythm_->programs[*program]]);
-        rhythmMaps_.fill(RhythmPresetTable::decode(rhythmRecords_[0]));
+        rhythmSettings_.reset(rhythm_->records[rhythm_->programs[*program]]);
         for (unsigned part=0;part<16;++part)
         { selectMelodicTone(part); seedPitchHistory(part); }
         // 04:12b8/12be posts task8 effect requests, then 04:379f completes
         // reset to the MIDI task. FX ramps continue independently; waiting
         // for them here incorrectly stalls all subsequent MIDI, even RQ1.
         if (effectsTables_) requestDefaultEffects();
-        resetPhase_=ResetPhase::idle; ++completedResets_;
+        resetRequested_=false; ++completedResets_;
     }
     std::optional<uint16_t> resolveMelodicTone(uint8_t bank,uint8_t program) const noexcept
     {
@@ -824,7 +834,7 @@ private:
         // three-pass candidate selection using this retained per-part mode.
         if(tone)
             if(const auto* patch=data_.patch(*tone))
-                capacityPolicy_.modes[part]=(patch->common[1]&1) ? 2 : 0;
+                system_.capacity.modes[part]=(patch->common[1]&1) ? 2 : 0;
     }
     void applyProgramVoiceState(unsigned part,uint16_t tone) noexcept
     {
@@ -857,8 +867,7 @@ private:
         selectedRhythmProgram_[part] = resolved.value_or(program);
         rhythmRejected_[part] = !resolved;
         if (!resolved) return;
-        rhythmRecords_[map] = rhythm_->records[rhythm_->programs[*resolved]];
-        rhythmMaps_[map] = RhythmPresetTable::decode(rhythmRecords_[map]);
+        rhythmSettings_.selectPreset(map,rhythm_->records[rhythm_->programs[*resolved]]);
         for (unsigned peer = 0; peer < 16; ++peer)
             if ((parts_.routing[peer].noteFlags&0x10)
                 && (((parts_.routing[peer].noteFlags&0x20) ? 0u : 1u) == map))
@@ -894,16 +903,12 @@ private:
         { return PCM_SynchronizeVoiceEnvelopes(target,channel,commands,levels); }
     };
     bool tasksPending() const noexcept
-    {
-        for (const auto& state : engine_.lifecycle)
-            if (state.fieldCAF4 != 0) return true;
-        return false;
-    }
+    { return engine_.operationsPending(); }
     void applyMaster(VoiceControlInputs& input) const noexcept
     {
-        input.level.master = master_.volume;
-        input.spatial.masterPan = master_.pan;
-        input.pitch.masterTune = master_.tune;
+        input.level.master = system_.master.volume;
+        input.spatial.masterPan = system_.master.pan;
+        input.pitch.masterTune = system_.master.tune;
     }
     void applyPart(unsigned part,VoiceControlInputs& input,unsigned map = 255,unsigned key = 0) const noexcept
     {
@@ -919,11 +924,11 @@ private:
         input.level.has_tone_scale = input.spatial.hasToneScale = map < 2;
         if (map < 2)
         {
-            const auto& record = rhythmRecords_[map];
-            input.level.tone_scale = record[0x100+key];
-            input.spatial.panScale = record[0x280+key];
-            input.spatial.reverbScale = record[0x380+key];
-            input.spatial.chorusScale = record[0x300+key];
+            const auto output=rhythmSettings_.output(map,key);
+            input.level.tone_scale = output.level;
+            input.spatial.panScale = output.pan;
+            input.spatial.reverbScale = output.reverb;
+            input.spatial.chorusScale = output.chorus;
         }
         if (!effectsTables_) input.spatial.reverb = input.spatial.chorus = 0;
     }
@@ -967,10 +972,10 @@ private:
         resetControllerValues(part);
         return true;
     }
-    static bool requiresVoiceTransaction(const SysExReceiver::Result& packet) noexcept
+    bool requiresVoiceTransaction(const SysExReceiver::Result& packet) const noexcept
     {
         using Status=SysExReceiver::Status;
-        if(packet.status==Status::gmOn) return true;
+        if(packet.status==Status::gmOn) return midiInput_.receiveReset;
         if(packet.status!=Status::roland || packet.model!=0x42) return false;
         // Transfer/reset still own voice-side work.
         // Keep their ordering until those producers use VoiceCommands too.
@@ -980,8 +985,13 @@ private:
         if(packet.command!=0x12 || packet.payload.empty()) return false;
         const auto address=packet.payload;
         if(address[0]!=0x40 || address.size()<2) return false;
-        return address[1]==0 && address.size()>=3 && address[2]==0x7f;
+        // Use the same bounded scalar parser as application: reset may occur
+        // after volume/key/pan/portamento in a multi-record transaction.
+        MasterControls preview;
+        return midiInput_.receiveReset && preview.write(address)==MasterControls::WriteResult::resetRequested;
     }
+    SysExReceiver::Result decodeExclusive(SysExReceiver& receiver,const MidiDecoder::Event& event) const noexcept
+    {return receiver.receive(event,midiInput_.deviceId,midiInput_.receiveExclusive,midiInput_.ignoreChecksum);}
     MidiDispatchResult receiveBulkSettings(std::span<const uint8_t> payload) noexcept
     {
         // 04:1617..165a reselects all parts in descending order and publishes
@@ -1027,8 +1037,8 @@ private:
             }
         }
         if(effectsTables_) {
-            effects_.reverb.request(effectSettings_.reverb);
-            effects_.chorus.request(effectSettings_.chorus);
+            effects_.reverb.request(system_.effects.reverb);
+            effects_.chorus.request(system_.effects.chorus);
         }
         refreshControls();
         return MidiDispatchResult::accepted;
@@ -1047,20 +1057,28 @@ private:
     MidiDispatchResult receivePartSettings(std::span<const uint8_t> payload) noexcept
     {
         // A table write may publish channel reset + notes-off + mode change.
-        // Plan with the same decoder, preserving its valid-prefix semantics,
-        // and reserve the whole command batch before changing receiver state.
+        // Decode once into a candidate plus semantic side effects. Preserve
+        // valid-prefix semantics even on a later unsupported record, but do
+        // not publish anything until the whole voice-command batch fits.
         auto preview=parts_;
         const auto part=unsigned(payload[1]&15);
         auto assigned=controllers_.parts[part].assignedControllers;
+        bool resetControls=false,selectProgram=false;
+        std::optional<uint8_t> rhythmMode;
         std::array<VoiceCommand,3> commands{};
         unsigned count=0;
-        const auto planned=preview.write(payload,
+        const auto written=preview.write(payload,
             [&](unsigned index) {
+                resetControls=true;
                 commands[count++]=ControllerResetRequest{uint8_t(index)};
                 commands[count++]=PartReleaseRequest{PartReleaseRequest::Kind::notes,uint8_t(index)};
                 return true;
             },
             [&](unsigned index,uint8_t bank,uint8_t program) {
+                selectProgram=true;
+                auto& candidate=preview.parts[index];
+                candidate.bank=candidate.bankSelect=bank;
+                candidate.controls.program=program;
                 if(!(preview.routing[index].noteFlags&0x10)) {
                     const auto tone=resolveMelodicTone(bank,program);
                     if(tone && tone!=selectedTone_[index])
@@ -1072,29 +1090,31 @@ private:
                 if(address==0x13) {
                     if(bool(preview.routing[index].noteFlags&0x80)!=bool(value))
                         commands[count++]=PartModeRequest{uint8_t(index),value!=0};
+                    if(value) preview.routing[index].noteFlags|=0x80;
+                    else preview.routing[index].noteFlags&=0x7f;
                     return true;
                 }
-                return address==0x15 && rhythm_.has_value();
+                if(address!=0x15 || !rhythm_) return false;
+                rhythmMode=value;
+                return true;
             });
         if(!engine_.commands.publish(std::span(commands).first(count))) return MidiDispatchResult::deferred;
-        const auto written=parts_.write(payload,
-            [&](unsigned index) { resetControllerValues(index); return true; },
-            [&](unsigned index,uint8_t bank,uint8_t program) {
-                auto& settings=parts_.parts[index];
-                settings.bank=settings.bankSelect=bank;
-                settings.controls.program=program;
-                if(parts_.routing[index].noteFlags&0x10) commitProgram(index,program,bank);
-                else {
-                    selectedTone_[index]=resolveMelodicTone(bank,program);
-                    if(!melodic_ && bank!=0) ++unsupported_;
-                }
-                return true;
-            },&controllers_.parts[part].assignedControllers,
-            [&](unsigned index,uint8_t address,uint8_t value) {
-                if(address==0x13) {setPartModeValue(index,value!=0);return true;}
-                return address==0x15 && changeRhythmMode(index,value);
-            });
-        if(written!=planned) {failed_=true;return MidiDispatchResult::failed;}
+        parts_.parts[part]=preview.parts[part];
+        parts_.routing[part]=preview.routing[part];
+        controllers_.parts[part].assignedControllers=assigned;
+        // Dynamic MIDI reset does not alter fields set by the scalar table
+        // following channel assignment (volume/pan/tuning configuration etc.).
+        if(resetControls) resetControllerValues(part);
+        if(selectProgram) {
+            const auto& settings=parts_.parts[part];
+            if(parts_.routing[part].noteFlags&0x10)
+                commitProgram(part,settings.controls.program,settings.bank);
+            else {
+                selectedTone_[part]=resolveMelodicTone(settings.bank,settings.controls.program);
+                if(!melodic_ && settings.bank!=0) ++unsupported_;
+            }
+        }
+        if(rhythmMode && !changeRhythmMode(part,*rhythmMode)) {failed_=true;return MidiDispatchResult::failed;}
         if(written==PartSettings::WriteResult::unsupported) ++unsupported_;
         else if(written==PartSettings::WriteResult::invalidLength) ++rejectedSysEx_;
         refreshControls();
@@ -1115,31 +1135,44 @@ private:
                 // The fixed-size copy is only needed at this transaction seam;
                 // no borrowed packet survives dispatch, allocation or replay.
                 auto preview=sysex_;
-                const auto packet=preview.receive(event);
+                const auto packet=decodeExclusive(preview,event);
+                if(packet.status==SysExReceiver::Status::roland && packet.model==0x42 && packet.command==0x11) {
+                    const bool bulk=!packet.payload.empty()
+                        && (packet.payload[0]==0x48 || packet.payload[0]==0x49);
+                    const bool outputEnabled=bulk ? bulkOutputConnected_
+                        : parameterOutputConnected_ || parameterReplyCapture_;
+                    // With no output endpoint this request has no work to do.
+                    // Consume EOX before the voice-transaction barrier, so an
+                    // ignored query cannot hold up following input settings.
+                    if(!outputEnabled) {
+                        (void)decodeExclusive(sysex_,event);
+                        return MidiDispatchResult::accepted;
+                    }
+                }
                 if(packet.status==SysExReceiver::Status::roland && packet.model==0x42 && packet.command==0x12
                     && packet.payload.size()>=3 && packet.payload[0]==0x48) {
                     const auto result=receiveBulkSettings(packet.payload);
-                    if(result==MidiDispatchResult::accepted) (void)sysex_.receive(event);
+                    if(result==MidiDispatchResult::accepted) (void)decodeExclusive(sysex_,event);
                     return result;
                 }
                 if(packet.status==SysExReceiver::Status::roland && packet.model==0x42 && packet.command==0x12
                     && packet.payload.size()>=2 && packet.payload[0]==0x40 && (packet.payload[1]&0xf0)==0x10) {
                     const auto result=receivePartSettings(packet.payload);
-                    if(result==MidiDispatchResult::accepted) (void)sysex_.receive(event);
+                    if(result==MidiDispatchResult::accepted) (void)decodeExclusive(sysex_,event);
                     return result;
                 }
                 if((!allowVoiceTransactions || engine_.admission || engine_.commands.size() || tasksPending()
                     || engine_.runtime.startupPending()) && requiresVoiceTransaction(packet))
                     return MidiDispatchResult::deferred;
             }
-            const auto result = sysex_.receive(event);
+            const auto result = decodeExclusive(sysex_,event);
             using Status = SysExReceiver::Status;
             if (result.status == Status::roland)
             {
                 if(result.model==0x45 && result.command==0x12) {
                     if(display_.write(result.payload)!=DisplayData::WriteResult::applied)
                         ++rejectedSysEx_;
-                    else displayControl_.receive(display_);
+                    else displayEvents_.receive(display_,result.payload[1]==1,elapsedCycles_);
                 }
                 else if(result.model==0x42 && result.command==0x11) {
                     if(result.payload.size()>=1 && (result.payload[0]==0x48 || result.payload[0]==0x49)) {
@@ -1148,15 +1181,17 @@ private:
                         else prepareBulkTransmission();
                         return MidiDispatchResult::accepted;
                     }
+                    if(!parameterOutputConnected_ && !parameterReplyCapture_)
+                        return MidiDispatchResult::accepted;
                     ParameterReply reply;
-                    auto status=reply.prepare(result.payload,master_,parts_,controllers_);
+                    auto status=reply.prepare(result.payload,system_.master,parts_,controllers_);
                     if(defaults_ && result.payload.size()>=3 && result.payload[0]==0x40
                         && (result.payload[1]&0xf0)==0x30)
                         status=reply.prepareInformation(result.payload,defaults_->identity,
                             [&](uint32_t address) {return PCM_ReadROM(pcm_,address);});
                     if(status==ParameterReply::Result::unsupported)
-                        status=reply.prepareSystem(result.payload,systemName_,capacityPolicy_,effectSettings_,
-                            rhythm_ ? std::span<const RhythmPresetTable::Record>(rhythmRecords_) : std::span<const RhythmPresetTable::Record>{},
+                        status=reply.prepareSystem(result.payload,system_.name,system_.capacity,system_.effects,
+                            rhythm_ ? std::span<const RhythmPresetTable::Record>(rhythmSettings_.records()) : std::span<const RhythmPresetTable::Record>{},
                             *readSystemConfiguration(4));
                     if(status==ParameterReply::Result::unsupported) ++unsupported_;
                     else if(status==ParameterReply::Result::invalidLength) ++rejectedSysEx_;
@@ -1169,39 +1204,8 @@ private:
                 else if (result.model != 0x42 || result.command != 0x12) ++unsupported_;
                 else
                 {
-                    if (result.payload.size() >= 4 && result.payload[0]==0x40
-                        && result.payload[1]==0 && result.payload[2]==0x7f && result.payload[3]==0)
-                        requestReset();
-                    else if(result.payload.size()>=3 && result.payload[0]==0x40
-                        && result.payload[1]==1 && result.payload[2]==0)
-                    {
-                        if(result.payload.size()!=19) ++rejectedSysEx_;
-                        else for(unsigned i=0;i<16;++i) systemName_[i]=std::max<uint8_t>(32,result.payload[i+3]);
-                    }
-                    else if(result.payload.size()>=3 && result.payload[0]==0x40
-                        && result.payload[1]==1 && result.payload[2]==0x10)
-                    {
-                        // v1.21 kind0 handler: one complete sixteen-part table,
-                        // accepted atomically only when the total fits24 voices.
-                        unsigned total=0;
-                        for(unsigned i=3;i<result.payload.size();++i) total+=result.payload[i];
-                        if(result.payload.size()!=19 || total>24) ++rejectedSysEx_;
-                        else std::copy_n(result.payload.begin()+3,16,capacityPolicy_.reserves.begin());
-                    }
-                    else if(result.payload.size()>=3 && result.payload[0]==0x40
-                        && result.payload[1]==1 && result.payload[2]==0x20)
-                    {
-                        if(result.payload.size()<4) ++rejectedSysEx_;
-                        else capacityPolicy_.startPartControl=std::min<uint8_t>(result.payload[3],15);
-                    }
-                    else if (result.payload.size()>=3 && result.payload[0]==0x40
-                        && result.payload[1]==1 && effectsTables_)
-                    {
-                        const auto changed=effectSettings_.write(result.payload,*effectsTables_);
-                        if (changed.requests&1) effects_.reverb.request(effectSettings_.reverb);
-                        if (changed.requests&2) effects_.chorus.request(effectSettings_.chorus);
-                        if (changed.unsupported) ++unsupported_;
-                        if (changed.invalidLength) ++rejectedSysEx_;
+                    if(result.payload.size()>=3 && result.payload[0]==0x40 && result.payload[1]<=1) {
+                        applySystemSettings(result.payload);
                     }
                     else if(result.payload.size()>=2 && result.payload[0]==0x40
                         && (result.payload[1]&0xf0)==0x20) {
@@ -1209,38 +1213,23 @@ private:
                         if(written==PartControllerState::WriteResult::unsupported) ++unsupported_;
                         else if(written==PartControllerState::WriteResult::invalidLength) ++rejectedSysEx_;
                     }
-                    else if(result.payload.size()>=3 && result.payload[0]==0x49 && rhythm_) {
-                        const auto written=RhythmPresetTable::writeBulk(rhythmRecords_,result.payload);
-                        if(written.status==RhythmPresetTable::WriteResult::applied)
-                            rhythmMaps_[written.map]=RhythmPresetTable::decode(rhythmRecords_[written.map]);
-                        else if(written.status==RhythmPresetTable::WriteResult::unsupported) ++unsupported_;
-                        else ++rejectedSysEx_;
-                    }
-                    else if (result.payload.size() >= 3 && result.payload[0] == 0x41 && rhythm_)
+                    else if (result.payload.size() >= 3
+                        && (result.payload[0] == 0x41 || result.payload[0] == 0x49) && rhythm_)
                     {
-                        const unsigned map = result.payload[1]>>4;
-                        if (map >= 2) ++unsupported_;
-                        else
-                        {
-                            const auto written = RhythmPresetTable::write(rhythmRecords_[map],
-                                result.payload[1]&15,result.payload[2],result.payload.subspan(3));
-                            if (written == RhythmPresetTable::WriteResult::unsupported) ++unsupported_;
-                            else if (written == RhythmPresetTable::WriteResult::invalidLength) ++rejectedSysEx_;
-                            else rhythmMaps_[map] = RhythmPresetTable::decode(rhythmRecords_[map]);
-                        }
+                        const auto written=rhythmSettings_.write(result.payload);
+                        if (written == RhythmSettings::WriteResult::unsupported) ++unsupported_;
+                        else if (written == RhythmSettings::WriteResult::invalidLength) ++rejectedSysEx_;
                     }
                     else
                     {
-                        const auto written = master_.write(result.payload);
-                        if (written == MasterControls::WriteResult::unsupported) ++unsupported_;
-                        else if (written == MasterControls::WriteResult::invalidLength) ++rejectedSysEx_;
+                        applySystemSettings(result.payload);
                     }
                     // A later unsupported table record does not roll back an
                     // earlier master write in the same valid transaction.
                     refreshControls();
                 }
             }
-            else if (result.status == Status::gmOn) requestReset();
+            else if (result.status == Status::gmOn && midiInput_.receiveReset) requestReset();
             // 04:1dc7 clears only the transient GM-reset request bit, not
             // voices/settings. Reset blocks later MIDI until0746 has already
             // cleared that bit, so there is no persistent "GM mode" to exit.
@@ -1250,6 +1239,15 @@ private:
             return MidiDispatchResult::accepted;
         }
         return receivePerformanceMessage(event);
+    }
+    void applySystemSettings(std::span<const uint8_t> payload) noexcept
+    {
+        const auto changes=system_.write(payload,effectsTables_ ? &*effectsTables_ : nullptr);
+        if(changes.effects&1) effects_.reverb.request(system_.effects.reverb);
+        if(changes.effects&2) effects_.chorus.request(system_.effects.chorus);
+        if(changes.reset && midiInput_.receiveReset) requestReset();
+        if(changes.unsupported) ++unsupported_;
+        if(changes.invalidLength) ++rejectedSysEx_;
     }
     MidiDispatchResult receivePerformanceMessage(const MidiDecoder::Event& event) noexcept
     {
@@ -1286,15 +1284,8 @@ private:
                 { nrpn=true; continue; }
                 if (!(route.noteFlags&0x10) || controls.nrpnLsb>=128) continue;
                 const unsigned map=(route.noteFlags&0x40) ? 1 : 0;
-                if (controls.nrpnMsb==0x18 && rhythm_) {
-                    nrpn=rhythm_->writeRelativePitch(rhythmRecords_[map],selectedRhythmProgram_[part],controls.nrpnLsb,event.second) || nrpn;
-                    rhythmMaps_[map].pitches[controls.nrpnLsb]=rhythmRecords_[map][0x180+controls.nrpnLsb];
-                    continue;
-                }
-                const auto offset=RhythmPresetTable::nrpnOutputOffset(controls.nrpnMsb,controls.nrpnLsb);
-                if (!offset || !rhythm_) continue;
-                rhythmRecords_[map][*offset]=event.second;
-                nrpn=true;
+                if(rhythm_) nrpn=rhythmSettings_.writeNrpn(map,selectedRhythmProgram_[part],
+                    controls.nrpnMsb,controls.nrpnLsb,event.second,*rhythm_) || nrpn;
             }
         if (scalar && kind==0xb0 && event.first==6)
             for (unsigned part=0;part<16;++part)
@@ -1322,6 +1313,9 @@ private:
 
     MidiDispatchResult receiveProgram(const MidiDecoder::Event& event) noexcept
     {
+        // 04:092e gates incoming instrument changes with CDF6. Panel/DT1
+        // edits use their own explicit paths and must not be blocked here.
+        if(!midiInput_.receiveProgramChanges) return MidiDispatchResult::accepted;
         std::array<VoiceCommand,16> requests{};
         std::array<std::optional<uint16_t>,16> tones{};
         uint16_t matched=0;
@@ -1361,7 +1355,9 @@ private:
         const bool on=(event.status&0xf0)==0x90 && event.second!=0;
         for(unsigned part=16;part-- >0;) {
             const auto& route=parts_.routing[part];
-            if(!AcceptNotePart(event.status&15,part,route,{0,0,uint8_t(globalMuted_)})) continue;
+            const NoteReceiveMode audition{uint8_t(soloEnabled_ ? (displayAll_ ? 10 : 8) : 0),
+                uint8_t(displayPart_),uint8_t(globalMuted_)};
+            if(!AcceptNotePart(event.status&15,part,route,audition)) continue;
             if(!on) {
                 requests[count++]=NoteRequest{NoteRequest::Action::off,uint8_t(part),event.first,0,
                     (route.noteFlags&0x10) ? std::nullopt : selectedTone_[part]};
@@ -1372,7 +1368,7 @@ private:
             if(drum && !rhythm_) { ++unsupported; continue; }
             if(drum ? (settings.bank!=0 || rhythmRejected_[part]) : !selectedTone_[part]) continue;
             const auto selected=SelectPartNoteOn(part,event.first,event.second,{route.noteFlags,
-                {rhythmMaps_[0].flags[event.first],rhythmMaps_[1].flags[event.first]},
+                {rhythmSettings_.map(0).flags[event.first],rhythmSettings_.map(1).flags[event.first]},
                 settings.velocity,settings.keyRange,0});
             if(selected.status==PartNoteOnSelection::Status::invalidInput) return MidiDispatchResult::failed;
             if(selected.status!=PartNoteOnSelection::Status::prepare) continue;
@@ -1396,7 +1392,7 @@ private:
         // Fixed controllers precede the user-selected source CC in the H8
         // parser. A source collision with RPN/channel modes takes the source
         // command path instead. Resolve this once, before publishing parts.
-        const bool source=!fixed && event.first==master_.portamentoController;
+        const bool source=!fixed && event.first==system_.master.portamentoController;
         const bool release=!source && (event.first==120 || (event.first>=123 && event.first<=125));
         const bool reset=!source && event.first==121;
         const bool mode=!source && (event.first==126 || event.first==127);
@@ -1490,7 +1486,7 @@ private:
         const auto selected=reuse ? PrepareMonoReuseAllocation(*selection,part,data_,probe,group)
             : AllocateMelodicNote(event,settings.controls,allocation,data_,probe);
         if (selected.status==MelodicAllocationResult::Status::needsCapacity) {
-            const auto capacity=engine_.ensureCapacity(part,selection->partials.candidates.count,capacityPolicy_,
+            const auto capacity=engine_.ensureCapacity(part,selection->partials.candidates.count,system_.capacity,
                 [&](uint8_t a) { return read(a); },ControlWriter{pcm_});
             if (!capacity) failed_=true;
             else if (!*capacity) {
@@ -1501,7 +1497,7 @@ private:
         }
         if (selected.status!=MelodicAllocationResult::Status::allocated) { failed_=true; return; }
         const auto key=TransposeMasterKey(TransposePartKey(event.first,settings.keyShift,
-            uint8_t(settings.controls.coarseTuning)),master_.keyShift);
+            uint8_t(settings.controls.coarseTuning)),system_.master.keyShift);
         const PartialSampleInstallInputs sample{settings.scale,key,event.first,event.first,255,0,event.first,0,flags};
         std::array<PartialSampleInstallInputs,2> samples{sample,sample};
         VoiceControlInputs controls; applyPart(part,controls); controls.glideRate=mono.glideRate;
@@ -1513,7 +1509,7 @@ private:
                 const auto& raw=data_.patch(selection->tone)->partial[partial].raw;
                 const auto origin=PreparePortamentoSourceKey(TransposeMasterKey(
                     TransposePartKey(source,settings.keyShift,uint8_t(settings.controls.coarseTuning)),
-                    master_.keyShift),engine_.preparation.reference,raw[10],raw[13]);
+                    system_.master.keyShift),engine_.preparation.reference,raw[10],raw[13]);
                 if (!origin) { failed_=true; return; }
                 dsp[partial].sourceKey=*origin;
             }
@@ -1594,12 +1590,9 @@ private:
                         if(!engine_.releasePart(release->part,(parts_.routing[release->part].noteFlags&0x10)!=0,false,true))
                             failed_=true;
                     } else {
-                        for(unsigned slot=0;slot<24;++slot)
-                            if(engine_.runtime.voices[slot]
-                                && !(engine_.notes.allocator.allocations[slot].status&0x80)
-                                && engine_.installation.voices[slot].input.part==release->part)
-                                if(engine_.requestStop(slot,[&](uint8_t a) { return read(a); },ControlWriter{pcm_})
-                                    ==NativeVoiceEngine::StopRequest::failed) failed_=true;
+                        if(engine_.stopSoundingParts(uint16_t(1u<<release->part),
+                            [&](uint8_t a) { return read(a); },ControlWriter{pcm_})
+                            ==NativeVoiceEngine::StopRequest::failed) failed_=true;
                     }
                 } else if(const auto* reset=std::get_if<ControllerResetRequest>(&*command))
                     (void)resetVoiceControllers(reset->part,false);
@@ -1648,7 +1641,7 @@ private:
             // The MIDI event is already owned by engine_.admission; a reclaim is never
             // replayed as a queue callback returning deferred.
             const auto count = selected.selection->partials.candidates.count;
-            const auto capacity = engine_.ensureCapacity(part,count,capacityPolicy_,load,store);
+            const auto capacity = engine_.ensureCapacity(part,count,system_.capacity,load,store);
             if (!capacity) failed_ = true;
             else if (!*capacity) engine_.admission.reset();
             return;
@@ -1657,7 +1650,7 @@ private:
         { engine_.admission.reset(); return; }
         if (selected.status != Allocated::allocated) { ++unsupported_; engine_.admission.reset(); return; }
         const auto key = high ? event.first : TransposeMasterKey(
-            TransposePartKey(event.first,settings.keyShift,uint8_t(channel.coarseTuning)),master_.keyShift);
+            TransposePartKey(event.first,settings.keyShift,uint8_t(channel.coarseTuning)),system_.master.keyShift);
         // Validate lookup before committing allocation. Negative sample IDs
         // take113e's return-to-free-list path; they are not synthetic waves.
         const auto& patch = *data_.patch(selected.selection->tone);
@@ -1711,7 +1704,7 @@ private:
         const auto& settings = parts_.parts[part];
         const auto flags = parts_.routing[part].noteFlags;
         const unsigned mapIndex = (flags&0x20) ? 0 : 1;
-        const auto& map = rhythmMaps_[mapIndex];
+        const auto& map = rhythmSettings_.map(mapIndex);
         // Receive-time rejection already belongs to the accepted NoteRequest.
         // A later invalid kit must not cancel an earlier accepted request;
         // 00:0c3c reads the live drum map, not the current AB06 receiver gate.
@@ -1725,7 +1718,7 @@ private:
         NormalPartialDspInputs dsp{keys->sourceKey,false,0,controls,{},{}};
         applyToneModulation(part,dsp.firstControls);
         const auto result = engine_.startRoutedRhythmNote(*selected,part,flags,map,settings.keyShift,
-            uint8_t(settings.controls.coarseTuning),settings.scale,{0,0},{160,160},capacityPolicy_,{dsp,dsp},
+            uint8_t(settings.controls.coarseTuning),settings.scale,{0,0},{160,160},system_.capacity,{dsp,dsp},
             controllers_,data_,conversion_,waves_,[&](uint8_t a) { return read(a); },
             ControlWriter{pcm_});
         using Status = NativeVoiceEngine::RhythmStartResult::Status;
@@ -1738,7 +1731,7 @@ private:
 
     void serviceMidiInput() noexcept
     {
-        if(resetPending() || bulkReply_.active() || parameterReplyWaiting_ || panelCount_) return;
+        if(standby_ || standbyStopPending_ || resetPending() || bulkReply_.active() || parameterReplyWaiting_ || panelCount_) return;
         // Decode packets independently of physical voice readiness. Completed
         // voice-changing transactions retain their barrier at EOX; partial or
         // rejected packets must not stall unrelated controller input.
@@ -1756,6 +1749,13 @@ private:
     void service() noexcept
     {
         if(failed()) return;
+        // Receive the hardware notification before any task-level wait.
+        // A latched IRQ must not block notifications from other PCM voices.
+        if(engine_.acceptsPcmBoundary() && PCM_HasVoiceBoundary(pcm_)) {
+            const auto slot=unsigned(PCM_TakeVoiceBoundary(pcm_));
+            if(!engine_.receivePcmBoundary(slot)) {failed_=true;return;}
+            serviceRequested_=true;
+        }
         if(serviceRequested_) serviceMidiInput();
         // 5710..573c: after a failed reuse poll, task2 waits for its
         // one-kernel-tick event. Other voice groups may still advance on
@@ -1766,11 +1766,12 @@ private:
         // Only incoming MIDI, PCM completion or an unfinished transition wakes
         // the controller. PCM itself continues rendering every sample.
         if (!serviceRequested_ && !engine_.clock.ready() && !engine_.runtime.controlPending()
-            && !PCM_HasVoiceBoundary(pcm_)) return;
+            && !PCM_HasVoiceBoundary(pcm_) && !engine_.pcmBoundaryPending()) return;
         serviceWork();
         serviceRequested_=!engine_.activationWaiting(elapsedCycles_) && (engine_.runtime.startupPending() || tasksPending()
             || effectPassClock_.has_value() || resetPending()
-            || (!bulkReply_.active() && !parameterReplyWaiting_ && (queuedEvents()!=0 || panelCount_!=0)) || muteStops_!=0);
+            || (!bulkReply_.active() && !parameterReplyWaiting_ && (queuedEvents()!=0 || panelCount_!=0))
+            || engine_.pcmBoundaryPending() || engine_.partStopsPending() || standbyStopPending_);
     }
     void serviceWork() noexcept
     {
@@ -1782,28 +1783,25 @@ private:
             // Key-latch/startup attack protection is a different PCM wait:
             // retain its existing per-pass readiness check, not this timer.
         }
-        if(muteStops_ && !engine_.runtime.startupPending()) {
-            bool deferred=false;
-            for(unsigned slot=0;slot<24;++slot)
-                if(engine_.runtime.voices[slot] && !(engine_.notes.allocator.allocations[slot].status&0x80)
-                    && (muteStops_&(1u<<engine_.installation.voices[slot].input.part))) {
-                    const auto result=engine_.requestStop(slot,load,store);
-                    if(result==NativeVoiceEngine::StopRequest::failed || result==NativeVoiceEngine::StopRequest::invalidInput)
-                        { failed_=true; return; }
-                    deferred|=result==NativeVoiceEngine::StopRequest::deferred;
-                }
-            if(!deferred) muteStops_=0;
-        }
-        if (!engine_.runtime.startupPending() && PCM_HasVoiceBoundary(pcm_)) {
-            const auto slot=unsigned(PCM_TakeVoiceBoundary(pcm_));
-            ++pcmBoundaryEvents_;
-            if(!engine_.handlePcmBoundary(slot,conversion_,load,store)) { failed_=true; return; }
-        }
-        for (unsigned task = 0; task < 24 && !engine_.runtime.startupPending(); ++task)
-        {
-            const auto result = engine_.serviceStopTask();
-            if (result.status != VoiceControlRuntime::StopTaskStatus::completed) break;
-        }
+        if(!engine_.serviceRetirements(load,store)) { failed_=true; return; }
+        // Ready voice-management commands (task1, 07e8..0850) precede the
+        // periodic effects/voice pass (task8). A PCM reuse wait still yields
+        // to other voices; this does not add a clock delay or relax key latch.
+        serviceCommandWork();
+        if(failed()) return;
+        const auto boundaries=engine_.servicePcmBoundaries(conversion_,load,store);
+        if(!boundaries) {failed_=true;return;}
+        pcmBoundaryEvents_+=*boundaries;
+        // Reaching the bounded command budget is not a task1 wait. Retain
+        // the lower-priority event until runnable commands have drained.
+        // Actual reuse/capacity/transaction waits still allow control work.
+        if(engine_.commands.size() && !engine_.admission && !tasksPending()
+            && !engine_.runtime.startupPending() && !resetPending()
+            && !bulkReply_.active() && !parameterReplyWaiting_
+#if defined(SC55_NATIVE_IO_AUDIT)
+            && !holdAdmissionsAudit_
+#endif
+            ) return;
         if (effectsTables_ && !engine_.runtime.startupAwaitingKeyLatch() && engine_.periodicOwnersReady())
         {
             if (!effectPassClock_ && engine_.clock.ready())
@@ -1815,18 +1813,34 @@ private:
             }
             if (effectPassClock_ && !engine_.runtime.controlPending() && !serviceEffects()) return;
         }
+        // Run the semantic control update on its common event. H8 instruction
+        // budgets are diagnostic data, not delays in the native sound engine.
+        // Actual PCM activation/reuse waits remain owned by serviceActivation.
         const auto control = engine_.serviceControl(controllers_,data_,conversion_,waves_,load,store,
-            effectPassClock_ ? &*effectPassClock_ : nullptr);
+            effectPassClock_ ? &*effectPassClock_ : nullptr,VoiceControlRuntime::ControlSlice::pass);
         if (control.status==VoiceControlRuntime::ScheduledStatus::updated) effectPassClock_.reset();
         if (control.status == VoiceControlRuntime::ScheduledStatus::failed) { failed_ = true; return; }
         if (resetPending()) { serviceReset(); return; }
-        if (bulkReply_.active() || parameterReplyWaiting_) return;
+    }
+
+    void serviceCommandWork() noexcept
+    {
+        if (resetPending() || bulkReply_.active() || parameterReplyWaiting_) return;
         for (unsigned event = 0; event < 64 && !failed(); ++event)
         {
             if (resetPending() || bulkReply_.active() || parameterReplyWaiting_) break;
             serviceVoiceCommand();
             if (engine_.admission || tasksPending() || engine_.runtime.startupPending()) break;
             if (engine_.commands.size()) continue;
+            if(standbyStopPending_) {
+                // Standby uses the ordinary controller reset and group stop
+                // after earlier admissions finish; PCM still drains its ramps.
+                for(unsigned part=16;part-- >0;)
+                    if(!resetPart(part,false) || !stopPartGroups(part)) {failed_=true;return;}
+                refreshControls();
+                standbyStopPending_=false;
+            }
+            if(standby_) break;
             // Value edits may reset controllers/release voices. Apply them
             // only between complete admissions, never inside PCM activation.
             // This queue is owned and consumed on the audio thread.
@@ -1880,7 +1894,9 @@ private:
 #endif
     uint64_t elapsedCycles_=0;
     bool globalMuted_=false;
-    uint16_t muteStops_=0;
+    bool standby_=false,standbyStopPending_=false;
+    bool fastDisplayScroll_=false;
+    bool soloEnabled_=false;
     pcm_t& pcm_;
     NativeVoiceEngine engine_;
     MidiEventQueue<2048> queue_;
@@ -1900,41 +1916,34 @@ private:
     std::optional<EffectsTables> effectsTables_;
     EffectsControl effects_;
     std::optional<ControlTaskClock> effectPassClock_;
-    EffectsSettings effectSettings_;
     std::optional<RhythmPresetTable> rhythm_;
     std::optional<MelodicPresetTable> melodic_;
     std::array<std::optional<uint16_t>,16> selectedTone_{};
-    std::array<RhythmPresetTable::Record,2> rhythmRecords_{};
-    std::array<RhythmKeyMap,2> rhythmMaps_{};
+    RhythmSettings rhythmSettings_;
     std::array<bool,16> rhythmRejected_{};
     std::array<uint8_t,16> selectedRhythmProgram_{};
     std::array<uint8_t,2> rhythmMapPrograms_{}; // AC10/11, raw shared-map program latches
     SysExReceiver sysex_;
+    MidiInputSettings midiInput_;
     DisplayData display_;
-    // FRT3: 2500 counts * /4 prescaler * two MCU cycles * ten IRQs.
-    static constexpr uint64_t displayTimerCycles=2500*4*2*10;
-    // task7 normal service waits 20 common kernel ticks at 04:378b.
-    static constexpr uint64_t displayServiceCycles=20*ControlTaskClock::kernelTickCycles;
-    DisplayControl displayControl_;
-    DisplayControl::Line displayLine_{};
+    DisplayEventLog displayEvents_;
     unsigned displayPart_=1;
-    bool displayAll_=false,displayTextVisible_=false;
-    MasterControls master_;
+    bool displayAll_=false;
+    SystemSettings system_;
     UninterpretedSystemSettings transferSettings_;
-    std::array<uint8_t,16> systemName_{};
     std::array<ParameterReply,16> replies_{};
     unsigned replyHead_=0,replyCount_=0;
     bool parameterOutputConnected_=false,parameterReplyWaiting_=false,parameterReplyTransmitting_=false;
+    bool parameterReplyCapture_=false;
     uint64_t droppedReplies_=0;
     BulkReplyTransfer bulkReply_;
     bool bulkOutputConnected_=false;
     bool bulkInputReset_=false;
-    VoiceCapacityPolicy capacityPolicy_;
     PartControllerState controllers_;
     PitchConversion conversion_;
     LfoWaveformTables waves_;
     bool failed_ = false;
-    ResetPhase resetPhase_ = ResetPhase::idle;
+    bool resetRequested_ = false;
     uint64_t completedResets_ = 0;
     uint64_t unsupported_ = 0;
     uint64_t pcmBoundaryEvents_ = 0;

@@ -157,8 +157,12 @@ inline void VerifyMidiDuringPreparation(Emulator& emu,const RomsetInfo& roms,boo
         std::fflush(stdout);
         throw std::runtime_error("H8 did not demonstrate CC application during reuse wait");
     }
-    player.push(next);player.renderFrames(1);
+    player.push(next);
     using Status=sc55::VoiceControlRuntime::StartStatus;
+    // The previous note's protected calculation may still be running.
+    // Trigger the controller input at the actual reuse wait, like the H8 side.
+    for(unsigned frame=0;frame<6400 && player.startupAudit().status!=Status::waitingForReuse && !player.failed();++frame)
+        player.renderFrames(1);
     if(player.startupAudit().status!=Status::waitingForReuse)
         throw std::runtime_error("Native fixture did not enter reuse wait");
     player.push(volume);

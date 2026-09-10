@@ -145,10 +145,14 @@ public:
     }
     bool failed() const noexcept { return rhythmFailed_ || runtime.failed() || noteOn.status() == NoteOnFanout::Status::failed; }
 
-    // Completion outranks queued voice commands, including a resumed admission.
-    // This is separate from parsing MIDI: commands may already be buffered.
+    // 07c7..0850: task1 selects command event0 before completion event1,
+    // then drains the command ring before waiting for another event. Keep
+    // the completed slot occupied across a queued/resumed admission.
+    bool voiceCommandsPending() const noexcept
+    { return admission.has_value() || commands.size()!=0 || noteOn.pending(); }
+
     bool serviceVoiceCompletion() noexcept
-    { return !failed() && runtime.consumeVoiceCompletion(notes.allocator); }
+    { return !failed() && (voiceCommandsPending() || runtime.consumeVoiceCompletion(notes.allocator)); }
 
     bool beginNoteOn(const MidiDecoder::Event& event,std::span<const PartMidiReceive,16> routing,NoteReceiveMode mode)
     { return !failed() && !runtime.startupPending() && noteOn.begin(event,routing,mode); }
@@ -165,7 +169,8 @@ public:
     MidiDispatchResult serviceMidi(MidiEventQueue<Capacity>& queue,uint64_t now,Sink&& sink)
     {
         if (failed()) return MidiDispatchResult::failed;
-        if (!serviceVoiceCompletion()) return MidiDispatchResult::failed;
+        // MIDI decoding is task0, not task1's completion event. In particular
+        // it can enqueue a command before task1 chooses between event0/1.
         if (noteOn.pending()) return MidiDispatchResult::deferred;
         return runtime.serviceMidi(queue,now,sink);
     }
@@ -304,7 +309,7 @@ public:
             return {Status::invalidInput,{},{}};
         if (runtime.startupPending() || mask.prepared) return {Status::deferred,{},{}};
         for (const auto& state : lifecycle)
-            if (state.fieldCAF4) return {Status::deferred,{},{}};
+            if (state.pendingOperation != VoiceOperation::none) return {Status::deferred,{},{}};
         // Admission stops must use current periodic DSP progress, not the
         // installation snapshot. Preserve owners until their task4 is serviced.
         lifecycle=admissionLifecycle();
@@ -366,10 +371,10 @@ public:
             [](uint8_t) { return uint8_t(0); },[](uint8_t,uint8_t) {})) return StopRequest::invalidInput;
         auto stopped = lifecycle;
         for (unsigned slot = 0; slot < 24; ++slot)
-            if (probe[slot].fieldCAF4 == 4)
+            if (probe[slot].pendingOperation == VoiceOperation::finishStop)
             {
                 if (!runtime.voices[slot]) return StopRequest::failed;
-                if (lifecycle[slot].fieldCAF4 != 0) return StopRequest::deferred;
+                if (lifecycle[slot].pendingOperation != VoiceOperation::none) return StopRequest::deferred;
                 stopped[slot] = runtime.voices[slot]->lifecycle;
             }
         // All links and affected owners validated before the first PCM write.
@@ -384,12 +389,12 @@ public:
     {
         if (failed()) return StopRequest::failed;
         if (slot >= 24 || !runtime.voices[slot]) return StopRequest::invalidInput;
-        if (runtime.startupPending() || lifecycle[slot].fieldCAF4 != 0) return StopRequest::deferred;
+        if (runtime.startupPending() || lifecycle[slot].pendingOperation != VoiceOperation::none) return StopRequest::deferred;
         // The running DSP state, not an obsolete installation snapshot, is
         // authoritative for cached words/progress before a physical stop.
         auto stopped = runtime.voices[slot]->lifecycle;
         if (!StopPreparedVoice(slot,stopped,read,write)) return StopRequest::invalidInput;
-        stopped.fieldCAF4 = 4;
+        stopped.pendingOperation = VoiceOperation::finishStop;
         lifecycle[slot] = stopped;
         return StopRequest::queued;
     }
@@ -397,6 +402,86 @@ public:
     VoiceControlRuntime::StopTaskResult serviceStopTask()
     { return failed() ? VoiceControlRuntime::StopTaskResult{VoiceControlRuntime::StopTaskStatus::failed}
                       : runtime.serviceStopTask(lifecycle,notes.allocator); }
+
+    // Part-level stop intent belongs with physical voice ownership. The
+    // controller neither scans slots nor decides whether PCM preparation
+    // permits retirement. Pending requests survive a deferred activation.
+    void requestPartStops(uint16_t parts) noexcept { pendingPartStops_|=parts; }
+    bool partStopsPending() const noexcept { return pendingPartStops_!=0; }
+    bool operationsPending() const noexcept
+    {
+        for(const auto& state:lifecycle)
+            if(state.pendingOperation!=VoiceOperation::none) return true;
+        return false;
+    }
+
+    enum class ResetProgress { waiting, stopped, completed, failed };
+    // Called only while a sound reset is requested. Normal retirement/control
+    // service and PCM rendering continue between calls. 'stopped' occurs once:
+    // the controller then resets its dynamic MIDI controls before draining.
+    template<class Read,class Write>
+    ResetProgress resetVoices(Read&& read,Write&& write)
+    {
+        if(failed()) return ResetProgress::failed;
+        if(!resetDraining_) {
+            if(runtime.startupPending() || operationsPending()) return ResetProgress::waiting;
+            if(stopSoundingParts(0xffff,read,write)!=StopRequest::queued) return ResetProgress::failed;
+            resetDraining_=true;
+            return ResetProgress::stopped;
+        }
+        if(operationsPending() || notes.allocator.freeCount!=24) return ResetProgress::waiting;
+        for(unsigned slot=0;slot<24;++slot) if(runtime.voices[slot]) {
+            const auto ready=PollVoiceReuse(uint8_t(slot),false,read,write);
+            if(!ready || *ready==VoiceReuseReadiness::cancelled) return ResetProgress::failed;
+            if(*ready!=VoiceReuseReadiness::ready) return ResetProgress::waiting;
+        }
+        // Logical release alone is insufficient: PCM must have finished its
+        // ramps before discarding the old owners. Preserve receive-time work,
+        // the shared clock, key mask and cross-note pitch history.
+        const auto retainedClock=clock;
+        const auto enabled=mask.enabled;
+        const auto retainedKeys=preparation.partKeys;
+        const auto reference=preparation.reference;
+        const auto receivedCommands=commands;
+        const auto receivedAdmission=admission;
+        *this=NativeVoiceEngine{};
+        commands=receivedCommands; admission=receivedAdmission;
+        clock=retainedClock; mask.enabled=enabled;
+        preparation.partKeys=retainedKeys; preparation.reference=reference;
+        if(!notes.allocator.initializeTables()) return ResetProgress::failed;
+        for(unsigned slot=0;slot<24;++slot)
+            runtime.first[slot].firstStage=runtime.second[slot].firstStage=22;
+        return ResetProgress::completed;
+    }
+
+    template<class Read,class Write>
+    StopRequest stopSoundingParts(uint16_t parts,Read&& read,Write&& write)
+    {
+        if(failed()) return StopRequest::failed;
+        if(runtime.startupPending()) return StopRequest::deferred;
+        bool deferred=false;
+        for(unsigned slot=0;slot<24;++slot)
+            if(runtime.voices[slot] && !(notes.allocator.allocations[slot].status&0x80)
+                && (parts&(1u<<installation.voices[slot].input.part))) {
+                const auto result=requestStop(slot,read,write);
+                if(result==StopRequest::failed || result==StopRequest::invalidInput) return result;
+                deferred|=result==StopRequest::deferred;
+            }
+        return deferred ? StopRequest::deferred : StopRequest::queued;
+    }
+
+    template<class Read,class Write>
+    bool serviceRetirements(Read&& read,Write&& write)
+    {
+        if(pendingPartStops_) {
+            const auto result=stopSoundingParts(pendingPartStops_,read,write);
+            if(result==StopRequest::failed || result==StopRequest::invalidInput) return false;
+            if(result==StopRequest::queued) pendingPartStops_=0;
+        }
+        for(unsigned count=0;count<24 && !runtime.startupPending();++count)
+            if(serviceStopTask().status!=VoiceControlRuntime::StopTaskStatus::completed) break;
+        return !failed();
+    }
 
     template<class Read,class Write>
     VoiceControlRuntime::StartStatus pollStart(Read&& read,Write&& write)
@@ -424,9 +509,47 @@ public:
         return result;
     }
 
-    // The PCM device supplies an acknowledged waveform-boundary event. The
-    // voice engine owns the pitch/lifecycle response and both LFO stage views.
-    // Do not consume such events during activation; the device retains them.
+    // 0760..0774 acknowledges the device and latches one bit per voice even
+    // while task2 waits for reuse. The deferred handler is a separate service.
+    bool acceptsPcmBoundary() const noexcept
+    { return !failed() && !runtime.preparationPending() && !runtime.startupAwaitingKeyLatch(); }
+
+    bool receivePcmBoundary(unsigned slot) noexcept
+    {
+        if(slot>=24 || !acceptsPcmBoundary()) return false;
+        pendingBoundaries_|=1u<<slot;
+        lifecycle[slot].fieldCB30=255;
+        if(runtime.voices[slot]) runtime.voices[slot]->lifecycle.fieldCB30=255;
+        return true;
+    }
+
+    bool pcmBoundaryPending() const noexcept { return pendingBoundaries_!=0; }
+
+    template<class Read,class Write>
+    std::optional<unsigned> servicePcmBoundaries(const PitchConversion& conversion,Read&& read,Write&& write)
+    {
+        if(failed()) return std::nullopt;
+        if(!pendingBoundaries_) return 0;
+        // 5488..54b4: voice operations/event0 precede boundary/event1.
+        // 5738 waits only for the reuse tick, not the boundary event.
+        if(runtime.startupPending() || voiceCommandsPending()) return 0;
+        for(const auto& voice:lifecycle) if(voice.pendingOperation != VoiceOperation::none) return 0;
+        unsigned handled=0;
+        for(unsigned slot=24;slot-- >0;) if(pendingBoundaries_&(1u<<slot)) {
+            pendingBoundaries_&=~(1u<<slot);
+            // Physical stop (53e6) and wave installation (577e) invalidate
+            // an old notification; their existing lifecycle clear owns this.
+            if(!lifecycle[slot].fieldCB30) continue;
+            lifecycle[slot].fieldCB30=0;
+            if(runtime.voices[slot]) runtime.voices[slot]->lifecycle.fieldCB30=0;
+            if(!handlePcmBoundary(slot,conversion,read,write)) return std::nullopt;
+            ++handled;
+        }
+        return handled;
+    }
+
+    // Deferred waveform-boundary operation. Reception and acknowledgement
+    // belong to receivePcmBoundary; do not run it inside activation.
     template<class Read,class Write>
     bool handlePcmBoundary(unsigned slot,const PitchConversion& conversion,Read&& read,Write&& write)
     {
@@ -445,11 +568,11 @@ public:
         if(runtime.preparationPending()) return false;
         for(unsigned slot=0;slot<24;++slot) {
             const auto& voice=lifecycle[slot];
-            if(!voice.fieldCAF4) continue;
-            if(voice.fieldCAF4==4) {
+            if(voice.pendingOperation == VoiceOperation::none) continue;
+            if(voice.pendingOperation==VoiceOperation::finishStop) {
                 // A physical stop has already published stage18/20 (53e6).
                 if(!runtime.voices[slot] || (voice.stages[0]!=18 && voice.stages[0]!=20)) return false;
-            } else if(voice.fieldCAF4==2) {
+            } else if(voice.pendingOperation==VoiceOperation::prepare) {
                 // 113a publishes identity/request before DSP preparation.
                 // A restart has a stopped stage; a continuation retains its
                 // old EG/LFO owner but uses the newly installed part/key.
@@ -468,10 +591,11 @@ public:
     {
         using Progress=VoiceControlRuntime::ControlProgress;
         if(failed()) return {Progress::failed};
+        if(runtime.voiceCompletionPending() && voiceCommandsPending()) return {Progress::deferred};
         if(!importPendingVoiceOperations()) return {Progress::deferred};
         const auto result=slice==VoiceControlRuntime::ControlSlice::phase
-            ? runtime.resumeControlPhase(installation,parts,notes.allocator,data,conversion,waves,read,write)
-            : runtime.resumeControlPass(installation,parts,notes.allocator,data,conversion,waves,read,write);
+            ? runtime.resumeControlPhase(installation,parts,notes.allocator,data,conversion,waves,read,write,!voiceCommandsPending())
+            : runtime.resumeControlPass(installation,parts,notes.allocator,data,conversion,waves,read,write,!voiceCommandsPending());
         if(result.status!=Progress::failed) exportControlChanges(result.changedMask);
         return result;
     }
@@ -484,21 +608,25 @@ public:
     {
         using Status = VoiceControlRuntime::ScheduledStatus;
         if (failed()) return {Status::failed};
+        if(runtime.voiceCompletionPending() && voiceCommandsPending()) return {Status::deferred};
         if(!importPendingVoiceOperations()) return {Status::deferred};
         const auto result = runtime.serviceControl(capturedClock ? *capturedClock : clock,installation,parts,notes.allocator,
-            data,conversion,waves,read,write,slice);
+            data,conversion,waves,read,write,slice,!voiceCommandsPending());
         if (result.status != Status::failed) exportControlChanges(result.updatedMask);
         return result;
     }
 private:
+    uint16_t pendingPartStops_=0;
+    bool resetDraining_=false;
     std::optional<uint64_t> activationWake_;
+    uint32_t pendingBoundaries_=0;
     bool importPendingVoiceOperations() noexcept
     {
         if(!periodicOwnersReady()) return false;
         // Admission and periodic control see the same published lifecycle.
         // Preserve requests for their consumer: no early stop completion,
         // preparation, key-on or reconstruction of an uninstalled DSP owner.
-        for(unsigned slot=0;slot<24;++slot) if(lifecycle[slot].fieldCAF4 && runtime.voices[slot]) {
+        for(unsigned slot=0;slot<24;++slot) if((lifecycle[slot].pendingOperation != VoiceOperation::none) && runtime.voices[slot]) {
             runtime.voices[slot]->lifecycle=lifecycle[slot];
             runtime.first[slot].firstStage=runtime.second[slot].firstStage=lifecycle[slot].stages[0];
         }
@@ -515,7 +643,7 @@ private:
         // Otherwise the live EG owner supersedes the installation snapshot.
         auto current=lifecycle;
         for (unsigned slot=0;slot<24;++slot)
-            if (runtime.voices[slot] && !lifecycle[slot].fieldCAF4)
+            if (runtime.voices[slot] && (lifecycle[slot].pendingOperation == VoiceOperation::none))
                 current[slot]=runtime.voices[slot]->lifecycle;
         return current;
     }

@@ -13,6 +13,7 @@ add_executable(sc55-firmware-oracle main.cpp
     ${BACKEND}/submcu.cpp ${BACKEND}/sc55_patch.cpp ${BACKEND}/sha/sha224-256.c
     ${ROOT}/src/common/rom_loader.cpp)
 target_include_directories(sc55-firmware-oracle PRIVATE "${BACKEND}" "${ROOT}/src/common")
+target_compile_definitions(sc55-firmware-oracle PRIVATE SC55_CONTROL_TIMING_ORACLE=1)
 # Route only CPU writes through the observer. The PCM implementation is unchanged.
 # This definition exists only in this standalone research build.
 set_source_files_properties(${BACKEND}/mcu.cpp PROPERTIES COMPILE_DEFINITIONS "PCM_Write=Oracle_PCM_Write;SC55_ORACLE_H8_PROFILE=1")

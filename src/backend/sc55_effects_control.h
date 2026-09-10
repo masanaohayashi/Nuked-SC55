@@ -27,8 +27,14 @@ struct EffectsSettings
         if (payload.size()<3 || payload[0]!=0x40 || payload[1]!=1)
         { result.unsupported=true; return result; }
         if (payload.size()==3) { result.invalidLength=true; return result; }
-        unsigned address=payload[2];
-        for (auto value:payload.subspan(3))
+        return writeValues(payload[2],payload.subspan(3),tables);
+    }
+    // Also accepts the suffix of a system-table transaction, without copying
+    // or fabricating a second MIDI packet on the audio thread.
+    Result writeValues(unsigned address,std::span<const uint8_t> values,const EffectsTables& tables) noexcept
+    {
+        Result result;
+        for (auto value:values)
         {
             if (address==0x30) {
                 reverbMacro=value>7 ? 7 : value;

@@ -6,6 +6,17 @@
 
 inline void VerifyNativeSynth(Emulator& reference,const RomsetInfo& roms,bool nativeVoices=false,bool allPrograms=false,unsigned notes=1,bool independent=false)
 {
+    sc55::SynthState meter;
+    meter.voiceLevels[0]={2000,3000,1,true};
+    meter.voiceLevels[1]={4000,5000,1,true};
+    meter.voiceLevels[2]={50000,50000,2,true};
+    meter.voiceLevels[3]={65535,65535,1,false};
+    meter.calculateDisplayLevels();
+    if(meter.parts[1].envelopeLevel!=9000 || meter.parts[2].envelopeLevel!=65535)
+        throw std::runtime_error("UI meter lost peak/saturation/inactive-voice semantics");
+    meter.voiceLevels={};meter.calculateDisplayLevels();
+    if(meter.parts[1].envelopeLevel || meter.parts[2].envelopeLevel)
+        throw std::runtime_error("UI meter retained an old voice level");
     NativeSynthStateExchange exchange;
     std::atomic<bool> finished{false};
     std::thread producer([&] {
@@ -56,6 +67,14 @@ inline void VerifyNativeSynth(Emulator& reference,const RomsetInfo& roms,bool na
             chip->push(midi);
         }
         whole->render(a);
+        if(block==80) {
+            const auto raw=whole->state();
+            for(const auto& part:raw.parts) if(part.envelopeLevel)
+                throw std::runtime_error("Audio snapshot performed display aggregation");
+            auto display=raw;display.calculateDisplayLevels();
+            if(!display.parts[1].envelopeLevel)
+                throw std::runtime_error("Raw voice snapshot cannot reconstruct the sounding meter");
+        }
         chip->render(chipFrames);
         split->render({});
         if(block&1) {

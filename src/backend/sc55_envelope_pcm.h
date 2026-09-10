@@ -7,22 +7,22 @@
 namespace sc55
 {
 enum class VoiceReuseReadiness { ready, pending, cancelled };
-inline VoiceReuseReadiness CheckVoiceReuse(uint16_t level32,uint16_t level34,uint8_t flagCAF4) noexcept
+inline VoiceReuseReadiness CheckVoiceReuse(uint16_t level32,uint16_t level34,bool operationPending) noexcept
 {
-    if (flagCAF4 != 0) return VoiceReuseReadiness::cancelled;
+    if (operationPending) return VoiceReuseReadiness::cancelled;
     return level32 == 0 || level34 == 0 ? VoiceReuseReadiness::ready : VoiceReuseReadiness::pending;
 }
 // One iteration of 5710..573e. Firmware yields with TRAPA0 when pending;
 // native scheduling must retry later, never spin in the audio callback.
-// Caller owns serialized I/O and supplies the current CAF4 state.
+// Caller owns serialized I/O and reports whether another voice operation won.
 template<class Read,class Write>
-std::optional<VoiceReuseReadiness> PollVoiceReuse(uint8_t channel,uint8_t flagCAF4,Read&& read,Write&& write)
+std::optional<VoiceReuseReadiness> PollVoiceReuse(uint8_t channel,bool operationPending,Read&& read,Write&& write)
 {
     if (channel >= 24) return std::nullopt;
     if constexpr(requires { write.voiceGainLevels(channel); })
     {
         const auto levels=write.voiceGainLevels(channel);
-        return CheckVoiceReuse(levels[0],levels[1],flagCAF4);
+        return CheckVoiceReuse(levels[0],levels[1],operationPending);
     }
     write(uint8_t(0x3e),channel);
     const auto level = [&](uint8_t a) {
@@ -30,7 +30,7 @@ std::optional<VoiceReuseReadiness> PollVoiceReuse(uint8_t channel,uint8_t flagCA
         return uint16_t((hi<<8)|lo);
     };
     const auto first = level(0x32), second = level(0x34);
-    return CheckVoiceReuse(first,second,flagCAF4);
+    return CheckVoiceReuse(first,second,operationPending);
 }
 
 struct VoiceStopPlan

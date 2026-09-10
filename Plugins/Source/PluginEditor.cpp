@@ -693,6 +693,11 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
 
     //[Constructor] You can add your own custom stuff here..
+    buttonAll_new->addMouseListener (this, false);
+    buttonMute_new->addMouseListener (this, false);
+    buttonPower2->addMouseListener (this, false);
+    buttonPower2->setTooltip ("Settings. Right-click for native standby and display options.");
+    buttonAll_new->setTooltip ("ALL. Hold ALL + MUTE to toggle solo.");
     labelProcess->setText ("Max: 0.0%", juce::dontSendNotification);
     labelProcess->setTooltip ("Maximum JUCE audio callback load since RESET (smoothed, 0-100%).");
     // The faceplate is authored at 1024x200.  resized() fits that panel into
@@ -757,6 +762,9 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 NukedSC55AudioProcessorEditor::~NukedSC55AudioProcessorEditor()
 {
     //[Destructor_pre]. You can add your own custom destruction code here..
+    buttonAll_new->removeMouseListener (this);
+    buttonMute_new->removeMouseListener (this);
+    buttonPower2->removeMouseListener (this);
     masterVolumeAttachment = nullptr;
     lcdDisplay = nullptr;
     settingsComponent = nullptr;
@@ -991,14 +999,18 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     else if (buttonThatWasClicked == buttonAll_new.get())
     {
         //[UserButtonCode_buttonAll_new] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::all);
+        if (! suppressAllClick)
+            audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::all);
+        suppressAllClick = false;
         syncFrontPanelIndicators();
         //[/UserButtonCode_buttonAll_new]
     }
     else if (buttonThatWasClicked == buttonMute_new.get())
     {
         //[UserButtonCode_buttonMute_new] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::mute);
+        if (! suppressMuteClick)
+            audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::mute);
+        suppressMuteClick = false;
         syncFrontPanelIndicators();
         //[/UserButtonCode_buttonMute_new]
     }
@@ -1012,7 +1024,8 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     else if (buttonThatWasClicked == buttonPower2.get())
     {
         //[UserButtonCode_buttonPower2] -- add your button handler code here..
-        setSettingsVisible (true);
+        if (! suppressPowerClick) setSettingsVisible (true);
+        suppressPowerClick = false;
         //[/UserButtonCode_buttonPower2]
     }
     else if (buttonThatWasClicked == buttonLevelDec2.get())
@@ -1120,6 +1133,61 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
 
 
 //[MiscUserCode] You can add your own definitions of your custom methods or any other code here...
+void NukedSC55AudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
+{
+    if (event.eventComponent == buttonPower2.get())
+    {
+        suppressPowerClick = event.mods.isPopupMenu();
+        if (suppressPowerClick)
+        {
+            const auto state = audioProcessor.getUiStatus().emulator;
+            juce::PopupMenu menu;
+            menu.addItem (1, "Standby", state.nativeEngine && state.ready, state.standby);
+            menu.addItem (2, "Fast display scroll (standby only)",
+                          state.nativeEngine && state.ready && state.standby, state.fastDisplayScroll);
+            menu.addSeparator();
+            menu.addItem (3, "Receive SysEx", state.nativeEngine && state.ready, state.receiveExclusive);
+            menu.addItem (4, "Receive GM / GS Reset", state.nativeEngine && state.ready, state.receiveReset);
+            menu.addItem (5, "Ignore SysEx checksum", state.nativeEngine && state.ready, state.ignoreChecksum);
+            menu.addItem (6, "Receive Program Change", state.nativeEngine && state.ready, state.receiveProgramChanges);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (buttonPower2.get()),
+                [safe = juce::Component::SafePointer<NukedSC55AudioProcessorEditor> (this), state] (int choice)
+                {
+                    if (safe == nullptr) return;
+                    using Button = NukedSC55Emulator::FrontPanelButton;
+                    if (choice == 1) safe->audioProcessor.pressFrontPanelButton (state.standby ? Button::standbyOff : Button::standbyOn);
+                    if (choice == 2) safe->audioProcessor.pressFrontPanelButton (state.fastDisplayScroll ? Button::fastScrollOff : Button::fastScrollOn);
+                    if (choice == 3) safe->audioProcessor.pressFrontPanelButton (state.receiveExclusive ? Button::exclusiveOff : Button::exclusiveOn);
+                    if (choice == 4) safe->audioProcessor.pressFrontPanelButton (state.receiveReset ? Button::resetReceiveOff : Button::resetReceiveOn);
+                    if (choice == 5) safe->audioProcessor.pressFrontPanelButton (state.ignoreChecksum ? Button::checksumIgnoreOff : Button::checksumIgnoreOn);
+                    if (choice == 6) safe->audioProcessor.pressFrontPanelButton (state.receiveProgramChanges ? Button::programReceiveOff : Button::programReceiveOn);
+                });
+        }
+        return;
+    }
+    const bool isAll = event.eventComponent == buttonAll_new.get();
+    const bool isMute = event.eventComponent == buttonMute_new.get();
+    if (! isAll && ! isMute)
+        return;
+
+    // Track physical presses, not Button's synthetic click flash/state changes.
+    if (isAll) { allButtonHeld = true; suppressAllClick = false; }
+    if (isMute) { muteButtonHeld = true; suppressMuteClick = false; }
+    if ((allButtonHeld && muteButtonHeld) || (isMute && event.mods.isShiftDown()))
+    {
+        suppressAllClick = allButtonHeld;
+        suppressMuteClick = muteButtonHeld;
+        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::solo);
+    }
+}
+
+void NukedSC55AudioProcessorEditor::mouseUp (const juce::MouseEvent& event)
+{
+    if (event.eventComponent == buttonAll_new.get()) allButtonHeld = false;
+    if (event.eventComponent == buttonMute_new.get()) muteButtonHeld = false;
+    // Keep suppression until buttonClicked (or the next press after a cancelled drag).
+}
+
 
 void NukedSC55AudioProcessorEditor::loadSequenceFile (const juce::File& file)
 {
@@ -1546,9 +1614,13 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
     };
 
     syncIndicatorState (buttonAll_new.get(), state.allLed);
-    syncIndicatorState (buttonMute_new.get(), state.muteLed);
+    // Blink is a GUI indication of native solo, not a firmware timing emulation.
+    syncIndicatorState (buttonMute_new.get(), state.soloEnabled
+                        ? (juce::Time::getMillisecondCounter() / 500) % 2 != 0 : state.muteLed);
+    buttonMute_new->setTooltip (juce::String (state.soloEnabled ? "SOLO active. " : "MUTE. ")
+                               + "Shift-click MUTE or hold ALL + MUTE to toggle solo.");
     if (ledPower != nullptr)
-        ledPower->setValue (uiStatus.audioReady ? 1.0f : 0.0f);
+        ledPower->setValue (uiStatus.audioReady && ! state.standby ? 1.0f : 0.0f);
     const auto twoXEnabled = audioProcessor.isTwoXEnabled();
     if (button2x_new != nullptr)
         button2x_new->setToggleState (twoXEnabled, juce::dontSendNotification);
@@ -1874,4 +1946,3 @@ END_JUCER_METADATA
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-

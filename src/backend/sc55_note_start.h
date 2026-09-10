@@ -416,12 +416,12 @@ inline std::optional<VoiceTaskDispatch> DispatchNextVoiceTask(
     for (unsigned n = 24; n > 0; --n)
     {
         const auto slot = uint8_t(n-1);
-        const auto task = voices[slot].fieldCAF4;
-        if (!task) continue;
-        if (task != 2 && task != 4) return std::nullopt;
-        VoiceTaskDispatch result{task == 2 ? VoiceTaskDispatch::Kind::prepare
+        const auto task = voices[slot].pendingOperation;
+        if (task == VoiceOperation::none) continue;
+        if (task != VoiceOperation::prepare && task != VoiceOperation::finishStop) return std::nullopt;
+        VoiceTaskDispatch result{task == VoiceOperation::prepare ? VoiceTaskDispatch::Kind::prepare
                                           : VoiceTaskDispatch::Kind::finishStop,{slot,255},1};
-        if (task == 2)
+        if (task == VoiceOperation::prepare)
         {
             const auto first = links.first[slot], second = links.second[slot];
             if (first != 255)
@@ -435,8 +435,8 @@ inline std::optional<VoiceTaskDispatch> DispatchNextVoiceTask(
                 result.slots = {slot,second}; result.count = 2;
             }
         }
-        for (unsigned i = 0; i < result.count; ++i) voices[result.slots[i]].fieldCAF4 = 0;
-        if (task == 4)
+        for (unsigned i = 0; i < result.count; ++i) voices[result.slots[i]].pendingOperation = VoiceOperation::none;
+        if (task == VoiceOperation::finishStop)
         {
             activity[slot] = 0;
             voices[slot].stages.fill(voices[slot].stages[0] == 0x12 ? 0x0e : 0x10);
@@ -467,7 +467,7 @@ bool RestartAndInstallVoice(unsigned slot,VoiceInstallationInput input,uint8_t& 
     allocator = checkedAllocator;
     installation = checkedInstallation;
     flags = checkedFlags;
-    if (!(input.sample&0x8000)) lifecycle.fieldCAF4 = installation.voices[slot].taskState;
+    if (!(input.sample&0x8000)) lifecycle.pendingOperation = installation.voices[slot].operation;
     return true;
 }
 }

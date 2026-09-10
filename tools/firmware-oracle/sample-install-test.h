@@ -153,7 +153,7 @@ inline void verifySampleInstallation(const sc55::SoundData& data)
         uint8_t positiveFlags=0xff;
         require(sc55::RestartAndInstallVoice(slot,positiveInput,positiveFlags,allocator,installation,
             idleLife[slot],read,write));
-        require(!(allocator.allocations[slot].status&128) && idleLife[slot].fieldCAF4==2);
+        require(!(allocator.allocations[slot].status&128) && idleLife[slot].pendingOperation==sc55::VoiceOperation::prepare);
         auto mixed=returnedSamples;
         mixed[1]=(*samples)[1]; mixed[1]->installed=installation.voices[slot];
         sc55::VoiceControlRuntime mixedRuntime;
@@ -213,9 +213,9 @@ inline void verifySampleInstallation(const sc55::SoundData& data)
             for (unsigned slot = 0; slot < 24; ++slot)
             {
                 const auto& a = actualInstall.voices[slot]; const auto& b = expectedInstall.voices[slot];
-                require(a.input == b.input && a.flags == b.flags && a.taskState == b.taskState);
+                require(a.input == b.input && a.flags == b.flags && a.operation == b.operation);
                 const auto fields = [](const auto& s) { return std::tie(s.stages,s.cached16,s.cached18,
-                    s.fieldCB30,s.fieldCAF4,s.savedStage,s.progress,s.delayAccumulator,s.pcm10,s.flagMinus3B,s.fieldC8B3); };
+                    s.fieldCB30,s.pendingOperation,s.savedStage,s.progress,s.delayAccumulator,s.pcm10,s.flagMinus3B,s.fieldC8B3); };
                 require(fields(actualLife[slot]) == fields(expectedLife[slot]));
             }
             std::array<sc55::NormalPartialDspInputs,2> dspInputs{};
@@ -235,7 +235,7 @@ inline void verifySampleInstallation(const sc55::SoundData& data)
                 for (unsigned i = 0; i < taskInputs->count; ++i)
                 {
                     const auto& entry = taskInputs->entries[i]; const auto partial = entry.request.installed.input.partial;
-                    require(entry.slot == expectedTask->slots[i] && entry.lifecycle.fieldCAF4 == 0);
+                    require(entry.slot == expectedTask->slots[i] && entry.lifecycle.pendingOperation == sc55::VoiceOperation::none);
                     require(entry.request.installed.flags==flags);
                     require(entry.request.sourceKey == 61+partial && entry.request.unoffsetStart == (partial != 0)
                         && entry.request.historyNibble == 5+partial && entry.previousPitch.cachedRandom == 71+partial

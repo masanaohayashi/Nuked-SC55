@@ -113,14 +113,14 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         engine.lifecycle[0].stages[0]=2;
         engine.runtime.voices[0]->lifecycle.stages[0]=12;
         engine.lifecycle[1].stages[0]=18;
-        engine.lifecycle[1].fieldCAF4=4;
+        engine.lifecycle[1].pendingOperation=sc55::VoiceOperation::finishStop;
         engine.runtime.voices[1]->lifecycle.stages[0]=10;
         unsigned io=0;
         const auto capacity=engine.ensureCapacity(1,1,sc55::VoiceCapacityPolicy{},
             [&](uint8_t) {++io;return uint8_t(0);},[&](uint8_t,uint8_t) {++io;});
         require(capacity && *capacity && io==0);
         require(engine.lifecycle[0].stages[0]==12);
-        require(engine.lifecycle[1].stages[0]==18 && engine.lifecycle[1].fieldCAF4==4);
+        require(engine.lifecycle[1].stages[0]==18 && engine.lifecycle[1].pendingOperation==sc55::VoiceOperation::finishStop);
         require(!engine.stopPartGroups(16,[](uint8_t) {return uint8_t(0);},[](uint8_t,uint8_t) {}));
         std::puts("Native admission owner: live EG and pending stop ownership preserved PASS");
     }
@@ -206,6 +206,72 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
     sc55::VoiceControlInputs input;
     input.level.velocity = input.level.master = 100;
     input.pitch.masterTune = input.pitch.partTune = 1024;
+    {
+        using Calculation=sc55::VoiceParameterCalculation;
+        using Stage=sc55::VoiceCalculationStage;
+        using Result=sc55::VoiceControlResult;
+        for(const auto stage:{Stage::amplitude,Stage::filter,Stage::pitch,Stage::level}) {
+            auto voice=*voices[0];
+            const auto amplitude=voice.amplitude.state();
+            const auto filter=voice.second;
+            const auto pitch=voice.pitch.pcmWord;
+            const auto output=voice.output;
+            auto calculation=Calculation::calculate(stage,voice,modulation[0],runtime.first[0].block,input,data,conversion);
+            require(calculation && calculation->pending());
+            const auto work=calculation->referenceInstructions();
+            require(work>0);
+            require(voice.amplitude.state().level==amplitude.level
+                && voice.amplitude.state().segment.progress.position==amplitude.segment.progress.position
+                && voice.second.level==filter.level && voice.second.command==filter.command
+                && voice.pitch.pcmWord==pitch && voice.output.tva.command==output.tva.command);
+            // A result owns no caller inputs and publishes only its fields.
+            voice.alternatePitchReference=98765;voice.stopAtSampleEnd=true;
+            auto moved=std::move(*calculation);
+            require(!calculation->pending() && moved.pending());
+            require(calculation->referenceInstructions()==0 && moved.referenceInstructions()==work);
+            require(calculation->commit(voice)==Result::invalidInput);
+            const auto committed=moved.commit(voice);
+            require(committed==Result::updated || committed==Result::finished);
+            require(voice.alternatePitchReference==98765 && voice.stopAtSampleEnd
+                && !moved.pending() && moved.commit(voice)==Result::invalidInput);
+            require(moved.referenceInstructions()==0);
+            auto stopped=*voices[0];
+            auto discarded=Calculation::calculate(stage,stopped,modulation[0],runtime.first[0].block,input,data,conversion);
+            require(discarded.has_value());
+            stopped.lifecycle.stages[0]=18;
+            require(discarded->commit(stopped)==Result::stopped && stopped.lifecycle.stages[0]==18
+                && !discarded->pending());
+        }
+        std::puts("Native parameter calculations: deferred publication, unique result ownership and stop preservation PASS");
+    }
+    {
+        std::array<uint16_t,256> rates;rates.fill(8192);
+        for(unsigned shape=0;shape<7;++shape) for(uint16_t ticks:{uint16_t(0),uint16_t(1),uint16_t(512)})
+            for(uint16_t random:{uint16_t(0x1000),uint16_t(0xf000)}) {
+                sc55::ModulationBlock block;
+                block.waveform=uint8_t(shape);block.delay=block.attack=65535;
+                block.depth={100,200,300};block.wave={65000,1234,5678,0};
+                auto expected=block;
+                struct Random {uint16_t value;unsigned reads=0;uint16_t randomWord() {++reads;return value;}} source{random};
+                require(expected.advance(ticks,rates,waves,[](uint8_t) {return uint8_t(0);},source));
+                auto scheduled=sc55::ModulationCalculation::begin(block,ticks,rates,waves);
+                require(scheduled && !scheduled->takeResult() && !scheduled->supplyRandom(random,rates,waves));
+                const auto duration=scheduled->remainingCycles();require(duration>0);
+                scheduled->advance(duration-1);
+                require(!scheduled->needsRandom() && !scheduled->takeResult());
+                scheduled->advance(1);
+                require(scheduled->needsRandom()==bool(source.reads));
+                if(source.reads) {
+                    require(scheduled->supplyRandom(random,rates,waves) && !scheduled->supplyRandom(random,rates,waves));
+                    scheduled->advance(scheduled->remainingCycles());
+                }
+                const auto result=scheduled->takeResult();
+                require(result && !scheduled->takeResult() && result->output==expected.output
+                    && result->wave.phase==expected.wave.phase && result->wave.held==expected.wave.held
+                    && result->wave.smoothed==expected.wave.smoothed && result->wave.output==expected.wave.output);
+            }
+        std::puts("Native LFO calculation: all seven shapes, random latch deadline and single consumption match immediate math PASS");
+    }
     auto uninterruptedPcm = std::make_unique<pcm_t>();
     unsigned resumedGroups = 0;
     for (unsigned tick = 0; tick < 64; ++tick)
@@ -286,6 +352,48 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         static_cast<unsigned long long>(frames));
     std::printf("Resumable native control: %u groups; exact uninterrupted PCM I/O, elapsed capture and between-group MIDI delivery match\n",resumedGroups);
     {
+        auto timed=runtime;
+        auto allocation=fixtureAllocator;allocation.pcmLinks={};
+        for(unsigned slot=0;slot<23;++slot) timed.voices[slot].reset();
+        sc55::ControlTaskClock clock;
+        clock.advance(clock.untilNextExpiration());
+        unsigned io=0;
+        const auto load=[&](uint8_t a) {++io;return read(a);};
+        const auto store=[&](uint8_t a,uint8_t value) {++io;write(a,value);};
+        const auto step=[&] {
+            return timed.serviceControl(clock,fixtureInstallation,fixtureControllers,allocation,
+                data,conversion,waves,load,store,sc55::VoiceControlRuntime::ControlSlice::timedPhase);
+        };
+        using Status=sc55::VoiceControlRuntime::ScheduledStatus;
+        for(unsigned stage=1;stage<=4;++stage) {
+            require(step().status==Status::working);
+            // LFO bodies precede these four parameter bodies. Their separate
+            // latch/deadline contract is checked above and against H8.
+            for(unsigned resume=0;resume<12 && !timed.parameterCalculationPending();++resume) {
+                timed.advanceCalculationTime(timed.calculationCyclesRemaining());
+                require(step().status==Status::working);
+            }
+            require(timed.parameterCalculationPending()
+                && unsigned(timed.controlCalculationStage())==stage);
+            const auto duration=timed.calculationCyclesRemaining();
+            require(duration==timed.calculationWork()*12 && duration>0);
+            const auto beforeIo=io;
+            timed.advanceCalculationTime(0);
+            require(timed.calculationCyclesRemaining()==duration);
+            timed.advanceCalculationTime(duration-1);
+            clock.advance(2u*sc55::ControlTaskClock::voicePeriodTicks*sc55::ControlTaskClock::kernelTickCycles);
+            const auto waiting=step();
+            require(waiting.status==Status::deferred && waiting.elapsed==1 && io==beforeIo
+                && timed.calculationCyclesRemaining()==1);
+            timed.advanceCalculationTime(1);
+            const auto completed=step();
+            require(completed.status==Status::working && completed.elapsed==1
+                && !timed.calculationPending() && timed.calculationCyclesRemaining()==0);
+        }
+        require(step().status==Status::updated && clock.consume()==8);
+        std::puts("Native timed calculations: all four body deadlines gate publication; next-period counts remain pending PASS");
+    }
+    {
         // Exercise the product's phases with real PCM time between readback
         // and publication. This is a synthetic duration, NOT an H8 delay model.
         auto phased=runtime;
@@ -332,9 +440,13 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
             auto stoppedPcm=std::make_unique<pcm_t>(*heldPcm);
             const auto stopRead=[&](uint8_t a) { return PCM_Read(*stoppedPcm,a); };
             const auto stopWrite=[&](uint8_t a,uint8_t v) { PCM_Write(*stoppedPcm,a,v); };
-            for(unsigned previous=0;previous<calculation;++previous)
+            for(unsigned previous=0;previous<calculation;++previous) {
                 require(interrupted.resumeControlPhase(fixtureInstallation,fixtureControllers,
                     stoppedAllocation,data,conversion,waves,stopRead,stopWrite).status==Progress::advancedPhase);
+                if(interrupted.calculationPending())
+                    require(interrupted.resumeControlPhase(fixtureInstallation,fixtureControllers,
+                        stoppedAllocation,data,conversion,waves,stopRead,stopWrite).status==Progress::advancedPhase);
+            }
             require(unsigned(interrupted.controlCalculationStage())==calculation);
             auto& stopped=*interrupted.voices[23];
             stopped.stopAtSampleEnd=true;
@@ -352,6 +464,23 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         for(unsigned calculation=0;calculation<5;++calculation) {
             require(unsigned(phased.controlCalculationStage())==calculation);
             require(step().status==Progress::advancedPhase);
+            if(calculation) {
+                require(phased.calculationPending() && phased.calculationWork()>0
+                    && unsigned(phased.controlCalculationStage())==calculation);
+                // The runtime owns the result across resumption. Mutating
+                // caller inputs after calculation must not cause recalculation.
+                auto snapshot=phased;
+                const auto original=phased.inputs[23];
+                phased.inputs[23].ticks=99;
+                require(step().status==Progress::advancedPhase && !phased.calculationPending());
+                phased.inputs[23]=original;
+                require(snapshot.resumeControlPhase(fixtureInstallation,fixtureControllers,allocation,
+                    data,conversion,waves,heldRead,heldWrite).status==Progress::advancedPhase);
+                require(snapshot.voices[23]->amplitude.state().level==voice.amplitude.state().level
+                    && snapshot.voices[23]->second.level==voice.second.level
+                    && snapshot.voices[23]->pitch.pcmWord==voice.pitch.pcmWord
+                    && snapshot.voices[23]->output.tva.command==voice.output.tva.command);
+            }
         }
         require(phased.controlPhase()==Phase::publish);
         holdFor(32);
@@ -441,6 +570,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         phased.voices[slot]->lifecycle.stages[0]=10;
         phased.first[slot].sharing.sharing=0;phased.second[slot].sharing=0;
         require(phased.beginControlPass(1));
+        const auto beforeCompletion=phased;
         const auto step=[&] {
             return phased.resumeControlPhase(installation,fixtureControllers,allocation,data,conversion,waves,read,write);
         };
@@ -450,12 +580,31 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         require(phased.lastResults[slot]==sc55::VoiceControlResult::finished
             && phased.voices[slot]->lifecycle.stages[0]==22 && allocation.freeCount==23
             && !allocation.allocations[slot].free());
-        // Already-buffered commands do not go through MIDI ingress again.
-        // Consume completion at their entry and reuse every slot, including
-        // the just-ended one, before resuming the suspended control pass.
+        // ROM 07c7..0850 drains command event0 before completion event1.
+        // A queued command and its resumed admission must not free the ended
+        // slot early. The lower-priority periodic pass must not consume it.
         sc55::NativeVoiceEngine commandOwner;
         commandOwner.runtime=phased; commandOwner.notes.allocator=allocation;
         commandOwner.installation=installation;
+        const sc55::NoteRequest pendingNote{sc55::NoteRequest::Action::on,1,64,100,{}};
+        const std::array<sc55::VoiceCommand,1> commands{pendingNote};
+        sc55::NativeVoiceEngine completing;
+        completing.runtime=beforeCompletion; completing.notes.allocator=allocation;
+        completing.installation=installation;
+        require(completing.commands.publish(commands));
+        require(completing.resumeControl(fixtureControllers,data,conversion,waves,read,write).status==Progress::deferred);
+        require(completing.runtime.voiceCompletionPending() && completing.notes.allocator.freeCount==23);
+        require(commandOwner.commands.publish(commands));
+        require(commandOwner.serviceVoiceCompletion());
+        require(commandOwner.notes.allocator.freeCount==23 && commandOwner.runtime.voiceCompletionPending());
+        require(commandOwner.resumeControl(fixtureControllers,data,conversion,waves,read,write).status==Progress::deferred);
+        require(commandOwner.serviceControl(fixtureControllers,data,conversion,waves,read,write).status
+            ==sc55::VoiceControlRuntime::ScheduledStatus::deferred);
+        require(commandOwner.commands.take().has_value());
+        commandOwner.admission=sc55::NativeVoiceEngine::PendingAdmission{pendingNote};
+        require(commandOwner.serviceVoiceCompletion());
+        require(commandOwner.notes.allocator.freeCount==23 && commandOwner.runtime.voiceCompletionPending());
+        commandOwner.admission.reset();
         require(commandOwner.serviceVoiceCompletion());
         require(commandOwner.notes.allocator.freeCount==24);
         uint8_t replacementGroup=255;
@@ -475,27 +624,59 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         require(commandOwner.notes.allocator.freeCount==0
             && !commandOwner.notes.allocator.allocations[slot].free()
             && commandOwner.notes.allocator.allocations[slot].noteGroup==replacementGroup);
-        // MIDI must observe the returned slot, not carry an old completion
-        // across the admission of a new owner.
+        // Task0 parses MIDI before task1 selects a command/completion event.
+        // Parsing does not implicitly return a physical slot.
         sc55::NativeVoiceEngine receiver;
         receiver.runtime=phased; receiver.notes.allocator=allocation;
         sc55::MidiEventQueue<4> midi;
         const std::array<uint8_t,3> note{0x90,64,100};
         require(midi.push(note,0).consumed==3);
         require(receiver.serviceMidi(midi,0,[&](const auto&) {
-            require(receiver.notes.allocator.freeCount==24);
-            require(receiver.notes.allocator.createGroup({1,0x80,64,1,1}).has_value());
+            require(receiver.notes.allocator.freeCount==23);
+            require(receiver.commands.publish(commands));
             return sc55::MidiDispatchResult::accepted;
         })==sc55::MidiDispatchResult::accepted);
-        const auto afterAdmission=receiver.notes.allocator.freeCount;
-        require(afterAdmission==23);
-        require(receiver.runtime.consumeVoiceCompletion(receiver.notes.allocator));
-        require(receiver.notes.allocator.freeCount==afterAdmission);
+        require(receiver.serviceVoiceCompletion());
+        require(receiver.notes.allocator.freeCount==23 && receiver.runtime.voiceCompletionPending());
+        require(receiver.commands.take().has_value());
+        require(receiver.serviceVoiceCompletion());
+        require(receiver.notes.allocator.freeCount==24 && !receiver.runtime.voiceCompletionPending());
+        require(receiver.serviceVoiceCompletion() && receiver.notes.allocator.freeCount==24);
         const auto returned=step();
         require(returned.status==Progress::updatedGroup && returned.changedMask==0
             && allocation.freeCount==24 && allocation.allocations[slot].free());
         require(step().status==Progress::complete && allocation.freeCount==24);
         std::puts("Native completion event: ended voice returned once, only after allocator consumption PASS");
+    }
+    {
+        sc55::NativeVoiceEngine receiver;
+        receiver.runtime=runtime;receiver.notes.allocator=fixtureAllocator;
+        receiver.installation=fixtureInstallation;
+        for(unsigned slot=0;slot<24;++slot) if(receiver.runtime.voices[slot])
+            receiver.lifecycle[slot]=receiver.runtime.voices[slot]->lifecycle;
+        for(unsigned slot:{3u,23u}) {
+            receiver.runtime.voices[slot]->stopAtSampleEnd=false;
+            receiver.runtime.voices[slot]->lifecycle.stages[0]=4;
+            receiver.lifecycle[slot]=receiver.runtime.voices[slot]->lifecycle;
+        }
+        require(receiver.receivePcmBoundary(3) && receiver.receivePcmBoundary(23)
+            && receiver.receivePcmBoundary(3) && !receiver.receivePcmBoundary(24));
+        std::vector<uint8_t> selected;
+        const auto observe=[&](uint8_t address,uint8_t value) {
+            if(address==0x3e) selected.push_back(value);
+            write(address,value);
+        };
+        const auto handled=receiver.servicePcmBoundaries(conversion,read,observe);
+        require(handled && *handled==2 && selected==std::vector<uint8_t>({23,3})
+            && !receiver.pcmBoundaryPending());
+        require(receiver.receivePcmBoundary(3));
+        require(receiver.requestStop(3,read,write)==sc55::NativeVoiceEngine::StopRequest::queued);
+        require(receiver.servicePcmBoundaries(conversion,read,observe)==0 && receiver.pcmBoundaryPending());
+        require(receiver.serviceStopTask().status==sc55::VoiceControlRuntime::StopTaskStatus::completed);
+        selected.clear();
+        require(receiver.servicePcmBoundaries(conversion,read,observe)==0
+            && !receiver.pcmBoundaryPending() && selected.empty());
+        std::puts("Native boundary mailbox: coalesced, descending dispatch, stale stop notification cleared PASS");
     }
     for(bool reinstall:{false,true}) {
         // Match the observed ownership sequence: task1 stops/reinstalls while
@@ -531,7 +712,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         require(result.status==Status::working && result.elapsed==1 && result.updatedMask==(1u<<23)
             && engine.runtime.lastResults[23]==sc55::VoiceControlResult::stopped
             && engine.runtime.voices[23]->lifecycle.stages==stopped
-            && engine.lifecycle[23].fieldCAF4==(reinstall ? 2 : 4));
+            && engine.lifecycle[23].pendingOperation==(reinstall ? sc55::VoiceOperation::prepare : sc55::VoiceOperation::finishStop));
         const auto complete=step();
         require(complete.status==Status::updated && complete.elapsed==1 && engine.clock.ready());
         require(engine.clock.consume()==2); // A continuation must not eat a new event.
@@ -560,7 +741,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
         const auto result=step();
         require(result.status==Progress::updatedGroup && result.changedMask==(1u<<23));
         require(engine.runtime.lastResults[23]==sc55::VoiceControlResult::stopped
-            && engine.runtime.voices[23]->lifecycle.stages==stopped && engine.lifecycle[23].fieldCAF4==4);
+            && engine.runtime.voices[23]->lifecycle.stages==stopped && engine.lifecycle[23].pendingOperation==sc55::VoiceOperation::finishStop);
         require(step().status==Progress::complete && engine.clock.consume()==1);
         std::puts("Explicit engine control: stop handoff preserved without consuming scheduled clock PASS");
     }
@@ -688,7 +869,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
             const auto result=engine.serviceControl(controllers,data,conversion,waves,load,store);
             require(result.status==sc55::VoiceControlRuntime::ScheduledStatus::updated
                 && result.updatedMask==(restart ? (0xffffffu&~(1u<<22)) : 0xffffffu));
-            require(engine.lifecycle[22].fieldCAF4==2 && engine.installation.voices[22].taskState==2
+            require(engine.lifecycle[22].pendingOperation==sc55::VoiceOperation::prepare && engine.installation.voices[22].operation==sc55::VoiceOperation::prepare
                 && !engine.runtime.startupPending());
             if(!restart) require(engine.runtime.controllers[22].pitchOffset==expected.pitchOffset);
             std::printf("Queued preparation (%s): stage-based control, immediate installed identity, request retained PASS\n",
@@ -716,13 +897,13 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
             // early exit skips the remaining partner, as3363..33e7 does.
             require(result.status==sc55::VoiceControlRuntime::ScheduledStatus::updated
                 && result.updatedMask==(0xffffffu&~(1u<<(linked ? 23 : 22))) && !engine.clock.ready());
-            require(engine.lifecycle[22].fieldCAF4==4
+            require(engine.lifecycle[22].pendingOperation==sc55::VoiceOperation::finishStop
                 && engine.runtime.voices[22]->lifecycle.stages[0]==stoppedStage);
             // Only the stop dispatcher may finish this transition; periodic
             // exclusion must not consume its queued request or reclaim early.
             const auto dispatched=engine.serviceStopTask();
             require(dispatched.status==Stop::completed && dispatched.slot==22
-                && engine.lifecycle[22].fieldCAF4==0
+                && engine.lifecycle[22].pendingOperation==sc55::VoiceOperation::none
                 && engine.lifecycle[22].stages[0]==(stoppedStage==18 ? 14 : 16));
             std::printf("Queued physical stop (%s): stage selection, unrelated updates and retained dispatch PASS\n",
                 linked ? "linked" : "single");
@@ -734,7 +915,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
             for (unsigned slot = 0; slot < 24; ++slot)
             {
                 lifecycle[slot] = stopped.voices[slot]->lifecycle;
-                lifecycle[slot].stages.fill(stoppedStage); lifecycle[slot].fieldCAF4 = 4;
+                lifecycle[slot].stages.fill(stoppedStage); lifecycle[slot].pendingOperation = sc55::VoiceOperation::finishStop;
                 allocator.activity[slot] = 99;
             }
             for (unsigned remaining = 24; remaining > 0; --remaining)
@@ -743,20 +924,20 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                 const auto result = stopped.serviceStopTask(lifecycle,allocator);
                 require(result.status == Stop::completed && result.slot == slot);
                 const auto expected = stoppedStage == 18 ? 14 : 16;
-                require(lifecycle[slot].fieldCAF4 == 0 && allocator.activity[slot] == 0
+                require(lifecycle[slot].pendingOperation == sc55::VoiceOperation::none && allocator.activity[slot] == 0
                     && stopped.voices[slot]->lifecycle.stages[0] == expected
                     && stopped.first[slot].firstStage == expected && stopped.second[slot].firstStage == expected);
-                if (slot != 0) require(lifecycle[slot-1].fieldCAF4 == 4 && allocator.activity[slot-1] == 99);
+                if (slot != 0) require(lifecycle[slot-1].pendingOperation == sc55::VoiceOperation::finishStop && allocator.activity[slot-1] == 99);
             }
             require(stopped.serviceStopTask(lifecycle,allocator).status == Stop::idle);
-            lifecycle[23].fieldCAF4 = 2; lifecycle[22].fieldCAF4 = 4;
+            lifecycle[23].pendingOperation = sc55::VoiceOperation::prepare; lifecycle[22].pendingOperation = sc55::VoiceOperation::finishStop;
             require(stopped.serviceStopTask(lifecycle,allocator).status == Stop::needsPreparation);
-            require(lifecycle[23].fieldCAF4 == 2 && lifecycle[22].fieldCAF4 == 4);
-            lifecycle[23].fieldCAF4 = 4; stopped.voices[23].reset();
+            require(lifecycle[23].pendingOperation == sc55::VoiceOperation::prepare && lifecycle[22].pendingOperation == sc55::VoiceOperation::finishStop);
+            lifecycle[23].pendingOperation = sc55::VoiceOperation::finishStop; stopped.voices[23].reset();
             require(stopped.serviceStopTask(lifecycle,allocator).status == Stop::failed && stopped.failed());
-            require(lifecycle[23].fieldCAF4 == 4);
+            require(lifecycle[23].pendingOperation == sc55::VoiceOperation::finishStop);
             stopped.voices[23] = runtime.voices[23];
-            require(stopped.serviceStopTask(lifecycle,allocator).status == Stop::failed && lifecycle[23].fieldCAF4 == 4);
+            require(stopped.serviceStopTask(lifecycle,allocator).status == Stop::failed && lifecycle[23].pendingOperation == sc55::VoiceOperation::finishStop);
         }
     }
     {
@@ -947,7 +1128,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
             // post-scheduler fixture. Detailed5639 metadata expansion and paired
             // preparation still remain outside this isolated-partial test.
             voice.lifecycle = installedLifecycle;
-            require(voice.lifecycle.fieldCAF4 == 0);
+            require(voice.lifecycle.pendingOperation == sc55::VoiceOperation::none);
             voice.release.pending = installations.pendingRelease[channel];
             sc55::MidiDecoder midi;
             sc55::ChannelControls channelControls = selectedControls;
@@ -1751,9 +1932,9 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                                 std::array<sc55::PartialSampleInstallInputs,2> probeSamples{sampleInput,sampleInput};
                                 if (scenario == 0) probeEvent.second = 0;
                                 if (scenario == 1) require(probeAllocator.initializeTables(1));
-                                if (scenario == 2) probeLife[0].fieldCAF4 = 4;
+                                if (scenario == 2) probeLife[0].pendingOperation = sc55::VoiceOperation::finishStop;
                                 if (scenario == 3) probeSamples[1].initialKey = 128;
-                                if (scenario == 4) probeLife[0].fieldCAF4 = 3;
+                                if (scenario == 4) probeLife[0].pendingOperation = static_cast<sc55::VoiceOperation>(3);
                                 if (scenario == 5) probeAllocation.keyRange = {uint8_t(event.first+1),127};
                                 if (scenario == 6)
                                 {
@@ -1910,27 +2091,27 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                     for (uint8_t otherTask : {uint8_t(2),uint8_t(4)})
                     {
                         auto otherLifecycle = lifecycle; auto otherActivity = pairNotes.allocator.activity;
-                        for (auto& voice : otherLifecycle) voice.fieldCAF4 = 0;
-                        otherLifecycle[otherSlot].fieldCAF4 = otherTask;
+                        for (auto& voice : otherLifecycle) voice.pendingOperation = sc55::VoiceOperation::none;
+                        otherLifecycle[otherSlot].pendingOperation = static_cast<sc55::VoiceOperation>(otherTask);
                         otherLifecycle[otherSlot].stages.fill(18); otherActivity[otherSlot] = 123;
                         sc55::VoiceLinks otherLinks;
                         require(!sc55::DispatchNormalVoiceInputs(*selection,*samples,dspInputs,
                             otherLifecycle,otherLinks,otherActivity));
-                        require(otherLifecycle[otherSlot].fieldCAF4 == otherTask
+                        require(otherLifecycle[otherSlot].pendingOperation == static_cast<sc55::VoiceOperation>(otherTask)
                             && otherLifecycle[otherSlot].stages[0] == 18 && otherActivity[otherSlot] == 123);
                     }
                     auto wrongSamples = *samples;
                     wrongSamples[1]->installed->input.sample ^= 1;
                     require(!sc55::DispatchNormalVoiceInputs(*selection,wrongSamples,dspInputs,lifecycle,
                         pairNotes.allocator.pcmLinks,pairNotes.allocator.activity));
-                    for (const auto& sample : *samples) require(lifecycle[sample->slot].fieldCAF4 == 2);
+                    for (const auto& sample : *samples) require(lifecycle[sample->slot].pendingOperation == sc55::VoiceOperation::prepare);
                     const auto dispatched = sc55::DispatchNormalVoiceInputs(*selection,*samples,dspInputs,lifecycle,
                         pairNotes.allocator.pcmLinks,pairNotes.allocator.activity);
                     require(dispatched && dispatched->count == 2 && referenceActivity == pairNotes.allocator.activity);
                     entries = dispatched->entries;
                     for (unsigned i = 0; i < 2; ++i)
                     {
-                        require(entries[i].slot == task->slots[i] && entries[i].lifecycle.fieldCAF4 == 0);
+                        require(entries[i].slot == task->slots[i] && entries[i].lifecycle.pendingOperation == sc55::VoiceOperation::none);
                         const auto partial = entries[i].request.installed.input.partial;
                         require(entries[i].request.amplitude == selection->partials.partials[partial]->amplitude
                             && entries[i].request.secondary == selection->partials.partials[partial]->secondary
@@ -2054,7 +2235,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                 require(stalled.pollPreparedStart(stalledLifecycle,stalledMask,stalledRead,stalledWrite)
                     == sc55::PreparedVoiceBatch::Status::waitingForReuse);
                 require(stalledReads == 6 && stalledWrites == 1 && !stalled.voices[firstSlot]);
-                stalledLifecycle[firstSlot].fieldCAF4 = 2;
+                stalledLifecycle[firstSlot].pendingOperation = sc55::VoiceOperation::prepare;
                 require(stalled.pollPreparedStart(stalledLifecycle,stalledMask,stalledRead,stalledWrite)
                     == sc55::PreparedVoiceBatch::Status::cancelled);
                 require(stalled.failed() && !stalled.voices[firstSlot] && !stalled.voices[secondSlot]);
@@ -2183,13 +2364,13 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                 missing.runtime.voices[0].reset();
                 require(missing.requestRhythmChoke(part,60,load,store) == Stop::failed && io == 0);
                 auto pending = choke;
-                pending.lifecycle[0].fieldCAF4 = 4;
+                pending.lifecycle[0].pendingOperation = sc55::VoiceOperation::finishStop;
                 require(pending.requestRhythmChoke(part,60,load,store) == Stop::deferred && io == 0);
                 require(choke.requestRhythmChoke(part,0,load,store) == Stop::queued && io == 0);
                 require(choke.requestRhythmChoke(part,60,load,store) == Stop::queued && io > 0);
                 require(allocation.partVoiceCount[part] == 0);
                 for (unsigned slot = 0; slot < 24; ++slot)
-                    if (choke.lifecycle[slot].fieldCAF4 == 4)
+                    if (choke.lifecycle[slot].pendingOperation == sc55::VoiceOperation::finishStop)
                         require(choke.lifecycle[slot].progress == engine.runtime.voices[slot]->lifecycle.progress);
                 unsigned consumed = 0;
                 while (choke.serviceStopTask().status == sc55::VoiceControlRuntime::StopTaskStatus::completed)
@@ -2240,7 +2421,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                         require(stoppedPass.status==sc55::VoiceControlRuntime::ScheduledStatus::updated
                             && stoppedPass.elapsed==1 && stoppedPass.updatedMask==0);
                         require(!pendingEngine.clock.consume() && prematureIo==0);
-                        for(const auto& stopped:pendingEngine.lifecycle) require(stopped.fieldCAF4==4);
+                        for(const auto& stopped:pendingEngine.lifecycle) require(stopped.pendingOperation==sc55::VoiceOperation::finishStop);
                         for (unsigned remaining = 24; remaining > 0; --remaining)
                         {
                             const auto stop = engine.serviceStopTask();
@@ -2506,7 +2687,7 @@ inline int verifyNativeVoiceControlPcm(const char* assetPath,const char* waveDir
                 reusable = true;
                 for (const auto slot : allocation.group->voices)
                     if (slot < 24)
-                        reusable &= sc55::PollVoiceReuse(slot,drum.lifecycle[slot].fieldCAF4,read,write)
+                        reusable &= sc55::PollVoiceReuse(slot,drum.lifecycle[slot].pendingOperation != sc55::VoiceOperation::none,read,write)
                             == sc55::VoiceReuseReadiness::ready;
             }
             require(reusable && !drum.failed());

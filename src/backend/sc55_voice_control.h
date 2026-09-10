@@ -1,6 +1,15 @@
 #pragma once
 #include "sc55_voice_lifecycle.h"
 #include "sc55_sound_data.h"
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+#include "sc55_amplitude_work.h"
+#include "sc55_filter_work.h"
+#include "sc55_pitch_work.h"
+#include "sc55_output_work.h"
+#include <variant>
+#include <utility>
+#include <type_traits>
+#endif
 
 namespace sc55
 {
@@ -91,6 +100,100 @@ enum class VoiceControlResult { invalidInput, stopped, finished, updated, suspen
 enum class VoiceControlReadback { invalidInput, stopped, ready };
 enum class VoiceCalculationStage { modulation, amplitude, filter, pitch, level };
 
+// A protected parameter calculation owns its result, not a borrowed voice or
+// an entire voice snapshot. The audio owner may retain it until completion;
+// only that calculation's fields are published. It must not reclaim/reassign
+// the destination while a calculation is pending. No PCM access or clock
+// advancement takes place here. Shared LFO/device operations have their own
+// continuation and deliberately do not pass through this pure calculation.
+#if defined(SC55_CONTROL_TIMING_ORACLE)
+class VoiceParameterCalculation
+{
+    friend class VoiceControlRuntime;
+    struct Filter { SecondEnvelopeReleaseState segment; SecondEnvelopePcmState pcm; };
+    using Result=std::variant<EnvelopeRunner,Filter,VoicePitchRunner,VoiceOutputState>;
+    std::optional<Result> result_;
+    unsigned referenceInstructions_=0;
+    explicit VoiceParameterCalculation(Result result,unsigned instructions)
+        : result_(std::move(result)),referenceInstructions_(instructions) {}
+public:
+    VoiceParameterCalculation(const VoiceParameterCalculation&)=delete;
+    VoiceParameterCalculation& operator=(const VoiceParameterCalculation&)=delete;
+    VoiceParameterCalculation(VoiceParameterCalculation&& other) noexcept
+        : result_(std::exchange(other.result_,std::nullopt)),
+          referenceInstructions_(std::exchange(other.referenceInstructions_,0)) {}
+    VoiceParameterCalculation& operator=(VoiceParameterCalculation&& other) noexcept
+    {
+        if(this!=&other) {
+            result_=std::exchange(other.result_,std::nullopt);
+            referenceInstructions_=std::exchange(other.referenceInstructions_,0);
+        }
+        return *this;
+    }
+
+    static std::optional<VoiceParameterCalculation> calculate(VoiceCalculationStage stage,
+        const VoiceControlState& voice,const VoiceModulation& modulation,const ModulationBlock& first,
+        const VoiceControlInputs& inputs,const SoundData& data,const PitchConversion& conversion)
+    {
+        if(voice.lifecycle.stages[0]>=14 || !data.times() || !data.secondEnvelope()
+            || !data.glideRates() || !data.pan()) return std::nullopt;
+        if(stage==VoiceCalculationStage::amplitude) {
+            const auto result=AmplitudeControlWork::evaluate(voice.amplitude,inputs.ticks,inputs.amplitude,*data.times());
+            if(!result) return std::nullopt;
+            return VoiceParameterCalculation{EnvelopeRunner(voice.amplitude.setup(),result->state),result->instructions};
+        }
+        auto level=inputs.level;auto second=inputs.second;auto pitch=inputs.pitch;
+        ApplyVoiceModulationOutputs(first,modulation.block,level,second,pitch);
+        if(stage==VoiceCalculationStage::filter) {
+            auto timing=inputs.secondTiming;
+            timing.attackControlEnabled=(modulation.fieldA2&16)!=0;
+            const auto result=FilterControlWork::evaluate(voice.release.second,voice.second,inputs.secondBypass,inputs.ticks,
+                timing,*data.times(),second,inputs.secondBase,inputs.secondController,inputs.secondLimit,
+                *data.secondEnvelope());
+            if(!result) return std::nullopt;
+            return VoiceParameterCalculation{Filter{result->segment,result->pcm},result->instructions};
+        }
+        if(stage==VoiceCalculationStage::pitch) {
+            const auto result=PitchControlWork::evaluate(voice.pitch,inputs.ticks,pitch,inputs.glideRate,
+                *data.glideRates(),inputs.pitchReference,inputs.correctionSource,conversion);
+            if(!result) return std::nullopt;
+            return VoiceParameterCalculation{result->voice,result->instructions};
+        }
+        if(stage!=VoiceCalculationStage::level) return std::nullopt;
+        const auto result=VoiceOutputWork::evaluate(voice.output,voice.lifecycle.stages[0],level,inputs.spatial,*data.pan());
+        if(!result) return std::nullopt;
+        return VoiceParameterCalculation{result->output,result->instructions};
+    }
+
+    bool pending() const noexcept {return result_.has_value();}
+    // Body work in the existing reference emulator's instruction units.
+    // This excludes caller/interrupt/scheduler work, and is NOT a complete
+    // voice duration. Never treat it as an empirical whole-pass delay.
+    unsigned referenceInstructions() const noexcept {return pending() ? referenceInstructions_ : 0;}
+    VoiceControlResult commit(VoiceControlState& voice) noexcept
+    {
+        if(!result_) return VoiceControlResult::invalidInput;
+        // Never restore a pre-stop stage from the calculated result.
+        if(voice.lifecycle.stages[0]>=14) {result_.reset();return VoiceControlResult::stopped;}
+        const auto status=std::visit([&](const auto& result) {
+            using T=std::decay_t<decltype(result)>;
+            if constexpr(std::is_same_v<T,EnvelopeRunner>) {
+                voice.amplitude=result;PrepareVoiceAmplitude(voice.lifecycle,voice.amplitude);
+                if(voice.lifecycle.stages[0]>=14) return VoiceControlResult::finished;
+            } else if constexpr(std::is_same_v<T,Filter>) {
+                voice.release.second=result.segment;voice.second=result.pcm;
+                voice.lifecycle.stages[1]=result.segment.stage;
+            } else if constexpr(std::is_same_v<T,VoicePitchRunner>) {
+                voice.pitch=result;PrepareVoicePitch(voice.lifecycle,voice.pitch);
+            } else voice.output=result;
+            return VoiceControlResult::updated;
+        },*result_);
+        result_.reset();return status;
+    }
+};
+
+#endif
+
 // PCM readback/hold and release entry. First modulation has already run.
 // The owner validates dependencies before touching PCM and retains the voice
 // until calculation/publication finish. Callbacks must not reenter. PCM time
@@ -148,6 +251,8 @@ VoiceControlResult CalculateVoiceControlStage(VoiceCalculationStage stage,unsign
             return VoiceControlResult::invalidInput;
         return VoiceControlResult::updated;
     }
+    // Native execution uses the domain operations directly. Reference work
+    // accounting and delayed result ownership belong to the timed diagnostic.
     if(stage==VoiceCalculationStage::amplitude) {
         if (!voice.amplitude.tick(inputs.ticks,inputs.amplitude,*data.times())) return VoiceControlResult::invalidInput;
         PrepareVoiceAmplitude(voice.lifecycle,voice.amplitude);

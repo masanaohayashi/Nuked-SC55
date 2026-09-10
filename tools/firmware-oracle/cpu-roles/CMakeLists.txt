@@ -3,6 +3,7 @@ project(sc55_cpu_roles LANGUAGES C CXX OBJCXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD 20)
 option(SC55_NATIVE_IO_AUDIT "Count remaining native compatibility I/O (diagnostics only)" OFF)
+option(SC55_ORACLE_CONFIG_READS "Observe H8 reads of uninterpreted configuration (adds profiling overhead)" OFF)
 get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(BACKEND "${ROOT}/src/backend")
 # Read-only instruction/IRQ observers exist only in this diagnostic target.
@@ -25,10 +26,25 @@ add_executable(sc55-cpu-roles main.cpp
     ${ROOT}/3rdparty/JUCE/modules/juce_core/juce_core_CompilationTime.cpp)
 target_include_directories(sc55-cpu-roles PRIVATE "${BACKEND}" "${ROOT}/src/common"
     "${ROOT}/Plugins/Source" "${ROOT}/3rdparty/JUCE/modules")
-target_compile_definitions(sc55-cpu-roles PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+target_compile_definitions(sc55-cpu-roles PRIVATE SC55_CONTROL_TIMING_ORACLE=1 JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    $<$<BOOL:${SC55_ORACLE_CONFIG_READS}>:SC55_ORACLE_CONFIG_READS=1>
     $<$<BOOL:${SC55_NATIVE_IO_AUDIT}>:SC55_NATIVE_IO_AUDIT=1>
     JUCE_STANDALONE_APPLICATION=1 JUCE_USE_CURL=0
     $<$<CONFIG:Debug>:DEBUG=1> $<$<NOT:$<CONFIG:Debug>>:NDEBUG=1>)
 target_compile_options(sc55-cpu-roles PRIVATE -g -fno-omit-frame-pointer)
 target_link_libraries(sc55-cpu-roles PRIVATE "-framework Cocoa" "-framework CoreServices"
+    "-framework IOKit" "-framework Security" z iconv)
+
+# Same product sources, deliberately without instruction-timing diagnostics.
+# Reuse existing audio/real-song checks so diagnostic-only state cannot hide a
+# regression in the actual normal runtime. Build explicitly, not in every run.
+get_target_property(PRODUCT_CHECK_SOURCES sc55-cpu-roles SOURCES)
+list(REMOVE_ITEM PRODUCT_CHECK_SOURCES main.cpp)
+add_executable(sc55-native-product-check EXCLUDE_FROM_ALL native-product-check.cpp ${PRODUCT_CHECK_SOURCES})
+target_include_directories(sc55-native-product-check PRIVATE "${BACKEND}" "${ROOT}/src/common"
+    "${ROOT}/Plugins/Source" "${ROOT}/3rdparty/JUCE/modules")
+target_compile_definitions(sc55-native-product-check PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+    JUCE_STANDALONE_APPLICATION=1 JUCE_USE_CURL=0
+    $<$<CONFIG:Debug>:DEBUG=1> $<$<NOT:$<CONFIG:Debug>>:NDEBUG=1>)
+target_link_libraries(sc55-native-product-check PRIVATE "-framework Cocoa" "-framework CoreServices"
     "-framework IOKit" "-framework Security" z iconv)

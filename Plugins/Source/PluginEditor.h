@@ -53,6 +53,8 @@ public:
     void fileDragExit (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     void syncFrontPanelIndicators();
+    void mouseDown (const juce::MouseEvent& event) override;
+    void mouseUp (const juce::MouseEvent& event) override;
     void syncPlaybackControls();
     void loadSequenceFile (const juce::File& file);
     void showSequenceFileChooser();
@@ -86,6 +88,9 @@ private:
     std::unique_ptr<LcdDisplay> lcdDisplay;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
     bool fileDragActive = false;
+    bool allButtonHeld = false, muteButtonHeld = false;
+    bool suppressAllClick = false, suppressMuteClick = false;
+    bool suppressPowerClick = false;
     std::unique_ptr<juce::FileChooser> sequenceFileChooser;
     std::unique_ptr<juce::FileChooser> romFileChooser;
     std::unique_ptr<juce::FileChooser> logoFileChooser;
@@ -189,4 +194,3 @@ private:
 
 //[EndFile] You can add extra defines here...
 //[/EndFile]
-
