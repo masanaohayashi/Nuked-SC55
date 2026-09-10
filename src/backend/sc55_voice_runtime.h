@@ -412,6 +412,13 @@ public:
             entries[i] = {slots[i],item.voice.prepared,item.post};
         }
         if (!startup_.begin(std::span(entries.data(),slots.size()),mask)) return false;
+        // A mono/source reuse can win task1's command-before-completion
+        // ordering. Once a new start owns this slot, the previous envelope's
+        // queued completion no longer refers to its current owner. Otherwise
+        // consuming that mailbox frees the newly sounding note and future
+        // note-offs can no longer reach it.
+        for (const auto slot : slots)
+            if (pendingReturn_ == slot) pendingReturn_ = voiceCapacity;
         pendingStart_ = prepared;
         for (unsigned i = 0; i < slots.size(); ++i)
         {

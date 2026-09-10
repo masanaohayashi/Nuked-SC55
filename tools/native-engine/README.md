@@ -72,3 +72,27 @@ voices now bypass that simulation/effects helper and read their logical pitch
 banks directly. Host-reported sustained pitch corruption still requires a
 matching playback reproduction; removing this invalid read alone does not
 prove that every reported audible symptom is resolved.
+
+### Mono reuse and pending completion
+
+ANMDLYGS.RCP provided a matching stuck-note reproduction at capacity 128:
+at about 12.731 seconds, part 16's slot 4 finished its old envelope, queued
+completion, and restarted for the next mono note before that completion was
+consumed. The stale completion then returned the new voice to the allocator
+while PCM continued sounding. Its later note-offs could not reach that owner.
+An accepted restart now invalidates a pending completion for that same slot;
+other slots' completions and the envelope/rendering timing are unchanged.
+
+`sc55-native-engine-check ROM_DIRECTORY song-notes ANMDLYGS.RCP` replays all
+parts and checks both PCM gain stages against current voice ownership. The
+pre-fix run detects an orphan at 13.739 seconds (slot 4, GS part 15 = MIDI
+channel 16). The two gains are serial stages: either zero makes the voice
+silent. A short final ramp after retirement is allowed, but one second of
+nonzero gains without ownership fails. No extra note-offs or resets are sent.
+
+Set `SC55_PROBE_SECONDS=15` for the short reproduction, or omit it to check the
+entire song and its natural end. `SC55_PROBE_VOICES=24` selects a comparison
+capacity; the default is 128. These variables affect only this diagnostic.
+Configure `SC55_MONO_REUSE_SONG` alongside `SC55_ROM_DIRECTORY` to register the
+15-second replay as the `native-mono-completion` CTest. ROM/song data are local
+fixtures and are not copied into the repository.

@@ -30,6 +30,7 @@ target_include_directories(sc55-native-engine-check PRIVATE "${ROOT}/src/common"
 target_link_libraries(sc55-native-engine-check PRIVATE sc55-native-engine)
 
 set(SC55_ROM_DIRECTORY "" CACHE PATH "Optional local SC-55 v1.21 ROM directory for the native-only check")
+set(SC55_MONO_REUSE_SONG "" CACHE FILEPATH "Optional local ANMDLYGS.RCP for mono completion regression")
 enable_testing()
 add_executable(sc55-pcm-voice-bank-check pcm_voice_bank_test.cpp)
 target_link_libraries(sc55-pcm-voice-bank-check PRIVATE sc55-native-engine)
@@ -51,4 +52,9 @@ if(SC55_ROM_DIRECTORY)
         COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}")
     add_test(NAME native-polyphony
         COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" polyphony)
+    if(SC55_MONO_REUSE_SONG)
+        add_test(NAME native-mono-completion
+            COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" song-notes "${SC55_MONO_REUSE_SONG}")
+        set_tests_properties(native-mono-completion PROPERTIES ENVIRONMENT "SC55_PROBE_SECONDS=15")
+    endif()
 endif()
