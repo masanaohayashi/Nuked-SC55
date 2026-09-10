@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_envelope_runner.h"
 #include "sc55_voice_links.h"
 #include "sc55_envelope_ramp.h"
@@ -18,7 +19,7 @@ inline VoiceReuseReadiness CheckVoiceReuse(uint16_t level32,uint16_t level34,boo
 template<class Read,class Write>
 std::optional<VoiceReuseReadiness> PollVoiceReuse(uint8_t channel,bool operationPending,Read&& read,Write&& write)
 {
-    if (channel >= 24) return std::nullopt;
+    if (channel >= voiceCapacity) return std::nullopt;
     if constexpr(requires { write.voiceGainLevels(channel); })
     {
         const auto levels=write.voiceGainLevels(channel);
@@ -53,7 +54,7 @@ inline VoiceStopPlan PrepareVoiceStop(uint16_t level32,uint16_t level34) noexcep
 template<class Read,class Write>
 std::optional<VoiceStopPlan> StopVoicePcm(uint8_t channel,Read&& read,Write&& write)
 {
-    if (channel >= 24) return std::nullopt;
+    if (channel >= voiceCapacity) return std::nullopt;
     if constexpr(requires { write.voiceGainLevels(channel);
         write.setVoiceRamp(channel,EnvelopeRamp::Stage::firstGain,uint16_t(0)); }) {
         const auto levels=write.voiceGainLevels(channel);
@@ -107,10 +108,11 @@ void WriteEnvelopePcm(const EnvelopeRunner& runner,Write&& write)
 template<class Write>
 bool WriteEnvelopeTermination(uint8_t physicalChannel,Write&& write)
 {
-    if (physicalChannel >= 32) return false;
+    if (physicalChannel >= voiceCapacity) return false;
     if constexpr(requires { write.setVoiceRamp(physicalChannel,EnvelopeRamp::Stage::secondGain,uint16_t(0)); })
         write.setVoiceRamp(physicalChannel,EnvelopeRamp::Stage::secondGain,0xb6);
     else {
+    if (physicalChannel >= 32) return false; // Legacy register bank, not native voice storage.
     write(uint8_t(0x3e),physicalChannel);
     write(uint8_t(0x18),uint8_t(0));
     write(uint8_t(0x19),uint8_t(0xb6));
@@ -136,7 +138,7 @@ template<class Read,class Write>
 std::optional<EnvelopeTermination> PollEnvelopeTermination(unsigned channel,
     uint16_t& stage,uint8_t& activity,VoiceLinks& links,Read&& read,Write&& write)
 {
-    if (channel >= 24) return std::nullopt;
+    if (channel >= voiceCapacity) return std::nullopt;
     if (stage != 14 && stage != 16) return EnvelopeTermination::bypassed;
     const auto level=[&]() -> uint16_t {
     if constexpr(requires { write.voiceRampLevel(uint8_t(channel),EnvelopeRamp::Stage::firstGain); })

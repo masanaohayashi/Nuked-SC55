@@ -24,40 +24,30 @@ MIDIの奇偶チャンネル振分け、音声加算、LCD合成、パネル操�
 engine-switchがPASS。Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED。
 ログは`/tmp/sc55-remove-2x-{adapter,switch,release}.log`。Logic実機確認は未実施。
 
-### 可変polyphonyの実装着手（未完了）
+### 可変polyphony（2026-09-11 製品接続済み）
 
-追加実装：VoiceLinks/VoiceGroupLinks/VoiceAllocatorを保管容量のtemplateに変更。
-従来名は24要素のaliasを維持し、既存制御／H8比較の構造を変えない。
-BasicVoiceAllocator<128>で24..128・4刻み全27設定の予約上限、単一voice／paired
-groupの満杯判定と返却後のfreeCount/partVoiceCountを確認。これは割当単体試験で、
-128音のMIDI発音やreserve/steal経路の確認ではない。
-PCM_Updateの整数voice演算をPCM_RenderIntegerVoiceへ切出し。voice RAM、pitch source、
-key、最後のvoice判定を引数化。演算式・effects returnの挿入順・共通clockは不変。
-これで拡張voice RAMをeffect行28..31と衝突させずに渡せる接続点を用意した。
-既存native-only checksum3b54320560580fd3維持、voice-set/voice-capacity等4試験PASS。
-まだ製品のNativeVoiceEngineは24型を使用しており、128容量とsliderは未接続。
-Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED
-(`/tmp/sc55-polyphony-foundation-release.log`)。Logicでの確認は未実施。
+C++版は24..128物理ボイス／4刻み。ユーザー配置のsliderVoicesに接続し、既定24。
+2パーシャル音色は2ボイスを消費する。H8／非対応ROMでは24固定・slider disabled。
+設定値はhost stateのmaximumVoicesへ保存し、古い／不正値の状態は24へ戻す。
+ドラッグ終了または数値確定で、既存の処理停止境界を使って音声スレッド外で音源を
+再生成する。変更すると内蔵プレイヤー停止／発音リセットとなるので曲頭から再生する。
 
-要求はC++版24..128ボイス／4刻み、H8は24固定。ユーザー配置のsliderVoicesを使う。
-高速PCMへの切替や、複数の24音源へMIDIを振り分ける実装では代用しない。
-最初の変更は128bitの論理VoiceSetと、stop/reclaim・rhythm exclusive・repeated-note
-探索の重複検出への接続。PCMの28bit物理key maskと暗黙変換しない。
-MSVCで使えない__int128は使わず4本のuint32_tで保持。範囲外入力は拒否。
-voice-set試験（31/32、63/64、95/96、127/128境界を含む）と既存native-only試験PASS。
-24音時の既存checksum3b54320560580fd3は維持。Xcode/Logicの再確認は未実施。
+VoiceAllocator等の保管容量は128、実際のfree list上限は設定値で初期化。
+GS/GM reset後もその上限を保持。VoiceSetでprepared/changed/pendingBoundaryを
+128bit化し、logical slot 24..127のPCM RAMをeffect行28..31から分離。
+pitch sourceもmodeの5bitとは別のIDとして渡す。共通625cycles/frameと32kHzは維持。
+追加音源や高速PCMでの代用ではない。128音時も従来整数PCMと単一共有エフェクト。
+24音時の既存checksum3b54320560580fd3、および切替時のH8 checksum3621512afd400fcf維持。
 
-**まだ可変ボイス数は製品に接続していない。** 配列／割当／起動maskは24固定のまま。
-後続に必要な変更：
-- VoiceAllocator／VoiceControlRuntime／VoiceInstallationState等の保管容量と実行上限を分離。
-  0x80はlist終端判定、0xffは無効ID。128個の有効indexは0..127。
-- VoiceKeyMask・prepared/changed/pendingBoundary等をVoiceSetへ接続し、32bit切捨てを除去。
-- 従来整数PCMのvoice状態をeffect行28..31から分離。wave pitch sourceも現在5bitであり、
-  mode低5bitだけに128個の論理voice IDを詰めない。typed voice API経由で接続する。
-- voice loopの拡張でPCM clockが変わらないようにする（現行nativeは1frame625cycles）。
-  effects returnはslot位置で挿入しているため、voice増加で重複加算しない。
-- sliderの制約・OFF時disable・音声外の再初期化を接続。
-- 24音互換、全27設定値の上限、満杯時steal、mono/drum、reserve、resetを検証。
+検証：native-only／voice-set／allocator／meter／全27設定のpolyphonyのCTest 5件PASS。
+ROMの実際のpartial選択から単一／二重partial音色を選び、全上限でPCM gainを含む発音、
+満杯時steal、全音release、reset後のpaired発音を検証。128音時の発音中reset、
+mono再利用、kick/snare/tomのstealもPASS。
+AddressSanitizer＋shift-exponent検査でも128音ケースPASS（漏れ検査は無効）。
+Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED。Projucer Resaveや
+インストール／LaunchServices登録は実施していない。
+ログ：/tmp/sc55-128-{ctest,asan,switch,release}.log。
+LogicでのGUI操作・実曲聴感、Windows/Linuxのビルドはこの作業では未確認。
 
 比較スイッチOFFのPCM方式を修正。以前はEmulatorコンストラクタが高速PCMを
 既定有効にしており、「両方式で同じPCM」という以前の説明は誤りだった。

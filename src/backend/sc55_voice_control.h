@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_voice_lifecycle.h"
 #include "sc55_sound_data.h"
 #if defined(SC55_CONTROL_TIMING_ORACLE)
@@ -50,7 +51,7 @@ bool HandleVoicePcmBoundary(unsigned channel,VoiceControlState& voice,
     VoiceControlInputs& inputs,VoiceLinks& links,const PitchConversion& conversion,
     Read&& read,Write&& write)
 {
-    if(channel>=24) return false;
+    if(channel>=voiceCapacity) return false;
     if(voice.lifecycle.stages[0]>=14) return true;
     if(voice.stopAtSampleEnd) {
         auto nextLinks=links;
@@ -200,9 +201,9 @@ public:
 // and MIDI scheduling remain outside these semantic control operations.
 template<class Read,class Write>
 VoiceControlReadback ReadVoiceControl(unsigned channel,VoiceControlState& voice,
-    std::array<VoiceModulation,24>& modulation,const SoundData& data,Read&& read,Write&& write)
+    std::array<VoiceModulation,voiceCapacity>& modulation,const SoundData& data,Read&& read,Write&& write)
 {
-    if (channel >= 24 || !data.times() || !data.modulationRates() || !data.secondEnvelope()
+    if (channel >= voiceCapacity || !data.times() || !data.modulationRates() || !data.secondEnvelope()
         || !data.glideRates() || !data.pan()) return VoiceControlReadback::invalidInput;
     // Preserve stop-task stages0e/10 rather than reconstructing them from the
     // natural envelope runner, whose finished state represents a different exit.
@@ -220,12 +221,12 @@ VoiceControlReadback ReadVoiceControl(unsigned channel,VoiceControlState& voice,
 // before either voice publishes. This function does not choose a delay.
 template<class Read,class Write>
 VoiceControlResult CalculateVoiceControlStage(VoiceCalculationStage stage,unsigned channel,VoiceControlState& voice,
-    std::array<VoiceModulation,24>& modulation,std::array<uint8_t,24>& sources,
+    std::array<VoiceModulation,voiceCapacity>& modulation,std::array<uint8_t,voiceCapacity>& sources,
     const ModulationBlock& first,const VoiceControlInputs& inputs,const SoundData& data,
     const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write,
     VoiceModulationUpdate* continuation=nullptr)
 {
-    if (channel >= 24 || !data.times() || !data.modulationRates() || !data.secondEnvelope()
+    if (channel >= voiceCapacity || !data.times() || !data.modulationRates() || !data.secondEnvelope()
         || !data.glideRates() || !data.pan()) return VoiceControlResult::invalidInput;
     // H8 unmasks interrupts between these operations and rechecks the live
     // stop stage before each one (32fc/3312/3328/333e/3354). A PCM endpoint
@@ -287,7 +288,7 @@ VoiceControlResult CalculateVoiceControlStage(VoiceCalculationStage stage,unsign
 
 template<class Read,class Write>
 VoiceControlResult CalculateVoiceControl(unsigned channel,VoiceControlState& voice,
-    std::array<VoiceModulation,24>& modulation,std::array<uint8_t,24>& sources,
+    std::array<VoiceModulation,voiceCapacity>& modulation,std::array<uint8_t,voiceCapacity>& sources,
     const ModulationBlock& first,const VoiceControlInputs& inputs,const SoundData& data,
     const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
 {
@@ -303,7 +304,7 @@ VoiceControlResult CalculateVoiceControl(unsigned channel,VoiceControlState& voi
 // Synchronous compatibility entry: the same phases, without advancing time.
 template<class Read,class Write>
 VoiceControlResult AdvanceVoiceControl(unsigned channel,VoiceControlState& voice,
-    std::array<VoiceModulation,24>& modulation,std::array<uint8_t,24>& sources,
+    std::array<VoiceModulation,voiceCapacity>& modulation,std::array<uint8_t,voiceCapacity>& sources,
     const ModulationBlock& first,const VoiceControlInputs& inputs,const SoundData& data,
     const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
 {

@@ -34,3 +34,16 @@ sound data and decoded ROM buffers off the audio thread, then call `push`,
 `applyCommand`, `render` and `state` on one serialized audio owner. Interpret
 panel actions and render display snapshots on the message thread. The caller
 splits render spans at MIDI timestamps; control time persists across spans.
+
+Native polyphony is configurable from 24 to 128 physical voices in steps of 4,
+via the final `NativeSynth` constructor argument (default 24). Two-partial notes
+consume two voices. All voices share the original 32 kHz clock and effect unit;
+extra voices have separate PCM state and do not alias effect slots 28..31.
+The plug-in's settings slider rebuilds the native engine outside audio processing
+when released. Its value is saved in host state; H8/unsupported ROMs stay at 24
+and disable the slider.
+
+`sc55-native-engine-check ROM_DIRECTORY polyphony` exercises every supported
+limit, single-/two-partial allocation, stealing, release and reset. The 128-voice
+case additionally checks mono ownership and drums stealing from a full pool.
+With `SC55_ROM_DIRECTORY` configured, this is the `native-polyphony` CTest.

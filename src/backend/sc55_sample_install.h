@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_note_setup.h"
 #include "sc55_note_start.h"
 
@@ -89,7 +90,7 @@ public:
         const VoiceAllocator& allocator,const VoiceInstallationState& installation)
     {
         if (allocation.status != MelodicAllocationResult::Status::allocated || !allocation.selection
-            || !allocation.group || allocation.group->group >= 24 || part >= 16 || !data.samples())
+            || !allocation.group || allocation.group->group >= voiceCapacity || part >= 16 || !data.samples())
             return std::nullopt;
         const auto& selection = *allocation.selection;
         const auto* patch = data.patch(selection.tone);
@@ -119,7 +120,7 @@ public:
             const auto slot = destination.voice;
             result[partial] = InstalledPartialSample{slot,*sample,{}};
             if (slot >= 128) continue;
-            if (slot >= 24 || allocator.allocations[slot].part != part
+            if (slot >= voiceCapacity || allocator.allocations[slot].part != part
                 || allocator.allocations[slot].noteGroup != allocation.group->group) return std::nullopt;
             requests[partial] = {selection.tone,sample->sampleId,uint8_t(partial),uint8_t(part),
                 sample->key.storedOriginalNote.value_or(input.originalNote),
@@ -137,7 +138,7 @@ public:
     // partial. No borrowed ROM/input references or invented delay are retained.
     template<class Read,class Write>
     Progress resume(VoiceAllocator& allocator,VoiceInstallationState& installation,
-        std::array<VoiceStopState,24>& lifecycle,Read&& read,Write&& write)
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,Read&& read,Write&& write)
     {
         if(failed_) return Progress::failed;
         if(next_==2) return Progress::complete;
@@ -172,7 +173,7 @@ std::optional<InstalledPartialSamples> PrepareAndInstallMelodicSamples(
     const MelodicAllocationResult& allocation,unsigned part,
     const std::array<PartialSampleInstallInputs,2>& inputs,const SoundData& data,
     VoiceAllocator& allocator,VoiceInstallationState& installation,
-    std::array<VoiceStopState,24>& lifecycle,Read&& read,Write&& write)
+    std::array<VoiceStopState,voiceCapacity>& lifecycle,Read&& read,Write&& write)
 {
     auto plan=MelodicSampleInstallation::prepare(allocation,part,inputs,data,allocator,installation);
     if(!plan) return std::nullopt;

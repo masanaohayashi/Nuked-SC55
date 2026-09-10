@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_voice_runtime.h"
 #include "sc55_note_fanout.h"
 #include "sc55_rhythm_admission.h"
@@ -20,7 +21,7 @@ public:
     VoiceControlRuntime runtime;
     PartNoteState notes;
     VoiceInstallationState installation;
-    std::array<VoiceStopState,24> lifecycle{};
+    std::array<VoiceStopState,voiceCapacity> lifecycle{};
     VoiceKeyMask mask;
     ControlTaskClock clock;
     NoteOnFanout noteOn;
@@ -36,8 +37,8 @@ public:
     {
         std::array<std::array<uint8_t,2>,16> partKeys{};
         uint8_t reference=0;
-        std::array<PreparedPartPitch,24> previousPitch{};
-        std::array<uint8_t,24> drumMap,drumKey{};
+        std::array<PreparedPartPitch,voiceCapacity> previousPitch{};
+        std::array<uint8_t,voiceCapacity> drumMap,drumKey{};
         PreparationHistory() noexcept { drumMap.fill(255); }
     };
     PreparationHistory preparation;
@@ -159,7 +160,7 @@ public:
     }
     void refreshControls(const Configuration& config) noexcept
     {
-        for (unsigned slot = 0; slot < 24; ++slot)
+        for (unsigned slot = 0; slot < voiceCapacity; ++slot)
             if (runtime.voices[slot]) {
                 applyPart(config,installation.voices[slot].input.part,runtime.inputs[slot],
                     preparation.drumMap[slot],preparation.drumKey[slot]);
@@ -209,7 +210,7 @@ public:
         if (part>=16 || (result.status!=Status::started && result.status!=Status::preparedOnly)
             || !result.requests || result.requests->count>2) return false;
         for(unsigned i=0;i<result.requests->count;++i)
-            if(result.requests->entries[i].slot>=24 || !result.prepared || !result.prepared->voices[i]) return false;
+            if(result.requests->entries[i].slot>=voiceCapacity || !result.prepared || !result.prepared->voices[i]) return false;
         preparation.reference=reference;
         result.pitchHistory.apply(preparation.partKeys[part],preparation.reference);
         for(unsigned i=0;i<result.requests->count;++i) {
@@ -230,14 +231,14 @@ public:
         if (part>=16) return std::nullopt;
         const auto& state=mono[part];
         const auto source=heldReturn ? uint8_t(255) : state.source;
-        if (group>=24 || (!state.portamento && source>=128)) return uint8_t(0xff);
+        if (group>=voiceCapacity || (!state.portamento && source>=128)) return uint8_t(0xff);
         const auto plan=notes.allocator.prepareGroupReuse(group,{0xff,{255,255}});
         if (!plan) return std::nullopt;
         auto flags=plan->flags;
         if (!heldReturn && !sourceReuse) {
             bool restart=!state.held.highest().has_value();
             for (const auto slot:plan->voices)
-                if (slot<24 && runtime.voices[slot])
+                if (slot<voiceCapacity && runtime.voices[slot])
                     restart|=(runtime.voices[slot]->lifecycle.fieldC8B3&128)!=0;
             flags=uint8_t((flags&0x7f)|(restart ? 0x80 : 0));
         }
@@ -251,7 +252,7 @@ public:
         const auto decision=state.held.release(key,state.current);
         if (!decision) return std::nullopt;
         if (decision->action==MonoHeldKeys::ReleaseDecision::Action::releaseGroup
-            && notes.allocator.partHead[part]<24 && !notes.allocator.releaseMonoGroup(part)) return std::nullopt;
+            && notes.allocator.partHead[part]<voiceCapacity && !notes.allocator.releaseMonoGroup(part)) return std::nullopt;
         if (!runtime.publishNoteReleases(notes.allocator)) return std::nullopt;
         return decision;
     }
@@ -442,7 +443,7 @@ public:
     bool stopPartGroups(unsigned part,Read&& read,Write&& write)
     {
         if (failed() || part>=16) return false;
-        for (unsigned n=0;notes.allocator.partHead[part]<128 && n<24;++n)
+        for (unsigned n=0;notes.allocator.partHead[part]<128 && n<voiceCapacity;++n)
             if (!stopGroup(part,notes.allocator.partHead[part],read,write)) return false;
         return notes.allocator.partHead[part]>=128;
     }
@@ -503,7 +504,7 @@ public:
         if (admitted != Admission::allocated && admitted != Admission::capacityRejected) return fail();
         // Choked slots can differ from this note's new destinations. Publish
         // every stop before installing task2, otherwise task4 could outrank it.
-        for (unsigned count = 0; count < 24; ++count)
+        for (unsigned count = 0; count < voiceCapacity; ++count)
         {
             const auto stopped = serviceStopTask();
             if (stopped.status == VoiceControlRuntime::StopTaskStatus::idle) break;
@@ -544,11 +545,11 @@ public:
         if (selector == 0) return StopRequest::queued;
         if (runtime.startupPending()) return StopRequest::deferred;
         auto checked = notes.allocator;
-        std::array<VoiceStopState,24> probe{};
+        std::array<VoiceStopState,voiceCapacity> probe{};
         if (!StopRhythmExclusiveGroups(checked,probe,part,selector,
             [](uint8_t) { return uint8_t(0); },[](uint8_t,uint8_t) {})) return StopRequest::invalidInput;
         auto stopped = lifecycle;
-        for (unsigned slot = 0; slot < 24; ++slot)
+        for (unsigned slot = 0; slot < voiceCapacity; ++slot)
             if (probe[slot].pendingOperation == VoiceOperation::finishStop)
             {
                 if (!runtime.voices[slot]) return StopRequest::failed;
@@ -566,7 +567,7 @@ public:
     StopRequest requestStop(unsigned slot,Read&& read,Write&& write)
     {
         if (failed()) return StopRequest::failed;
-        if (slot >= 24 || !runtime.voices[slot]) return StopRequest::invalidInput;
+        if (slot >= voiceCapacity || !runtime.voices[slot]) return StopRequest::invalidInput;
         if (runtime.startupPending() || lifecycle[slot].pendingOperation != VoiceOperation::none) return StopRequest::deferred;
         // The running DSP state, not an obsolete installation snapshot, is
         // authoritative for cached words/progress before a physical stop.
@@ -607,8 +608,8 @@ public:
             resetDraining_=true;
             return ResetProgress::stopped;
         }
-        if(operationsPending() || notes.allocator.freeCount!=24) return ResetProgress::waiting;
-        for(unsigned slot=0;slot<24;++slot) if(runtime.voices[slot]) {
+        if(operationsPending() || notes.allocator.freeCount!=notes.allocator.voiceLimit) return ResetProgress::waiting;
+        for(unsigned slot=0;slot<voiceCapacity;++slot) if(runtime.voices[slot]) {
             const auto ready=PollVoiceReuse(uint8_t(slot),false,read,write);
             if(!ready || *ready==VoiceReuseReadiness::cancelled) return ResetProgress::failed;
             if(*ready!=VoiceReuseReadiness::ready) return ResetProgress::waiting;
@@ -623,13 +624,14 @@ public:
         const auto reference=preparation.reference;
         const auto receivedCommands=commands;
         const auto receivedAdmission=admission;
+        const auto limit=notes.allocator.voiceLimit;
         *this=NativeVoiceEngine{};
         commands=receivedCommands; admission=receivedAdmission;
         clock=retainedClock; mask.enabled=enabled;
         periodicClock_=retainedPeriodicClock;
         preparation.partKeys=retainedKeys; preparation.reference=reference;
-        if(!notes.allocator.initializeTables()) return ResetProgress::failed;
-        for(unsigned slot=0;slot<24;++slot)
+        if(!notes.allocator.initializeTables(limit,limit)) return ResetProgress::failed;
+        for(unsigned slot=0;slot<voiceCapacity;++slot)
             runtime.first[slot].firstStage=runtime.second[slot].firstStage=22;
         return ResetProgress::completed;
     }
@@ -640,7 +642,7 @@ public:
         if(failed()) return StopRequest::failed;
         if(runtime.startupPending()) return StopRequest::deferred;
         bool deferred=false;
-        for(unsigned slot=0;slot<24;++slot)
+        for(unsigned slot=0;slot<voiceCapacity;++slot)
             if(runtime.voices[slot] && !(notes.allocator.allocations[slot].status&0x80)
                 && (parts&(1u<<installation.voices[slot].input.part))) {
                 const auto result=requestStop(slot,read,write);
@@ -658,7 +660,7 @@ public:
             if(result==StopRequest::failed || result==StopRequest::invalidInput) return false;
             if(result==StopRequest::queued) pendingPartStops_=0;
         }
-        for(unsigned count=0;count<24 && !runtime.startupPending();++count)
+        for(unsigned count=0;count<voiceCapacity && !runtime.startupPending();++count)
             if(serviceStopTask().status!=VoiceControlRuntime::StopTaskStatus::completed) break;
         return !failed();
     }
@@ -696,8 +698,8 @@ public:
 
     bool receivePcmBoundary(unsigned slot) noexcept
     {
-        if(slot>=24 || !acceptsPcmBoundary()) return false;
-        pendingBoundaries_|=1u<<slot;
+        if(slot>=voiceCapacity || !acceptsPcmBoundary()) return false;
+        pendingBoundaries_|=VoiceSet::single(slot);
         lifecycle[slot].fieldCB30=255;
         if(runtime.voices[slot]) runtime.voices[slot]->lifecycle.fieldCB30=255;
         return true;
@@ -715,8 +717,8 @@ public:
         if(runtime.startupPending() || voiceCommandsPending()) return 0;
         for(const auto& voice:lifecycle) if(voice.pendingOperation != VoiceOperation::none) return 0;
         unsigned handled=0;
-        for(unsigned slot=24;slot-- >0;) if(pendingBoundaries_&(1u<<slot)) {
-            pendingBoundaries_&=~(1u<<slot);
+        for(unsigned slot=voiceCapacity;slot-- >0;) if(pendingBoundaries_&(VoiceSet::single(slot))) {
+            pendingBoundaries_&=~(VoiceSet::single(slot));
             // Physical stop (53e6) and wave installation (577e) invalidate
             // an old notification; their existing lifecycle clear owns this.
             if(!lifecycle[slot].fieldCB30) continue;
@@ -733,7 +735,7 @@ public:
     template<class Read,class Write>
     bool handlePcmBoundary(unsigned slot,const PitchConversion& conversion,Read&& read,Write&& write)
     {
-        if(failed() || runtime.startupPending() || slot>=24) return false;
+        if(failed() || runtime.startupPending() || slot>=voiceCapacity) return false;
         auto& voice=runtime.voices[slot];
         if(!voice) return true;
         if(!HandleVoicePcmBoundary(slot,*voice,runtime.inputs[slot],notes.allocator.pcmLinks,
@@ -746,7 +748,7 @@ public:
     bool periodicOwnersReady() const noexcept
     {
         if(runtime.preparationPending()) return false;
-        for(unsigned slot=0;slot<24;++slot) {
+        for(unsigned slot=0;slot<voiceCapacity;++slot) {
             const auto& voice=lifecycle[slot];
             if(voice.pendingOperation == VoiceOperation::none) continue;
             if(voice.pendingOperation==VoiceOperation::finishStop) {
@@ -943,7 +945,7 @@ private:
             }
             applyToneModulation(config,part,dsp[partial].firstControls);
             const auto slot = selected.dispatch[partial].voice;
-            if (slot < 24)
+            if (slot < voiceCapacity)
             {
                 dsp[partial].previousPitch = preparation.previousPitch[slot];
                 if (runtime.voices[slot])
@@ -974,7 +976,7 @@ private:
         if (!selection->partials.candidates.count) {
             if(!polySource && !admission->isHeldReturn()) state.held.set(event.first,true);
             if (!admission->isHeldReturn()) state.source=255;
-            if (admission->isHeldReturn() && notes.allocator.partHead[part]<24) {
+            if (admission->isHeldReturn() && notes.allocator.partHead[part]<voiceCapacity) {
                 if (!notes.allocator.releaseMonoGroup(part)
                     || !runtime.publishNoteReleases(notes.allocator)) outcome.failed=true;
             }
@@ -988,9 +990,9 @@ private:
             if(!found) { outcome.failed=true; return; }
             group=*found;
         }
-        if (reuseInvalidated(part) && (!polySource || group<24)) {
+        if (reuseInvalidated(part) && (!polySource || group<voiceCapacity)) {
             reuseInvalidation_&=uint16_t(~(1u<<part));
-            if(polySource && group<24) {
+            if(polySource && group<voiceCapacity) {
                 if(!stopGroup(part,group,
                     read,write)) outcome.failed=true;
                 // H8 jumps straight to fresh admission after invalidating
@@ -1000,7 +1002,7 @@ private:
             } else if (!stopPartGroups(part,read,write)) outcome.failed=true;
             return; // Task4 and PCM must settle before the new allocation.
         }
-        const bool reuse=group<24;
+        const bool reuse=group<voiceCapacity;
         const auto source=admission->isHeldReturn() ? uint8_t(255) : state.source;
         const auto reuseFlags=monoReuseFlags(part,group,admission->isHeldReturn(),polySource);
         if (!reuseFlags) { outcome.failed=true; return; }
@@ -1044,7 +1046,7 @@ private:
             }
             samples[partial].minimumKey=dsp[partial].sourceKey;
             applyToneModulation(config,part,dsp[partial].firstControls);
-            if (slot<24) dsp[partial].previousPitch=preparation.previousPitch[slot];
+            if (slot<voiceCapacity) dsp[partial].previousPitch=preparation.previousPitch[slot];
         }
         const auto result=reuse
             ? startReusedMelodicNote(*selection,part,samples,dsp,controllers,data,conversion,waves,
@@ -1107,30 +1109,30 @@ private:
     uint16_t pendingPartStops_=0;
     bool resetDraining_=false;
     std::optional<uint64_t> activationWake_;
-    uint32_t pendingBoundaries_=0;
+    VoiceSet pendingBoundaries_=0;
     bool importPendingVoiceOperations() noexcept
     {
         if(!periodicOwnersReady()) return false;
         // Admission and periodic control see the same published lifecycle.
         // Preserve requests for their consumer: no early stop completion,
         // preparation, key-on or reconstruction of an uninstalled DSP owner.
-        for(unsigned slot=0;slot<24;++slot) if((lifecycle[slot].pendingOperation != VoiceOperation::none) && runtime.voices[slot]) {
+        for(unsigned slot=0;slot<voiceCapacity;++slot) if((lifecycle[slot].pendingOperation != VoiceOperation::none) && runtime.voices[slot]) {
             runtime.voices[slot]->lifecycle=lifecycle[slot];
             runtime.first[slot].firstStage=runtime.second[slot].firstStage=lifecycle[slot].stages[0];
         }
         return true;
     }
-    void exportControlChanges(uint32_t changed) noexcept
+    void exportControlChanges(VoiceSet changed) noexcept
     {
-        for (unsigned slot=0;slot<24;++slot)
-            if((changed&(1u<<slot)) && runtime.voices[slot]) lifecycle[slot]=runtime.voices[slot]->lifecycle;
+        for (unsigned slot=0;slot<voiceCapacity;++slot)
+            if((changed&(VoiceSet::single(slot))) && runtime.voices[slot]) lifecycle[slot]=runtime.voices[slot]->lifecycle;
     }
-    std::array<VoiceStopState,24> admissionLifecycle() const noexcept
+    std::array<VoiceStopState,voiceCapacity> admissionLifecycle() const noexcept
     {
         // Pending installation/stop owns the handoff until its consumer runs.
         // Otherwise the live EG owner supersedes the installation snapshot.
         auto current=lifecycle;
-        for (unsigned slot=0;slot<24;++slot)
+        for (unsigned slot=0;slot<voiceCapacity;++slot)
             if (runtime.voices[slot] && (lifecycle[slot].pendingOperation == VoiceOperation::none))
                 current[slot]=runtime.voices[slot]->lifecycle;
         return current;

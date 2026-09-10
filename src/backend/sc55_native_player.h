@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_voice_engine.h"
 #include "pcm.h"
 #include "sc55_sysex.h"
@@ -51,7 +52,7 @@ public:
         : data_(data), elapsedCycles_(pcm.cycles), pcm_(pcm), parts_(std::move(settings)), rhythm_(std::move(rhythm)), melodic_(std::move(melodic))
     {
         if (!data.pitchTiming() || data.patchCount() < 224
-            || !engine_.notes.allocator.initializeTables())
+            || !engine_.notes.allocator.initializeTables(pcm.native_voice_count ? pcm.native_voice_count : 24, pcm.native_voice_count ? pcm.native_voice_count : 24))
         { failed_ = true; return; }
         if (rhythm_)
         {
@@ -70,7 +71,7 @@ public:
             controls.sourceSensitivity[1][0] = 66; // Preview bend range: two semitones.
             controls.assignedControllers = {16,17};
         }
-        for (unsigned slot = 0; slot < 24; ++slot)
+        for (unsigned slot = 0; slot < voiceCapacity; ++slot)
             engine_.runtime.first[slot].firstStage = engine_.runtime.second[slot].firstStage = 22;
         // 3c=0 emits one frame per PCM pass. Keep the public sample-rate
         // query consistent so the product resampler receives32kHz, not64kHz.
@@ -226,22 +227,23 @@ public:
     {
         std::array<uint8_t,128> result{};
         const auto& allocator=engine_.notes.allocator;
-        for(unsigned slot=0;slot<24;++slot)
+        for(unsigned slot=0;slot<voiceCapacity;++slot)
             if(!(allocator.allocations[slot].status&128) && allocator.allocations[slot].part==part) {
                 const auto group=allocator.allocations[slot].noteGroup;
-                if(group<24 && allocator.noteGroups[group].key<128) ++result[allocator.noteGroups[group].key];
+                if(group<voiceCapacity && allocator.noteGroups[group].key<128) ++result[allocator.noteGroups[group].key];
             }
         return result;
     }
-    std::array<SynthState::VoiceLevel,24> voiceLevels() const noexcept
+    std::array<SynthState::VoiceLevel,voiceCapacity> voiceLevels() const noexcept
     {
-        std::array<SynthState::VoiceLevel,24> levels{};
-        const auto active=pcm_.voice_mask&pcm_.voice_mask_pending;
-        for(unsigned slot=0;slot<24;++slot)
+        std::array<SynthState::VoiceLevel,voiceCapacity> levels{};
+        const auto active=pcm_.native_voice_count ? pcm_.native_keys
+            : VoiceSet(pcm_.voice_mask&pcm_.voice_mask_pending);
+        for(unsigned slot=0;slot<voiceCapacity;++slot)
             // PCM key bits and gain registers can retain the last values
             // after the musical voice has been returned. They are not proof
             // that this slot still belongs to a sounding/releasing note.
-            if(((active>>slot)&1) && !engine_.notes.allocator.allocations[slot].free()) {
+            if(active.contains(slot) && !engine_.notes.allocator.allocations[slot].free()) {
                 const auto gains=PCM_PeekVoiceGainLevels(pcm_,slot);
                 levels[slot]={gains[0],gains[1],engine_.installation.voices[slot].input.part,true};
             }
@@ -440,7 +442,7 @@ public:
     {
         using Phase=PeriodicVoiceUpdatePass::Phase;
         using Progress=VoiceControlRuntime::ControlProgress;
-        uint32_t changed=0;
+        VoiceSet changed=0;
         for(unsigned step=0;step<20;++step) {
             const auto phase=engine_.runtime.controlPhase();
             const bool reading=phase==Phase::readback;
@@ -468,7 +470,7 @@ public:
     bool controlPassPendingAudit() const noexcept {return engine_.periodicWorkPending();}
     const PartControllerState& controllerSettingsAudit() const noexcept { return controllers_; }
     const VoiceControlState* voiceControlAudit(unsigned slot) const noexcept
-    { return slot<24 && engine_.runtime.voices[slot] ? &*engine_.runtime.voices[slot] : nullptr; }
+    { return slot<voiceCapacity && engine_.runtime.voices[slot] ? &*engine_.runtime.voices[slot] : nullptr; }
 #endif
     const EffectsSettings& effectsSettings() const noexcept { return system_.effects; }
     const DisplayData& displayData() const noexcept { return display_; }
@@ -875,7 +877,7 @@ private:
         { PCM_ApplyVoiceUpdate(target,channel,update); }
         void installVoice(uint8_t channel,const VoiceRenderStart& start) const noexcept
         { PCM_InstallVoice(target,channel,start); }
-        void commitVoiceKeys(uint32_t enabled) const noexcept { PCM_CommitVoiceKeys(target,enabled); }
+        void commitVoiceKeys(VoiceSet enabled) const noexcept { PCM_CommitVoiceKeys(target,enabled); }
         std::array<uint16_t,2> voiceGainLevels(uint8_t channel) const noexcept
         { return PCM_VoiceGainLevels(target,channel); }
         uint16_t voiceRampLevel(uint8_t channel,EnvelopeRamp::Stage stage) const noexcept

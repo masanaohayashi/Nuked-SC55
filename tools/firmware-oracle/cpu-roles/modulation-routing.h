@@ -10,8 +10,9 @@
 // only; RouteVoiceModulation itself consumes semantic voice indices/state.
 struct ModulationRoutingProbe
 {
-    std::array<sc55::VoiceModulation,24> voices{};
-    std::array<uint8_t,24> sources{};
+    ModulationRoutingProbe() { for(auto& voice:voices) voice.firstStage=22; sources.fill(sc55::voiceCapacity); }
+    std::array<sc55::VoiceModulation,sc55::voiceCapacity> voices{};
+    std::array<uint8_t,sc55::voiceCapacity> sources{};
     std::array<uint16_t,24> bases{};
     bool active=false;
     unsigned channel=0,instructions=0,expectedWork=0;
@@ -34,7 +35,7 @@ struct ModulationRoutingProbe
     }
     unsigned source(mcu_t& cpu,unsigned slot) const {
         const auto pointer=MCU_Read16(cpu,0xc87e + 2*slot);
-        if(!pointer) return 24;
+        if(!pointer) return sc55::voiceCapacity;
         for(unsigned i=0;i<24;++i) if(bases[i]==pointer) return i;
         throw std::runtime_error("Unknown modulation source owner");
     }

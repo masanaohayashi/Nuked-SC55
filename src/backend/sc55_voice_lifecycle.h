@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_voice_render_update.h"
 #include "sc55_voice_operation.h"
 #include "sc55_voice_set.h"
@@ -494,7 +495,7 @@ template<class Read,class Write>
 bool SynchronizeVoicePcm(uint8_t channel,EnvelopeRunner& amplitude,
     VoiceReleaseAuxiliary& release,VoicePcmLevelState& levels,Read&& read,Write&& write)
 {
-    if (channel >= 24) return false;
+    if (channel >= voiceCapacity) return false;
     const auto stage = amplitude.state().segment.stage;
     if (stage == EnvelopeStage::delay || stage >= EnvelopeStage::finished) return true;
     if constexpr(requires { write.synchronizeEnvelopes(channel,
@@ -571,7 +572,7 @@ VoiceUpdateEntry BeginVoiceUpdate(uint8_t channel,EnvelopeRunner& amplitude,
     uint16_t& level32,uint16_t command16,SecondEnvelopePcmState& second,
     Read&& read,Write&& write)
 {
-    if (channel >= 24) return VoiceUpdateEntry::invalidChannel;
+    if (channel >= voiceCapacity) return VoiceUpdateEntry::invalidChannel;
     if (amplitude.state().segment.stage >= EnvelopeStage::finished)
         return VoiceUpdateEntry::stopped;
     SynchronizeVoicePcm(channel,amplitude,release,level32,command16,second,read,write);
@@ -605,7 +606,7 @@ struct VoiceStopState
 template<class Read,class Write>
 bool StopPreparedVoice(unsigned channel,VoiceStopState& state,Read&& read,Write&& write)
 {
-    if (channel >= 24) return false;
+    if (channel >= voiceCapacity) return false;
     state.fieldCB30 = 0;
     const auto plan = *StopVoicePcm(uint8_t(channel),read,write);
     if (plan.pcmAddress == 0x16) state.cached16 = 0x00b6;
@@ -627,7 +628,7 @@ enum class SecondModulationPreparation { invalidInput, unchanged, local, shared 
 // A skipped call must preserve oscillator phase, links and the cached partial[8].
 template<class Read,class Write>
 SecondModulationPreparation PrepareVoiceSecondModulation(unsigned channel,const VoiceStopState& state,
-    std::array<VoiceModulation,24>& voices,std::array<uint8_t,24>& sources,
+    std::array<VoiceModulation,voiceCapacity>& voices,std::array<uint8_t,voiceCapacity>& sources,
     const SC55Partial& partial,const std::array<uint16_t,256>& timing,
     const std::array<uint16_t,256>& rates,const LfoWaveformTables& tables,Read&& read,Write&& write)
 {
@@ -733,7 +734,7 @@ template<class Write>
 VoicePcmUpdateResult UpdateVoicePcm(uint8_t channel,const VoiceStopState& voice,
     const PreparedVoicePcm& prepared,uint16_t cached1a,Write&& write)
 {
-    if (channel >= 24) return VoicePcmUpdateResult::invalidChannel;
+    if (channel >= voiceCapacity) return VoicePcmUpdateResult::invalidChannel;
     if (voice.stages[0] == 0 || voice.stages[0] >= 14) return VoicePcmUpdateResult::idle;
     const VoiceRenderUpdate update{voice.pcm10,{voice.cached16,voice.cached18,cached1a},
         int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12&255),
@@ -787,8 +788,8 @@ VoicePcmUpdateResult UpdateVoicePcm(uint8_t channel,const VoiceStopState& voice,
 
 struct VoiceKeyMask
 {
-    uint32_t enabled = 0; // CB24/CB26, preserve all firmware bits
-    uint32_t prepared = 0; // CB28/CB2a, temporarily removed then re-enabled
+    VoiceSet enabled = 0; // CB24/CB26, preserve all firmware bits
+    VoiceSet prepared = 0; // CB28/CB2a, temporarily removed then re-enabled
 };
 
 struct VoicePostEnable
@@ -808,7 +809,7 @@ bool PrepareReusedVoicePcm(unsigned channel,VoiceStopState& voice,
     uint16_t amplitudeLevel,SecondEnvelopePcmState& second,
     PreparedVoicePcm& prepared,VoicePostEnable& post,Write&& write)
 {
-    if (channel>=24 || (voice.flagMinus3B&128)) return false;
+    if (channel>=voiceCapacity || (voice.flagMinus3B&128)) return false;
     if constexpr(requires { write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,uint16_t(0)); })
         write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,0xb4);
     else { write(0x3e,uint8_t(channel)); write(0x16,uint8_t(0)); write(0x17,uint8_t(0xb4)); }
@@ -856,7 +857,7 @@ template<class Read,class Write>
 std::optional<bool> PollVoicePostEnable(unsigned channel,const VoicePostEnable& state,
     Read&& read,Write&& write)
 {
-    if (channel >= 24) return std::nullopt;
+    if (channel >= voiceCapacity) return std::nullopt;
     if (state.field65 != 0) return true;
     if constexpr(requires { write.completeVoiceEnable(uint8_t(channel),state.level,state.command); })
         return write.completeVoiceEnable(uint8_t(channel),state.level,state.command);
@@ -886,7 +887,7 @@ bool RemovePreparedVoiceKeys(VoiceKeyMask& mask,const VoiceStopState& voice,
         return true;
     }
     for (unsigned i = 0; i < 4; ++i)
-        write(uint8_t(i),uint8_t(mask.enabled >> (24-8*i)));
+        write(uint8_t(i),uint8_t(mask.enabled.lowWord() >> (24-8*i)));
     (void)read(0);
     return true;
 }
@@ -904,7 +905,7 @@ void EnablePreparedVoiceKeys(VoiceKeyMask& mask,Read&& read,Write&& write)
         return;
     }
     for (unsigned i = 0; i < 4; ++i)
-        write(uint8_t(i),uint8_t(mask.enabled >> (24-8*i)));
+        write(uint8_t(i),uint8_t(mask.enabled.lowWord() >> (24-8*i)));
     (void)read(0);
     mask.prepared = 0;
 }
@@ -915,7 +916,7 @@ template<class Write>
 bool CommitPreparedVoice(unsigned channel,VoiceStopState& state,
     const PreparedVoicePcm& prepared,Write&& write)
 {
-    if (channel >= 24) return false;
+    if (channel >= voiceCapacity) return false;
     const auto word = [&](uint8_t address,uint16_t value) {
         write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
     };
@@ -928,7 +929,7 @@ bool CommitPreparedVoice(unsigned channel,VoiceStopState& state,
             {initial[1],{state.cached16,initial[0],prepared.pcm1a},
                 int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12),
                 int8_t(prepared.pcm14>>8),int8_t(prepared.pcm14),
-                uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)}});
+                uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)},prepared.sample.pitchSource});
         return true;
     }
     write(0x3e,uint8_t(channel));
@@ -957,11 +958,11 @@ public:
     {
         if (status_ == Status::waitingForReuse || status_ == Status::waitingForKeyLatch
             || entries.empty() || entries.size() > 2 || mask.prepared != 0) return false;
-        uint32_t bits = 0;
+        VoiceSet bits = 0;
         for (const auto& entry : entries)
         {
-            if (entry.channel >= 24 || (bits & (1u<<entry.channel))) return false;
-            bits |= 1u<<entry.channel;
+            if (entry.channel >= voiceCapacity || (bits & (VoiceSet::single(entry.channel)))) return false;
+            bits |= VoiceSet::single(entry.channel);
         }
         count_ = unsigned(entries.size()); cursor_ = 0;
         for (unsigned i = 0; i < count_; ++i) entries_[i] = entries[i];
@@ -973,7 +974,7 @@ public:
     Status status() const { return status_; }
 
     template<class Read,class Write>
-    Status advance(std::array<VoiceStopState,24>& voices,VoiceKeyMask& mask,Read&& read,Write&& write)
+    Status advance(std::array<VoiceStopState,voiceCapacity>& voices,VoiceKeyMask& mask,Read&& read,Write&& write)
     {
         if (status_ == Status::waitingForReuse)
         {
@@ -1017,19 +1018,19 @@ private:
 // bad links produce no device writes or partial state updates.
 template<class Read,class Write>
 std::optional<uint8_t> StopAndReclaimGroup(VoiceAllocator& allocator,
-    std::array<VoiceStopState,24>& voices, unsigned group, unsigned part,
+    std::array<VoiceStopState,voiceCapacity>& voices, unsigned group, unsigned part,
     bool prepend, Read&& read, Write&& write)
 {
-    if (group >= 24 || part >= 16) return std::nullopt;
+    if (group >= voiceCapacity || part >= 16) return std::nullopt;
     const auto successor = allocator.noteGroups[group].next;
     auto checked = allocator;
-    std::array<uint8_t,24> order{};
+    std::array<uint8_t,voiceCapacity> order{};
     unsigned count = 0;
     VoiceSet seen;
     do
     {
         const auto voice = checked.groups.tail[group];
-        if (voice >= 24 || count == order.size() || seen.contains(voice)) return std::nullopt;
+        if (voice >= voiceCapacity || count == order.size() || seen.contains(voice)) return std::nullopt;
         seen.set(voice);
         order[count++] = voice;
         if (!checked.reclaimStoppedVoice(voice,group,part,prepend)) return std::nullopt;
@@ -1056,7 +1057,7 @@ std::optional<uint8_t> StopAndReclaimGroup(VoiceAllocator& allocator,
 // Callbacks must not throw or reenter/mutate the serialized voice owner.
 template<class Read,class Write>
 std::optional<unsigned> StopRhythmExclusiveGroups(VoiceAllocator& allocator,
-    std::array<VoiceStopState,24>& voices,unsigned part,uint8_t selector,Read&& read,Write&& write)
+    std::array<VoiceStopState,voiceCapacity>& voices,unsigned part,uint8_t selector,Read&& read,Write&& write)
 {
     if (part >= 16) return std::nullopt;
     if (selector == 0) return 0;
@@ -1065,7 +1066,7 @@ std::optional<unsigned> StopRhythmExclusiveGroups(VoiceAllocator& allocator,
         VoiceSet seen;
         for (auto group = state.partHead[part]; group < 128;)
         {
-            if (group >= 24 || seen.contains(group)) return std::nullopt;
+            if (group >= voiceCapacity || seen.contains(group)) return std::nullopt;
             seen.set(group);
             if (state.noteGroups[group].noteClass != selector) { group = state.noteGroups[group].next; continue; }
             const auto next = StopAndReclaimGroup(state,life,group,part,false,load,store);
@@ -1086,7 +1087,7 @@ std::optional<unsigned> StopRhythmExclusiveGroups(VoiceAllocator& allocator,
 // or disabled bit7 do nothing. Returns whether a group was physically stopped.
 template<class Read,class Write>
 std::optional<bool> RetireRepeatedNote(VoiceAllocator& allocator,
-    std::array<VoiceStopState,24>& voices,unsigned part,uint8_t note,uint8_t selector,
+    std::array<VoiceStopState,voiceCapacity>& voices,unsigned part,uint8_t note,uint8_t selector,
     uint8_t partNoteFlags,std::span<const uint8_t,16> retained,Read&& read,Write&& write)
 {
     if (part >= 16 || note > 127) return std::nullopt;
@@ -1102,7 +1103,7 @@ std::optional<bool> RetireRepeatedNote(VoiceAllocator& allocator,
         VoiceSet seen;
         for (auto group = state.partHead[part]; group < 128; group = state.noteGroups[group].next)
         {
-            if (group >= 24 || seen.contains(group)) return std::nullopt;
+            if (group >= voiceCapacity || seen.contains(group)) return std::nullopt;
             seen.set(group);
             if (state.noteGroups[group].key != note || (mode == 1 && state.noteGroups[group].noteClass != selector)) continue;
             if (mode == 1)
@@ -1132,13 +1133,13 @@ struct VoiceCapacityPolicy
 // free enough voices. Successful earlier reclaims remain committed on failure.
 template<class Read,class Write>
 std::optional<bool> EnsureVoiceCapacity(VoiceAllocator& allocator,
-    std::array<VoiceStopState,24>& voices, unsigned incomingPart,unsigned requested,
+    std::array<VoiceStopState,voiceCapacity>& voices, unsigned incomingPart,unsigned requested,
     const VoiceCapacityPolicy& policy,Read&& read,Write&& write)
 {
     if (incomingPart >= 16 || requested < 1 || requested > 2 || policy.startPartControl >= 16
-        || allocator.freeCount > 24) return std::nullopt;
+        || allocator.freeCount > voiceCapacity) return std::nullopt;
     for (unsigned p = 0; p < 16; ++p)
-        if (policy.reserves[p] > 24 || allocator.partVoiceCount[p] > 24) return std::nullopt;
+        if (policy.reserves[p] > voiceCapacity || allocator.partVoiceCount[p] > voiceCapacity) return std::nullopt;
     if (requested <= allocator.freeCount) return true; // leave old shortage intact
     allocator.shortage = uint8_t(requested-allocator.freeCount);
     const auto enough = [&]() { return allocator.shortage == 0 || allocator.shortage >= 128; };
@@ -1150,7 +1151,7 @@ std::optional<bool> EnsureVoiceCapacity(VoiceAllocator& allocator,
         for (unsigned pass = 0; pass < passCount; ++pass)
         {
             if (pass == 2 && protectedValue >= 128) break;
-            for (unsigned attempts = 0; attempts < 24; ++attempts)
+            for (unsigned attempts = 0; attempts < voiceCapacity; ++attempts)
             {
                 unsigned group = allocator.partHead[part];
                 if (mode == 2)
@@ -1162,7 +1163,7 @@ std::optional<bool> EnsureVoiceCapacity(VoiceAllocator& allocator,
                     group = allocator.allocations[candidate->voice].noteGroup;
                 }
                 if (group >= 128) break;
-                if (group >= 24 || !StopAndReclaimGroup(allocator,voices,group,part,false,read,write)) return std::nullopt;
+                if (group >= voiceCapacity || !StopAndReclaimGroup(allocator,voices,group,part,false,read,write)) return std::nullopt;
                 if (enough()) return true;
                 if (allocator.partVoiceCount[part] <= policy.reserves[part]) return false;
             }

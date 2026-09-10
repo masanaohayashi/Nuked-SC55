@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_note_start.h"
 #include "sc55_voice_control.h"
 #include "sc55_voice_prepare.h"
@@ -16,21 +17,21 @@ namespace sc55
 class VoiceControlRuntime
 {
 public:
-    std::array<std::optional<VoiceControlState>,24> voices{};
-    std::array<VoiceControlInputs,24> inputs{};
-    std::array<FirstModulationInputs,24> firstInputs{};
-    std::array<FirstModulationVoice,24> first{};
-    std::array<VoiceModulation,24> second{};
-    std::array<uint8_t,24> secondSources;
-    std::array<VoiceControllerState,24> controllers{};
-    std::array<std::optional<VoiceControlResult>,24> lastResults{};
-    std::array<std::optional<VoicePcmUpdateResult>,24> lastWrites{};
+    std::array<std::optional<VoiceControlState>,voiceCapacity> voices{};
+    std::array<VoiceControlInputs,voiceCapacity> inputs{};
+    std::array<FirstModulationInputs,voiceCapacity> firstInputs{};
+    std::array<FirstModulationVoice,voiceCapacity> first{};
+    std::array<VoiceModulation,voiceCapacity> second{};
+    std::array<uint8_t,voiceCapacity> secondSources;
+    std::array<VoiceControllerState,voiceCapacity> controllers{};
+    std::array<std::optional<VoiceControlResult>,voiceCapacity> lastResults{};
+    std::array<std::optional<VoicePcmUpdateResult>,voiceCapacity> lastWrites{};
 #if defined(SC55_NATIVE_IO_AUDIT)
-    std::array<uint32_t,24> readbackCounts{};
-    std::array<uint16_t,24> readbackStages{};
+    std::array<uint32_t,voiceCapacity> readbackCounts{};
+    std::array<uint16_t,voiceCapacity> readbackStages{};
 #endif
 
-    VoiceControlRuntime() noexcept { secondSources.fill(24); }
+    VoiceControlRuntime() noexcept { secondSources.fill(voiceCapacity); }
     bool failed() const noexcept { return failed_; }
     bool controlPending() const noexcept { return controlPending_; }
 #if defined(SC55_CONTROL_TIMING_ORACLE)
@@ -78,7 +79,8 @@ public:
     StartupAudit startupAudit() const noexcept
     {
         uint32_t channels=0;
-        if(startupPending()) for(unsigned i=0;i<pendingStart_.count;++i) channels|=1u<<startSlots_[i];
+        if(startupPending()) for(unsigned i=0;i<pendingStart_.count;++i)
+            channels|=VoiceSet::single(startSlots_[i]).lowWord(); // H8 diagnostic word only.
         return {startup_.status(),channels};
     }
 #endif
@@ -91,7 +93,7 @@ public:
     // lifecycle holds the result of StopPreparedVoice; publish that result to
     // the periodic owner without restarting its envelopes or touching PCM.
     // Subsequent periodic passes poll the stop level and reclaim the voice.
-    StopTaskResult serviceStopTask(std::array<VoiceStopState,24>& lifecycle,VoiceAllocator& allocator)
+    StopTaskResult serviceStopTask(std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceAllocator& allocator)
     {
         if (failed_) return {StopTaskStatus::failed};
         if (startupPending()) return {StopTaskStatus::deferred};
@@ -101,7 +103,7 @@ public:
         if (task->kind == VoiceTaskDispatch::Kind::idle) return {StopTaskStatus::idle};
         if (task->kind == VoiceTaskDispatch::Kind::prepare) return {StopTaskStatus::needsPreparation,task->slots[0]};
         const auto slot = task->slots[0];
-        if (slot >= 24 || !voices[slot]) { failed_ = true; return {StopTaskStatus::failed}; }
+        if (slot >= voiceCapacity || !voices[slot]) { failed_ = true; return {StopTaskStatus::failed}; }
         lifecycle = next; allocator.activity = activity;
         voices[slot]->lifecycle = next[slot];
         first[slot].firstStage = second[slot].firstStage = next[slot].stages[0];
@@ -130,7 +132,7 @@ public:
         const std::array<PartialSampleInstallInputs,2>& sampleInputs,
         const std::array<NormalPartialDspInputs,2>& dspInputs,
         VoiceAllocator& allocator,VoiceInstallationState& installation,
-        std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,const PitchConversion& conversion,
         const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
@@ -163,7 +165,7 @@ public:
         const std::array<PartialSampleInstallInputs,2>& sampleInputs,
         const std::array<NormalPartialDspInputs,2>& dspInputs,
         VoiceAllocator& allocator,VoiceInstallationState& installation,
-        std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,const PitchConversion& conversion,
         const LfoWaveformTables& waves,Read&& read,Write&& write,uint8_t group=255)
     {
@@ -178,7 +180,7 @@ public:
         if (allocation.status!=MelodicAllocationResult::Status::allocated)
             return {Status::invalidInput,{},{}};
         for (const auto& destination:allocation.dispatch)
-            if (destination.prepare && destination.voice<24 && !voices[destination.voice])
+            if (destination.prepare && destination.voice<voiceCapacity && !voices[destination.voice])
                 return {Status::invalidInput,{},{}};
         return beginAllocatedNote(allocation,part,sampleInputs,dspInputs,allocator,installation,lifecycle,mask,
             parts,data,conversion,waves,read,write);
@@ -195,7 +197,7 @@ public:
         const std::array<PartialSampleInstallInputs,2>& samples,
         const std::array<NormalPartialDspInputs,2>& dsp,
         VoiceAllocator& allocator,VoiceInstallationState& installation,
-        std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,const PitchConversion& conversion,
         const LfoWaveformTables& waves,Read&& read,Write&& write,
         PreparationSlice slice=PreparationSlice::note)
@@ -217,7 +219,7 @@ public:
 
     template<class Read,class Write>
     MelodicStartResult resumeNotePreparation(VoiceAllocator& allocator,VoiceInstallationState& installation,
-        std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,const PitchConversion& conversion,
         const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
@@ -254,7 +256,7 @@ public:
     template<class Read,class Write>
     MelodicStartResult beginInstalledNote(const PreparedNoteVelocity& selection,
         const InstalledPartialSamples& samples,const std::array<NormalPartialDspInputs,2>& dspInputs,
-        VoiceAllocator& allocator,std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+        VoiceAllocator& allocator,std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,const PitchConversion& conversion,
         const LfoWaveformTables& waves,Read&& read,Write&& write,PreparationSlice slice=PreparationSlice::note)
     {
@@ -264,7 +266,7 @@ public:
         const auto fail = [&]() -> MelodicStartResult { failed_ = true; return {Status::failed,{},{}}; };
         for(const auto& sample:samples) if(sample && !sample->installed && sample->slot<128) {
             const auto slot=sample->slot;
-            if(slot>=24 || !(sample->sample.sampleId&0x8000)) return fail();
+            if(slot>=voiceCapacity || !(sample->sample.sampleId&0x8000)) return fail();
             bool overwritten=false;
             for(const auto& other:samples)
                 overwritten |= other && other->installed && other->slot==slot;
@@ -326,7 +328,7 @@ public:
         std::array<NormalVoicePreparationEntry,2> ownedEntries{};
         for (unsigned i = 0; i < entries.size(); ++i)
         {
-            if (entries[i].slot >= 24 || (i != 0 && entries[i].slot == entries[0].slot))
+            if (entries[i].slot >= voiceCapacity || (i != 0 && entries[i].slot == entries[0].slot))
                 return false;
             slots[i] = uint8_t(entries[i].slot);
             ownedEntries[i]=entries[i];
@@ -359,7 +361,7 @@ public:
         std::optional<PreparedNormalVoiceBatch> prepared;
     };
     template<class Read,class Write>
-    DspPreparationStep resumeNormalPreparation(std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+    DspPreparationStep resumeNormalPreparation(std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const SoundData& data,const PitchConversion& conversion,const LfoWaveformTables& waves,
         Read&& read,Write&& write)
     {
@@ -378,7 +380,7 @@ public:
     template<class Read,class Write>
     std::optional<PreparedNormalVoiceBatch> prepareAndBeginNormalStart(
         std::span<const NormalVoicePreparationEntry> entries,
-        std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         const PartControllerState& parts,const SoundData& data,
         const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
@@ -398,14 +400,14 @@ public:
     // the scheduler must retain those events/ticks until completion. PCM alone
     // may advance. This does not model firmware interrupt/task-switch timing.
     bool beginPreparedStart(std::span<const uint8_t> slots,const PreparedNormalVoiceBatch& prepared,
-        std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask)
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask)
     {
         if (failed_ || startupPending() || slots.empty() || slots.size() > 2
             || slots.size() != prepared.count) return false;
         std::array<PreparedVoiceBatch::Entry,2> entries{};
         for (unsigned i = 0; i < slots.size(); ++i)
         {
-            if (slots[i] >= 24 || !prepared.voices[i]) return false;
+            if (slots[i] >= voiceCapacity || !prepared.voices[i]) return false;
             const auto& item = *prepared.voices[i];
             entries[i] = {slots[i],item.voice.prepared,item.post};
         }
@@ -420,7 +422,7 @@ public:
     }
 
     template<class Read,class Write>
-    StartStatus pollPreparedStart(std::array<VoiceStopState,24>& lifecycle,VoiceKeyMask& mask,
+    StartStatus pollPreparedStart(std::array<VoiceStopState,voiceCapacity>& lifecycle,VoiceKeyMask& mask,
         Read&& read,Write&& write)
     {
         if (failed_) return StartStatus::cancelled;
@@ -448,7 +450,7 @@ public:
     bool publishNoteReleases(const VoiceAllocator& allocator) noexcept
     {
         if (failed_ || startupPending()) return false;
-        for (unsigned slot = 0; slot < 24; ++slot)
+        for (unsigned slot = 0; slot < voiceCapacity; ++slot)
             if (allocator.allocations[slot].releaseCommand && !voices[slot]) return false;
         allocator.publishReleaseRequests([&](uint8_t slot,uint8_t request) {
             if (voices[slot]) voices[slot]->release.pending = request;
@@ -466,7 +468,7 @@ public:
     {
         ScheduledStatus status;
         uint8_t elapsed = 0;
-        uint32_t updatedMask = 0; // Changes in this call, not earlier owners in a resumed pass.
+        VoiceSet updatedMask = 0; // Changes in this call, not earlier owners in a resumed pass.
     };
 
     // Consume the kernel event only when a DSP pass may actually run. The
@@ -501,8 +503,8 @@ public:
 #else
         constexpr bool timed=false;
 #endif
-        uint32_t changed=0;
-        for(unsigned group=0;group<(timed ? 24u*40u+1u : 25u);++group) {
+        VoiceSet changed=0;
+        for(unsigned group=0;group<(timed ? voiceCapacity*40u+1u : voiceCapacity+1u);++group) {
             const auto result=slice!=ControlSlice::pass
                 ? resumeControlPhase(installed,parts,allocator,data,conversion,waves,read,write,dispatchCompletion,timed)
                 : resumeControlPass(installed,parts,allocator,data,conversion,waves,read,write,dispatchCompletion);
@@ -543,22 +545,22 @@ public:
     struct ControlStep
     {
         ControlProgress status;
-        uint32_t updatedMask = 0; // Cumulative for this pass, including early exits.
-        uint32_t changedMask = 0; // This resume only; prior owners may have been replaced.
+        VoiceSet updatedMask = 0; // Cumulative for this pass, including early exits.
+        VoiceSet changedMask = 0; // This resume only; prior owners may have been replaced.
     };
 
     // One serialized pass; no allocation, clock advancement or event parsing.
     // Failure can follow partial DSP/device mutation. Reconstruct/reprepare the
     // runtime after failure; repeated calls never replay an incomplete pass.
     template<class Read,class Write>
-    std::optional<uint32_t> advance(uint16_t ticks,const VoiceInstallationState& installed,
+    std::optional<VoiceSet> advance(uint16_t ticks,const VoiceInstallationState& installed,
         const PartControllerState& parts,VoiceAllocator& allocator,const SoundData& data,
         const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
         // The synchronous caller cannot yield to PCM/startup midway through.
         if (startupPending()) return std::nullopt;
         if (!beginControlPass(ticks)) return std::nullopt;
-        for (unsigned step = 0; step <= 24; ++step)
+        for (unsigned step = 0; step <= voiceCapacity; ++step)
         {
             const auto result = resumeControlPass(installed,parts,allocator,data,conversion,waves,read,write);
             if (result.status == ControlProgress::complete) return result.updatedMask;
@@ -581,7 +583,7 @@ public:
     std::optional<uint8_t> controlVoice() const noexcept { return pass_.currentVoice(); }
     VoiceCalculationStage controlCalculationStage() const noexcept { return calculationStage_; }
 
-    bool voiceCompletionPending() const noexcept { return pendingReturn_<24; }
+    bool voiceCompletionPending() const noexcept { return pendingReturn_<voiceCapacity; }
 
     // The engine dispatches task1's completion event after its command queue.
     // Serialized with admission; no PCM operation or time advancement here.
@@ -591,9 +593,9 @@ public:
         // Do not interleave another task1 operation with an admitted note's
         // installation. Keep the mailbox until that operation hands off.
         if (preparationPending()) return true;
-        if (pendingReturn_ >= 24) return true;
+        if (pendingReturn_ >= voiceCapacity) return true;
         if (!allocator.returnVoice(pendingReturn_)) { failed_ = true; return false; }
-        pendingReturn_ = 24;
+        pendingReturn_ = voiceCapacity;
         return true;
     }
 
@@ -628,7 +630,7 @@ private:
         if (!controlPending()) return {ControlProgress::idle};
         // The completion notification is consumed before this low-priority
         // control pass resumes its scan. Keep the single mailbox owned here.
-        if(pendingReturn_<24) {
+        if(pendingReturn_<voiceCapacity) {
             if(!dispatchCompletion) return {ControlProgress::deferred,controlUpdated_};
             if(!consumeVoiceCompletion(allocator)) return {ControlProgress::failed,controlUpdated_};
             return {ControlProgress::updatedGroup,controlUpdated_,0};
@@ -641,19 +643,19 @@ private:
         auto& links = allocator.pcmLinks;
         const auto& depths = data.modulationPreparation()->depths.pitch;
         const auto ticks = controlTicks_;
-        uint32_t reserved=0,changed=0;
-        if(startupPending()) for(unsigned i=0;i<pendingStart_.count;++i) reserved|=1u<<startSlots_[i];
+        VoiceSet reserved=0,changed=0;
+        if(startupPending()) for(unsigned i=0;i<pendingStart_.count;++i) reserved|=VoiceSet::single(startSlots_[i]);
         // Installation, boundary IRQ and release commands can change voice
         // owners between groups. The pass retains traversal, not stale stages
         // or preparation inputs from its beginning.
-        std::array<uint16_t,24> stages;
+        std::array<uint16_t,voiceCapacity> stages;
         const bool selecting=pass_.phase()==PeriodicVoiceUpdatePass::Phase::select;
         const bool routing=pass_.phase()==PeriodicVoiceUpdatePass::Phase::firstModulation;
-        for(unsigned slot=0;(selecting || routing) && slot<24;++slot) {
+        for(unsigned slot=0;(selecting || routing) && slot<voiceCapacity;++slot) {
             // Prepared destinations waiting for old gain decay are not
             // periodic owners yet. H8 scans their preparation/stop stages
             // (18 or higher) and moves on, rather than waiting at that slot.
-            stages[slot]=(reserved&(1u<<slot)) ? 18 : voices[slot] ? voices[slot]->lifecycle.stages[0] : 18;
+            stages[slot]=(reserved&(VoiceSet::single(slot))) ? 18 : voices[slot] ? voices[slot]->lifecycle.stages[0] : 18;
         }
         if(reserved && pass_.phase()==PeriodicVoiceUpdatePass::Phase::select) {
             // 5710..573e yields while the old gain decays. Other groups may
@@ -663,9 +665,9 @@ private:
             const auto selected=SelectNextVoiceUpdate(pass_.cursor(),stages,visited,links);
             if(!selected) return fail();
             for(unsigned i=0;i<selected->count;++i)
-                if(reserved&(1u<<selected->slots[i])) return {ControlProgress::deferred,controlUpdated_};
+                if(reserved&(VoiceSet::single(selected->slots[i]))) return {ControlProgress::deferred,controlUpdated_};
         }
-        for(unsigned slot=0;(selecting || routing) && slot<24;++slot) if(!(reserved&(1u<<slot)))
+        for(unsigned slot=0;(selecting || routing) && slot<voiceCapacity;++slot) if(!(reserved&(VoiceSet::single(slot))))
             first[slot].firstStage=second[slot].firstStage=stages[slot];
         const auto refresh = [&](const VoiceUpdateSelection& selected) {
             for (unsigned i = 0; i < selected.count; ++i)
@@ -757,13 +759,13 @@ private:
                 // 33dc publishes a completion; 07d0 consumes the mailbox.
                 // Do not free the voice inside the envelope calculation.
                 if (*termination == EnvelopeTermination::notifyAllocator) {
-                    if(pendingReturn_<24) return Outcome::invalidInput;
+                    if(pendingReturn_<voiceCapacity) return Outcome::invalidInput;
                     pendingReturn_=uint8_t(slot);
                 }
             }
             stages[slot] = first[slot].firstStage = second[slot].firstStage = voice.lifecycle.stages[0];
-            controlUpdated_ |= 1u<<slot;
-            changed |= 1u<<slot;
+            controlUpdated_ |= VoiceSet::single(slot);
+            changed |= VoiceSet::single(slot);
             return result == VoiceControlResult::invalidInput ? Outcome::invalidInput
                 : result != VoiceControlResult::updated ? Outcome::skipRemaining : Outcome::proceed;
         };
@@ -784,7 +786,7 @@ private:
                 return finishUpdate(slot,VoiceControlResult::stopped);
             calculationStage_=VoiceCalculationStage::modulation;
             secondUpdate_={};
-            changed|=1u<<slot;
+            changed|=VoiceSet::single(slot);
             return PeriodicVoiceUpdatePass::UpdateResult::proceed;
         };
         const auto update = [&](unsigned slot) {
@@ -799,7 +801,7 @@ private:
 #endif
             if(calculationStage_==VoiceCalculationStage::modulation && !secondUpdate_.pending()) {
                 const auto source=secondSources[slot];
-                if(source<24) second[source].firstStage=voices[source] ? voices[source]->lifecycle.stages[0] : 18;
+                if(source<voiceCapacity) second[source].firstStage=voices[source] ? voices[source]->lifecycle.stages[0] : 18;
             }
             // A normal control pass has no interleaving between a voice's
             // calculations. Run the existing semantic update once, instead
@@ -862,7 +864,7 @@ private:
                 return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
             if(result==VoiceControlResult::updated && calculationStage_!=VoiceCalculationStage::level) {
                 calculationStage_=VoiceCalculationStage(unsigned(calculationStage_)+1);
-                changed|=1u<<slot;
+                changed|=VoiceSet::single(slot);
                 return PeriodicVoiceUpdatePass::UpdateResult::continueCalculation;
             }
             return finishUpdate(slot,result);
@@ -887,7 +889,7 @@ private:
             if(result!=PeriodicVoiceUpdatePass::Result::advanced) break;
         }
         if(!singlePhase && result==PeriodicVoiceUpdatePass::Result::advanced) return fail();
-        if(pendingReturn_<24) {
+        if(pendingReturn_<voiceCapacity) {
             if(!dispatchCompletion) return {ControlProgress::deferred,controlUpdated_,changed};
             if(singlePhase) return {ControlProgress::advancedPhase,controlUpdated_,changed};
             // Immediate callers drain the same notification before returning;
@@ -946,10 +948,10 @@ private:
 #endif
     FirstVoiceModulationUpdate firstUpdate_;
     VoiceModulationUpdate secondUpdate_;
-    uint8_t pendingReturn_=24;
+    uint8_t pendingReturn_=voiceCapacity;
     bool firstUpdatePending_=false;
     uint16_t controlTicks_ = 0;
-    uint32_t controlUpdated_ = 0;
+    VoiceSet controlUpdated_ = 0;
     bool controlPending_ = false;
     bool scheduledPass_ = false;
     bool failed_ = false;

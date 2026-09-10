@@ -96,7 +96,7 @@ SettingsComponent::SettingsComponent ()
 
     sliderVoices.reset (new juce::Slider (juce::String()));
     contentComponent.addAndMakeVisible (sliderVoices.get());
-    sliderVoices->setRange (24, 128, 8);
+    sliderVoices->setRange (24, 128, 4);
     sliderVoices->setSliderStyle (juce::Slider::LinearHorizontal);
     sliderVoices->setTextBoxStyle (juce::Slider::TextBoxRight, false, 80, 20);
     sliderVoices->addListener (this);
@@ -121,6 +121,9 @@ SettingsComponent::SettingsComponent ()
 
     //[Constructor] You can add your own custom stuff here..
     toggleOptimization->setTooltip ("ON: C++ engine. OFF: H8 emulation. Switching resets the sound engine; restart playback from the beginning.");
+    sliderVoices->setValue (24, juce::dontSendNotification);
+    sliderVoices->setChangeNotificationOnlyOnRelease (true);
+    sliderVoices->setTooltip ("C++ engine polyphony: 24–128 voices. Changing this resets the sound engine; restart playback from the beginning. H8 remains at 24 voices.");
     viewport->setVisible (false);
 
     labelCurrentRomCaption->setColour (juce::Label::textColourId,
@@ -259,6 +262,8 @@ void SettingsComponent::sliderValueChanged (juce::Slider* sliderThatWasMoved)
     if (sliderThatWasMoved == sliderVoices.get())
     {
         //[UserSliderCode_sliderVoices] -- add your slider handling code here..
+        if (onVoicesChanged)
+            onVoicesChanged (static_cast<unsigned> (sliderVoices->getValue()));
         //[/UserSliderCode_sliderVoices]
     }
 
@@ -387,7 +392,7 @@ BEGIN_JUCER_METADATA
          fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
   <SLIDER name="" id="6ae5429c6a975756" memberName="sliderVoices" virtualName=""
           explicitFocusOrder="0" pos="120 112 208 24" min="24.0" max="128.0"
-          int="8.0" style="LinearHorizontal" textBoxPos="TextBoxRight"
+          int="4.0" style="LinearHorizontal" textBoxPos="TextBoxRight"
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
   <TOGGLEBUTTON name="" id="b655948b5f5d1e98" memberName="toggleOptimization"

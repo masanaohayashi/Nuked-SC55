@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_patch.h"
 #include "sc55_sample_bank.h"
 #include "sc55_pitch.h"
@@ -123,12 +124,12 @@ inline std::optional<PartialSamplePcm> PreparePartialSamplePcm(
     const PartialSamplePlan& plan,const SampleBank& samples,unsigned channel,
     bool unoffsetStart,uint8_t historyNibble) noexcept
 {
-    if (channel >= 24 || (plan.sampleId & 0x8000)) return std::nullopt;
+    if (channel >= voiceCapacity || (plan.sampleId & 0x8000)) return std::nullopt;
     const auto* descriptor = samples.sample(plan.sampleId);
     const auto& addresses = unoffsetStart ? plan.unoffsetStart : plan.normalStart;
     if (!descriptor || !addresses) return std::nullopt;
     const auto control = DecodeSampleControl(addresses->loop,descriptor->data[10],uint8_t(channel),historyNibble);
-    return PartialSamplePcm{{control.mode,addresses->start,addresses->loop,addresses->end},control.loopFlag};
+    return PartialSamplePcm{{control.mode,addresses->start,addresses->loop,addresses->end,uint8_t(channel)},control.loopFlag};
 }
 
 // Inputs are note/part state and owned sound data, never CPU registers or ROM

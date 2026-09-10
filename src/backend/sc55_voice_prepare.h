@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_note_setup.h"
 #include "sc55_note_start.h"
 #include "sc55_voice_control.h"
@@ -68,17 +69,17 @@ struct DispatchedNormalVoiceInputs
 inline std::optional<DispatchedNormalVoiceInputs> DispatchNormalVoiceInputs(
     const MelodicNoteVelocity& selection,const InstalledPartialSamples& samples,
     const std::array<NormalPartialDspInputs,2>& inputs,
-    std::array<VoiceStopState,24>& lifecycle,const VoiceLinks& links,
-    std::array<uint8_t,24>& activity) noexcept
+    std::array<VoiceStopState,voiceCapacity>& lifecycle,const VoiceLinks& links,
+    std::array<uint8_t,voiceCapacity>& activity) noexcept
 {
     std::array<std::optional<NormalVoicePreparationEntry>,2> byPartial{};
-    unsigned count = 0; uint32_t slots = 0;
+    unsigned count = 0; VoiceSet slots = 0;
     for (unsigned partial = 0; partial < 2; ++partial)
     {
         if (!samples[partial] || !samples[partial]->installed) continue;
         const auto& sample = *samples[partial]; const auto& installed = *sample.installed;
         const auto& input = inputs[partial];
-        if (sample.slot >= 24 || (sample.sample.sampleId&0x8000)
+        if (sample.slot >= voiceCapacity || (sample.sample.sampleId&0x8000)
             || installed.input.tone != selection.tone || installed.input.partial != partial
             || installed.input.sample != sample.sample.sampleId
             || !selection.partials.partials[partial]
@@ -86,11 +87,11 @@ inline std::optional<DispatchedNormalVoiceInputs> DispatchNormalVoiceInputs(
         // Both partial installations have already run in firmware order.
         // When partial1 falls back onto partial0's slot, task2 sees only the
         // final metadata. Do not dispatch two DSP owners for one PCM voice.
-        if(slots&(1u<<sample.slot)) {
+        if(slots&(VoiceSet::single(sample.slot))) {
             for(auto& previous:byPartial)
                 if(previous && previous->slot==sample.slot) { previous.reset(); --count; }
         }
-        slots |= 1u<<sample.slot; ++count;
+        slots |= VoiceSet::single(sample.slot); ++count;
         const auto& velocity = *selection.partials.partials[partial];
         byPartial[partial] = NormalVoicePreparationEntry{sample.slot,
             {installed,sample.sample,velocity.amplitude,velocity.secondary,input.sourceKey,
@@ -102,12 +103,12 @@ inline std::optional<DispatchedNormalVoiceInputs> DispatchNormalVoiceInputs(
     const auto task = DispatchNextVoiceTask(pending,links,nextActivity);
     if (!task || task->kind != VoiceTaskDispatch::Kind::prepare || task->count != count) return std::nullopt;
     DispatchedNormalVoiceInputs result; result.count = count;
-    uint32_t selected = 0;
+    VoiceSet selected = 0;
     for (unsigned i = 0; i < count; ++i)
     {
         const auto slot = task->slots[i];
-        if (slot >= 24 || !(slots&(1u<<slot)) || (selected&(1u<<slot))) return std::nullopt;
-        selected |= 1u<<slot;
+        if (slot >= voiceCapacity || !(slots&(VoiceSet::single(slot))) || (selected&(VoiceSet::single(slot)))) return std::nullopt;
+        selected |= VoiceSet::single(slot);
         for (const auto& entry : byPartial)
             if (entry && entry->slot == slot)
             { result.entries[i] = *entry; result.entries[i].lifecycle = pending[slot]; }
@@ -127,8 +128,8 @@ public:
     enum class Progress { advanced, complete, failed };
     static std::optional<NormalVoiceDspPreparation> begin(
         std::span<const NormalVoicePreparationEntry> entries,const PartControllerState& controllers,
-        std::array<FirstModulationVoice,24>& first,std::array<VoiceModulation,24>& second,
-        std::array<uint8_t,24>& secondSources,const SoundData& data)
+        std::array<FirstModulationVoice,voiceCapacity>& first,std::array<VoiceModulation,voiceCapacity>& second,
+        std::array<uint8_t,voiceCapacity>& secondSources,const SoundData& data)
     {
         if (entries.empty() || entries.size() > 2
             || (entries.size() == 2 && entries[0].slot == entries[1].slot)
@@ -144,7 +145,7 @@ public:
         {
             const auto& entry = entries[i]; const auto& request = entry.request;
             const auto& installed = request.installed; const auto& input = installed.input;
-            if (entry.slot >= 24 || input.partial >= 2 || input.part >= 16 || input.originalKey >= 128
+            if (entry.slot >= voiceCapacity || input.partial >= 2 || input.part >= 16 || input.originalKey >= 128
                 || input.sample != request.sample.sampleId || (!(installed.flags&128) && !entry.continuing)
                 || entry.lifecycle.pendingOperation != VoiceOperation::none
                 || request.firstControls.rateControl > 127 || request.firstControls.depthControl > 127
@@ -192,7 +193,7 @@ public:
             auto& prepared = *result.voices[i];
             const auto previousFirstRate = first[slot].block.rateIndex;
             const bool restarting=(entries[i].request.installed.flags&128)!=0;
-            if (restarting) { first[slot] = {}; second[slot] = {}; secondSources[slot] = 24; }
+            if (restarting) { first[slot] = {}; second[slot] = {}; secondSources[slot] = voiceCapacity; }
             // 3d1a preserves the destination's rate index; only3891 sets it.
             first[slot].block.rateIndex = previousFirstRate;
             first[slot].commonIdentity = input.tone;
@@ -217,8 +218,8 @@ public:
     }
 
     template<class Read,class Write>
-    Progress resume(std::array<FirstModulationVoice,24>& first,std::array<VoiceModulation,24>& second,
-        std::array<uint8_t,24>& secondSources,const SoundData& data,
+    Progress resume(std::array<FirstModulationVoice,voiceCapacity>& first,std::array<VoiceModulation,voiceCapacity>& second,
+        std::array<uint8_t,voiceCapacity>& secondSources,const SoundData& data,
         const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
         if(failed_) return Progress::failed;
@@ -237,7 +238,7 @@ public:
 private:
     NormalVoiceDspPreparation()=default;
     template<class Read,class Write>
-    bool initializeFirst(std::array<FirstModulationVoice,24>& first,const SoundData& data,
+    bool initializeFirst(std::array<FirstModulationVoice,voiceCapacity>& first,const SoundData& data,
         const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
         const auto& entries=entries_; auto& result=result_;
@@ -259,8 +260,8 @@ private:
         return true;
     }
     template<class Read,class Write>
-    bool prepareVoice(unsigned i,std::array<FirstModulationVoice,24>& first,
-        std::array<VoiceModulation,24>& second,std::array<uint8_t,24>& secondSources,const SoundData& data,
+    bool prepareVoice(unsigned i,std::array<FirstModulationVoice,voiceCapacity>& first,
+        std::array<VoiceModulation,voiceCapacity>& second,std::array<uint8_t,voiceCapacity>& secondSources,const SoundData& data,
         const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
         const auto& entries=entries_; auto& result=result_; auto& secondSetup=secondSetup_;
@@ -336,8 +337,8 @@ private:
 template<class Read,class Write>
 std::optional<PreparedNormalVoiceBatch> PrepareNormalVoicesDsp(
     std::span<const NormalVoicePreparationEntry> entries,const PartControllerState& controllers,
-    std::array<FirstModulationVoice,24>& first,std::array<VoiceModulation,24>& second,
-    std::array<uint8_t,24>& secondSources,const SoundData& data,
+    std::array<FirstModulationVoice,voiceCapacity>& first,std::array<VoiceModulation,voiceCapacity>& second,
+    std::array<uint8_t,voiceCapacity>& secondSources,const SoundData& data,
     const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
 {
     auto operation=NormalVoiceDspPreparation::begin(entries,controllers,first,second,secondSources,data);
@@ -354,8 +355,8 @@ template<class Read,class Write>
 std::optional<PreparedNormalVoice> PrepareNormalVoiceDsp(unsigned slot,
     const NormalVoicePreparationInputs& request,const VoiceStopState& lifecycle,
     const PreparedPartPitch& previousPitch,const PartControllerState& controllers,
-    std::array<FirstModulationVoice,24>& first,std::array<VoiceModulation,24>& second,
-    std::array<uint8_t,24>& secondSources,const SoundData& data,
+    std::array<FirstModulationVoice,voiceCapacity>& first,std::array<VoiceModulation,voiceCapacity>& second,
+    std::array<uint8_t,voiceCapacity>& secondSources,const SoundData& data,
     const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
 {
     const NormalVoicePreparationEntry entry{slot,request,lifecycle,previousPitch};

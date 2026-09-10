@@ -43,4 +43,6 @@ if(SC55_ROM_DIRECTORY)
     enable_testing()
     add_test(NAME native-without-h8
         COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}")
+    add_test(NAME native-polyphony
+        COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" polyphony)
 endif()

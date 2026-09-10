@@ -20,5 +20,6 @@ struct VoiceRenderStart
     uint32_t start=0,loop=0,end=0;
     uint16_t mode=0;
     VoiceRenderUpdate controls;
+    uint8_t pitchSource=255;
 };
 }

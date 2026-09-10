@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_note_dispatch.h"
 #include "sc55_voice_lifecycle.h"
 #include "sc55_controller_scale.h"
@@ -221,10 +222,10 @@ struct VoiceUpdateSelection
 };
 
 inline std::optional<VoiceUpdateSelection> SelectNextVoiceUpdate(uint8_t start,
-    std::span<const uint16_t,24> stages,std::span<uint8_t,24> visited,
+    std::span<const uint16_t,voiceCapacity> stages,std::span<uint8_t,voiceCapacity> visited,
     const VoiceLinks& links) noexcept
 {
-    if (start >= 24 && start != 255) return std::nullopt;
+    if (start >= voiceCapacity && start != 255) return std::nullopt;
     // 255 resumes after slot0: finish this pass and clear all visited bytes.
     for (unsigned n = start == 255 ? 0 : unsigned(start)+1; n > 0; --n)
     {
@@ -233,12 +234,12 @@ inline std::optional<VoiceUpdateSelection> SelectNextVoiceUpdate(uint8_t start,
         VoiceUpdateSelection result{{slot,255},1,uint8_t(slot == 0 ? 255 : slot-1)};
         if (links.first[slot] != 255)
         {
-            if (links.first[slot] >= 24) return std::nullopt;
+            if (links.first[slot] >= voiceCapacity) return std::nullopt;
             result.slots = {links.first[slot],slot}; result.count = 2;
         }
         else if (links.second[slot] != 255)
         {
-            if (links.second[slot] >= 24) return std::nullopt;
+            if (links.second[slot] >= voiceCapacity) return std::nullopt;
             result.slots[1] = links.second[slot]; result.count = 2;
         }
         return result;
@@ -252,12 +253,12 @@ inline std::optional<VoiceUpdateSelection> SelectNextVoiceUpdate(uint8_t start,
 // Do not touch oscillator/envelope state, visited flags or scheduling here.
 inline bool RefreshSelectedVoiceControllers(const VoiceUpdateSelection& selection,
     const VoiceInstallationState& installed,const PartControllerState& parts,
-    std::span<VoiceControllerState,24> controllers) noexcept
+    std::span<VoiceControllerState,voiceCapacity> controllers) noexcept
 {
     if (selection.count > 2) return false;
     if (!selection.count) return true;
     for (unsigned i = 0; i < selection.count; ++i)
-        if (selection.slots[i] >= 24) return false;
+        if (selection.slots[i] >= voiceCapacity) return false;
     const auto first = selection.slots[0];
     const auto& voice = installed.voices[first].input;
     const auto input = parts.inputs(voice.part,voice.originalKey);
@@ -279,11 +280,11 @@ public:
     enum class UpdateResult { invalidInput, proceed, continueCalculation, skipRemaining };
     enum class Phase { select, firstModulation, pairedModulation, readback, calculate, publish };
     void reset() noexcept {
-        cursor_ = 23; visited_.fill(0); failed_ = complete_ = false;
+        cursor_ = voiceCapacity-1; visited_.fill(0); failed_ = complete_ = false;
         phase_=Phase::select; selected_={}; index_=0;
     }
     uint8_t cursor() const noexcept { return cursor_; }
-    const std::array<uint8_t,24>& visited() const noexcept { return visited_; }
+    const std::array<uint8_t,voiceCapacity>& visited() const noexcept { return visited_; }
     Phase phase() const noexcept { return phase_; }
     std::optional<uint8_t> currentVoice() const noexcept
     {
@@ -292,7 +293,7 @@ public:
     }
 
     template<class Controllers,class First,class PairedFirst,class Update,class Write>
-    Result step(std::span<const uint16_t,24> stages,const VoiceLinks& links,
+    Result step(std::span<const uint16_t,voiceCapacity> stages,const VoiceLinks& links,
         Controllers&& controllers,First&& first,PairedFirst&& pairedFirst,
         Update&& update,Write&& write)
     {
@@ -308,7 +309,7 @@ public:
     // references to caller buffers or H8 execution state. While a group is
     // pending its voice owners must not be replaced. PCM may run between calls.
     template<class Controllers,class First,class PairedFirst,class Readback,class Update,class Write>
-    Result stepPhase(std::span<const uint16_t,24> stages,const VoiceLinks& links,
+    Result stepPhase(std::span<const uint16_t,voiceCapacity> stages,const VoiceLinks& links,
         Controllers&& controllers,First&& first,PairedFirst&& pairedFirst,
         Readback&& readback,Update&& update,Write&& write)
     {
@@ -363,8 +364,8 @@ public:
         return ++index_==selected_.count ? finish() : Result::advanced;
     }
 private:
-    std::array<uint8_t,24> visited_{};
-    uint8_t cursor_ = 23;
+    std::array<uint8_t,voiceCapacity> visited_{};
+    uint8_t cursor_ = voiceCapacity-1;
     VoiceUpdateSelection selected_{};
     uint8_t index_=0;
     Phase phase_=Phase::select;
@@ -389,7 +390,7 @@ inline std::optional<VoicePreparationContext> PrepareVoiceContext(unsigned slot,
     const InstalledVoice& installed,uint8_t& activity) noexcept
 {
     const auto& input = installed.input;
-    if (slot >= 24 || input.part >= 16 || input.partial >= 2 || (input.sample&0x8000)) return std::nullopt;
+    if (slot >= voiceCapacity || input.part >= 16 || input.partial >= 2 || (input.sample&0x8000)) return std::nullopt;
     using Table = VoicePreparationContext::KeyTable;
     const auto table = input.sampleMode&128 ? Table::none : input.sampleMode == 0 ? Table::first : Table::second;
     VoicePreparationContext result{uint8_t(slot),input.part,input.partial,installed.flags,
@@ -410,10 +411,10 @@ struct VoiceTaskDispatch
 // A task4 completes the stop-stage transition at54f0..5517. Reject corrupt
 // task/link values before mutation instead of indexing an H8 jump table.
 inline std::optional<VoiceTaskDispatch> DispatchNextVoiceTask(
-    std::array<VoiceStopState,24>& voices,const VoiceLinks& links,
-    std::span<uint8_t,24> activity) noexcept
+    std::array<VoiceStopState,voiceCapacity>& voices,const VoiceLinks& links,
+    std::span<uint8_t,voiceCapacity> activity) noexcept
 {
-    for (unsigned n = 24; n > 0; --n)
+    for (unsigned n = voiceCapacity; n > 0; --n)
     {
         const auto slot = uint8_t(n-1);
         const auto task = voices[slot].pendingOperation;
@@ -426,12 +427,12 @@ inline std::optional<VoiceTaskDispatch> DispatchNextVoiceTask(
             const auto first = links.first[slot], second = links.second[slot];
             if (first != 255)
             {
-                if (first >= 24) return std::nullopt;
+                if (first >= voiceCapacity) return std::nullopt;
                 result.slots = {first,slot}; result.count = 2;
             }
             else if (second != 255)
             {
-                if (second >= 24) return std::nullopt;
+                if (second >= voiceCapacity) return std::nullopt;
                 result.slots = {slot,second}; result.count = 2;
             }
         }
@@ -455,7 +456,7 @@ bool RestartAndInstallVoice(unsigned slot,VoiceInstallationInput input,uint8_t& 
     VoiceAllocator& allocator,VoiceInstallationState& installation,VoiceStopState& lifecycle,
     Read&& read,Write&& write)
 {
-    if (slot >= 24) return false;
+    if (slot >= voiceCapacity) return false;
     const bool restart = (flags&128) != 0;
     input.restarted = input.restarted || restart;
     auto checkedAllocator = allocator;

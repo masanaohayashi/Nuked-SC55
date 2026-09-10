@@ -21,7 +21,8 @@ public:
     NativeSynth(std::span<const uint8_t> encoded,
         const std::vector<uint8_t>& rom1,const std::vector<uint8_t>& rom2,
         std::span<const uint8_t> wave1,std::span<const uint8_t> wave2,
-        std::span<const uint8_t> wave3,VoiceRendering rendering=VoiceRendering::referenceChip)
+        std::span<const uint8_t> wave3,VoiceRendering rendering=VoiceRendering::referenceChip,
+        unsigned maximumVoices=24)
         : pcm_(std::make_unique<pcm_t>())
     {
         if(!CanImportSoundData(rom1,rom2) || !data_.loadEncoded(encoded))
@@ -33,6 +34,11 @@ public:
         };
         copy(pcm_->waverom1,wave1); copy(pcm_->waverom2,wave2); copy(pcm_->waverom3,wave3);
         pcm_->is_mk1=true;
+        if(maximumVoices<24 || maximumVoices>voiceCapacity || maximumVoices%4)
+            throw std::runtime_error("Invalid native voice limit");
+        pcm_->native_voice_count=maximumVoices;
+        // Expanded polyphony uses the integer renderer and one shared effect unit.
+        if(maximumVoices>24) rendering=VoiceRendering::referenceChip;
         pcm_->output_context=this;
         pcm_->output_sample=[](void* context,const AudioFrame<int32_t>& frame) {
             auto& synth=*static_cast<NativeSynth*>(context);
@@ -138,7 +144,8 @@ public:
     {
         SynthState result;
         result.renderedFrames=signal_ ? signal_->renderedFrames() : pcm_->cycles/625;
-        result.activeVoiceMask=signal_ ? signal_->voiceKeys() : pcm_->voice_mask&pcm_->voice_mask_pending;
+        result.keyedVoices=signal_ ? VoiceSet(signal_->voiceKeys()) : pcm_->native_keys;
+        result.activeVoiceMask=result.keyedVoices.lowWord();
         result.failed=failed();
         result.selectedPart=selectedPart_;
         result.allSelected=allSelected_; result.globalMuted=player_->globallyMuted();

@@ -6,6 +6,7 @@
 
 namespace sc55
 {
+inline constexpr unsigned voiceCapacity = 128;
 // Logical voice identities, independent of the PCM chip's 28 writable key bits.
 // No implicit integer conversion: the hardware mask must never silently truncate
 // logical voices 32..127. Portable to MSVC as well as Clang (no __int128).
@@ -13,6 +14,17 @@ class VoiceSet
 {
 public:
     static constexpr unsigned capacity = 128;
+    constexpr VoiceSet() noexcept = default;
+    // Legacy import/export is explicitly limited to the low hardware word.
+    constexpr VoiceSet(uint32_t low) noexcept : words_{low,0,0,0} {}
+    constexpr uint32_t lowWord() const noexcept { return words_[0]; }
+    constexpr explicit operator bool() const noexcept { return !empty(); }
+    static constexpr VoiceSet single(unsigned voice) noexcept
+    { VoiceSet result; result.set(voice); return result; }
+    friend constexpr VoiceSet operator|(VoiceSet a,const VoiceSet& b) noexcept { return a|=b; }
+    friend constexpr VoiceSet operator&(VoiceSet a,const VoiceSet& b) noexcept { return a&=b; }
+    friend constexpr VoiceSet operator~(VoiceSet a) noexcept
+    { for(auto& word:a.words_) word=~word; return a; }
 
     constexpr bool contains(unsigned voice) const noexcept
     {

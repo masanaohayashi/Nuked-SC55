@@ -710,6 +710,16 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
             settingsComponent->setAudioDeviceManager (&holder->deviceManager);
 #endif
     settingsComponent->setOnImportRom ([this] { showRomFileChooser(); });
+    settingsComponent->setOnVoicesChanged ([this] (unsigned voices)
+    {
+        const bool changed = audioProcessor.setMaximumVoices (voices);
+        settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
+                                          audioProcessor.isOptimizationEnabled(), true);
+        syncFrontPanelIndicators();
+        if (! changed)
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                "Voice limit change failed", audioProcessor.getUiStatus().error);
+    });
     settingsComponent->setOnOptimizationChanged ([this] (bool enabled)
     {
         const bool switched = audioProcessor.setOptimizationEnabled (enabled);
@@ -1548,6 +1558,8 @@ void NukedSC55AudioProcessorEditor::refreshRomChoices()
     const auto uiStatus = audioProcessor.getUiStatus();
     settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
     settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
+    settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
+                                      audioProcessor.isOptimizationEnabled());
     const auto selectedRomName = uiStatus.romDirectory.isEmpty()
                                ? juce::String()
                                : juce::File (uiStatus.romDirectory).getFileName();
@@ -1607,6 +1619,8 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
         settingsComponent->setSelectedRomName (selectedRomName);
         settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
         settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
+        settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
+                                          audioProcessor.isOptimizationEnabled());
     }
     syncPlaybackControls();
 }

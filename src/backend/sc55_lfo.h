@@ -17,6 +17,7 @@
 // 波形は 7 種類（ジャンプテーブルの有効エントリ 0..6）:
 //   [0] 正弦   [1] 矩形   [2] 鋸   [3] 台形状   [4][5][6] ランダム（平滑量違い）
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_control_random.h"
 
 #include <cmath>
@@ -402,7 +403,7 @@ inline bool InitializeSharedFirstModulationBlock(ModulationBlock& block,
 
 struct FirstModulationSharing
 {
-    uint8_t source = 24; // Voice index; 24 means no source.
+    uint8_t source = voiceCapacity; // Voice index; voiceCapacity means no source.
     uint8_t baseRate = 0, sharing = 0;
 };
 
@@ -412,7 +413,7 @@ inline bool InitializeSharedFirstModulation(ModulationBlock& block,FirstModulati
     const ModulationBlock& source,const FirstModulationSharing& sourceSharing,
     uint8_t pitchDepth,uint8_t depthControl,const std::array<uint16_t,128>& depths) noexcept
 {
-    if (sourceSharing.source > 24 || depthControl > 127) return false;
+    if (sourceSharing.source > voiceCapacity || depthControl > 127) return false;
     InitializeSharedFirstModulationBlock(block,source,pitchDepth,depthControl,depths);
     sharing = sourceSharing;
     return true;
@@ -452,12 +453,12 @@ struct FirstModulationVoice
 };
 
 // 38a5..38df: highest matching voice wins. The current slot is excluded;
-// stage 12 is eligible, but later stages are not. 24 = none, 25 = bad input.
+// stage 12 is eligible, but later stages are not. voiceCapacity = none, (voiceCapacity+1) = bad input.
 inline uint8_t SelectFirstModulationSource(unsigned channel,uint8_t mode,
-    const std::array<FirstModulationVoice,24>& voices) noexcept
+    const std::array<FirstModulationVoice,voiceCapacity>& voices) noexcept
 {
-    if (channel >= voices.size()) return 25;
-    if ((mode&16) == 0) return 24;
+    if (channel >= voices.size()) return (voiceCapacity+1);
+    if ((mode&16) == 0) return voiceCapacity;
     const auto& voice = voices[channel];
     for (unsigned i = voices.size(); i-- > 0;)
     {
@@ -466,14 +467,14 @@ inline uint8_t SelectFirstModulationSource(unsigned channel,uint8_t mode,
             && candidate.commonBank == voice.commonBank && candidate.commonIdentity == voice.commonIdentity)
             return uint8_t(i);
     }
-    return 24;
+    return voiceCapacity;
 }
 
 // 3899..3984 plus shared tail. Caller supplies the current common-record
 // inputs and owns stable voice lifetimes throughout this bounded operation.
 template<class Read,class Write>
 ModulationRoute InitializeFirstVoiceModulation(unsigned channel,
-    std::array<FirstModulationVoice,24>& voices,const FirstModulationInputs& input,
+    std::array<FirstModulationVoice,voiceCapacity>& voices,const FirstModulationInputs& input,
     const std::array<uint16_t,256>& timing,const std::array<uint16_t,128>& depths,
     const std::array<uint16_t,256>& rates,const LfoWaveformTables& tables,Read&& read,Write&& write)
 {
@@ -481,8 +482,8 @@ ModulationRoute InitializeFirstVoiceModulation(unsigned channel,
         return ModulationRoute::invalidInput;
     const auto source = SelectFirstModulationSource(channel,input.mode,voices);
     auto next = voices[channel];
-    next.sharing.source = 24; next.sharing.sharing = 0;
-    if (source < 24)
+    next.sharing.source = voiceCapacity; next.sharing.sharing = 0;
+    if (source < voiceCapacity)
     {
         if (!InitializeSharedFirstModulation(next.block,next.sharing,voices[source].block,voices[source].sharing,
             input.pitchDepth,input.depthControl,depths)) return ModulationRoute::invalidInput;
@@ -493,7 +494,7 @@ ModulationRoute InitializeFirstVoiceModulation(unsigned channel,
         next.sharing.baseRate = input.baseRate;
     }
     voices[channel] = next;
-    return source < 24 ? ModulationRoute::shared : ModulationRoute::local;
+    return source < voiceCapacity ? ModulationRoute::shared : ModulationRoute::local;
 }
 
 // 3d44 shared periodic tail, also called unconditionally for the second
@@ -519,7 +520,7 @@ class FirstVoiceModulationUpdate
 {
 public:
     enum class Result { invalidInput, ready, shared, stageChanged, updated };
-    Result begin(unsigned channel,std::array<FirstModulationVoice,24>& voices,
+    Result begin(unsigned channel,std::array<FirstModulationVoice,voiceCapacity>& voices,
         uint8_t pitchDepth,uint8_t depthControl,const std::array<uint16_t,128>& depths) noexcept
     {
         if (pending_ || channel >= voices.size() || depthControl > 127) return Result::invalidInput;
@@ -538,7 +539,7 @@ public:
                 UpdatePairedFirstModulation(voice,other,pitchDepth,depthControl,depths);
                 return Result::shared;
             }
-            voice.sharing.source = 24; voice.sharing.sharing = 0;
+            voice.sharing.source = voiceCapacity; voice.sharing.sharing = 0;
             for (unsigned i = 0; i < voices.size(); ++i)
                 if (i != channel && voices[i].sharing.source == source) voices[i].sharing.source = uint8_t(channel);
         }
@@ -547,7 +548,7 @@ public:
     }
 
     template<class Read,class Write>
-    Result resume(std::array<FirstModulationVoice,24>& voices,uint16_t ticks,
+    Result resume(std::array<FirstModulationVoice,voiceCapacity>& voices,uint16_t ticks,
         uint8_t pitchDepth,uint8_t rateControl,uint8_t depthControl,
         const std::array<uint16_t,128>& depths,const std::array<uint16_t,256>& rates,
         const LfoWaveformTables& tables,Read&& read,Write&& write)
@@ -556,7 +557,7 @@ public:
         if(prepared!=Result::ready) return prepared;
         return voices[channel_].block.advance(ticks,rates,tables,read,write) ? Result::updated : Result::invalidInput;
     }
-    Result prepareLocal(std::array<FirstModulationVoice,24>& voices,uint8_t pitchDepth,
+    Result prepareLocal(std::array<FirstModulationVoice,voiceCapacity>& voices,uint8_t pitchDepth,
         uint8_t rateControl,uint8_t depthControl,const std::array<uint16_t,128>& depths) noexcept
     {
         if (!pending_ || rateControl > 127 || depthControl > 127) return Result::invalidInput;
@@ -587,12 +588,12 @@ void InitializeSecondModulation(ModulationBlock& block,const SC55Partial& partia
 }
 
 // 2a87..2ac2: same descending policy as the first block, but compares the
-// partial identity/bank rather than the common record. 24 = none, 25 = invalid.
+// partial identity/bank rather than the common record. voiceCapacity = none, (voiceCapacity+1) = invalid.
 inline uint8_t SelectSecondModulationSource(unsigned channel,uint8_t mode,
-    const std::array<VoiceModulation,24>& voices) noexcept
+    const std::array<VoiceModulation,voiceCapacity>& voices) noexcept
 {
-    if (channel >= voices.size()) return 25;
-    if ((mode&16) == 0) return 24;
+    if (channel >= voices.size()) return (voiceCapacity+1);
+    if ((mode&16) == 0) return voiceCapacity;
     const auto& voice = voices[channel];
     for (unsigned i = voices.size(); i-- > 0;)
     {
@@ -601,7 +602,7 @@ inline uint8_t SelectSecondModulationSource(unsigned channel,uint8_t mode,
             && candidate.field99 == voice.field99 && candidate.partialIdentity == voice.partialIdentity)
             return uint8_t(i);
     }
-    return 24;
+    return voiceCapacity;
 }
 
 // 2a7b..2bac. Caller has applied the -3b bit-7 gate and copied partial[8]
@@ -609,14 +610,14 @@ inline uint8_t SelectSecondModulationSource(unsigned channel,uint8_t mode,
 // unlike the first block it copies outputs and adjusted rate without recompute.
 template<class Read,class Write>
 ModulationRoute InitializeSecondVoiceModulation(unsigned channel,
-    std::array<VoiceModulation,24>& voices,std::array<uint8_t,24>& sources,
+    std::array<VoiceModulation,voiceCapacity>& voices,std::array<uint8_t,voiceCapacity>& sources,
     const SC55Partial& partial,const std::array<uint16_t,256>& timing,
     const std::array<uint16_t,256>& rates,const LfoWaveformTables& tables,Read&& read,Write&& write)
 {
     if (channel >= voices.size()) return ModulationRoute::invalidInput;
     const auto source = SelectSecondModulationSource(channel,partial.raw[4],voices);
     auto& voice = voices[channel];
-    if (source < 24)
+    if (source < voiceCapacity)
     {
         const auto depths = voice.block.depth;
         voice.block = voices[source].block;
@@ -629,14 +630,14 @@ ModulationRoute InitializeSecondVoiceModulation(unsigned channel,
         InitializeSecondModulation(voice.block,partial,timing,rates,tables,read,write);
     }
     sources[channel] = source;
-    return source < 24 ? ModulationRoute::shared : ModulationRoute::local;
+    return source < voiceCapacity ? ModulationRoute::shared : ModulationRoute::local;
 }
 
-// 3a7a..3b11: indices replace firmware RAM pointers. 24 is the no-source
+// 3a7a..3b11: indices replace firmware RAM pointers. voiceCapacity is the no-source
 // sentinel. Does not emulate the interrupt window at 3b14..3b25; the outer
 // owner must recheck voice lifetime before calling the local block updater.
 inline ModulationRoute RouteVoiceModulation(unsigned channel,
-    std::array<VoiceModulation,24>& voices,std::array<uint8_t,24>& sources) noexcept
+    std::array<VoiceModulation,voiceCapacity>& voices,std::array<uint8_t,voiceCapacity>& sources) noexcept
 {
     if (channel >= voices.size()) return ModulationRoute::invalidInput;
     auto& voice = voices[channel];
@@ -654,7 +655,7 @@ inline ModulationRoute RouteVoiceModulation(unsigned channel,
         voice.block.attack = other.block.attack;
         return ModulationRoute::shared;
     }
-    sources[channel] = 24; voice.sharing = 0;
+    sources[channel] = voiceCapacity; voice.sharing = 0;
     for (unsigned i = 0; i < sources.size(); ++i)
         if (i != channel && sources[i] == source) sources[i] = uint8_t(channel);
     return ModulationRoute::local;
@@ -670,8 +671,8 @@ class VoiceModulationUpdate
 public:
     enum class Result { invalidInput, ready, shared, stageChanged, updated };
     bool pending() const noexcept { return pending_; }
-    Result begin(unsigned channel,std::array<VoiceModulation,24>& voices,
-        std::array<uint8_t,24>& sources) noexcept
+    Result begin(unsigned channel,std::array<VoiceModulation,voiceCapacity>& voices,
+        std::array<uint8_t,voiceCapacity>& sources) noexcept
     {
         if (pending_ || channel >= voices.size()) return Result::invalidInput;
         const bool wasSharing = voices[channel].sharing != 0;
@@ -684,7 +685,7 @@ public:
     }
 
     template<class Read,class Write>
-    Result resume(std::array<VoiceModulation,24>& voices,uint16_t ticks,
+    Result resume(std::array<VoiceModulation,voiceCapacity>& voices,uint16_t ticks,
         const std::array<uint16_t,256>& rates,const LfoWaveformTables& tables,
         Read&& read,Write&& write)
     {
@@ -692,7 +693,7 @@ public:
         if(prepared!=Result::ready) return prepared;
         return voices[channel_].block.advance(ticks,rates,tables,read,write) ? Result::updated : Result::invalidInput;
     }
-    Result prepareLocal(std::array<VoiceModulation,24>& voices) noexcept
+    Result prepareLocal(std::array<VoiceModulation,voiceCapacity>& voices) noexcept
     {
         if (!pending_) return Result::invalidInput;
         pending_ = false;

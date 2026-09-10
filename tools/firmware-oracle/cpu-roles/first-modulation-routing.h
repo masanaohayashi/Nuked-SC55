@@ -9,9 +9,10 @@
 // destination depths are recomputed while local rate/timing remain owned here.
 struct FirstModulationRoutingProbe
 {
-    explicit FirstModulationRoutingProbe(bool initialization=false) : initializationOnly(initialization) {}
+    explicit FirstModulationRoutingProbe(bool initialization=false) : initializationOnly(initialization)
+    { for(auto& voice:voices) voice.firstStage=22; }
     bool initializationOnly=false;
-    std::array<sc55::FirstModulationVoice,24> voices{};
+    std::array<sc55::FirstModulationVoice,sc55::voiceCapacity> voices{};
     std::array<uint16_t,24> bases{};
     std::array<uint16_t,128> depths{};
     bool active=false,loaded=false;
@@ -21,7 +22,7 @@ struct FirstModulationRoutingProbe
 
     unsigned source(mcu_t& cpu,unsigned slot) const {
         const auto address=MCU_Read16(cpu,0xc84e + 2*slot);
-        if(!address) return 24;
+        if(!address) return sc55::voiceCapacity;
         for(unsigned i=0;i<24;++i) if(bases[i]==address) return i;
         throw std::runtime_error("Unknown first modulation source");
     }

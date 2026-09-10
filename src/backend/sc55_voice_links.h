@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include <array>
 #include <cstdint>
 
@@ -71,6 +72,6 @@ struct BasicVoiceGroupLinks
         return true;
     }
 };
-using VoiceLinks = BasicVoiceLinks<24>;
-using VoiceGroupLinks = BasicVoiceGroupLinks<24>;
+using VoiceLinks = BasicVoiceLinks<voiceCapacity>;
+using VoiceGroupLinks = BasicVoiceGroupLinks<voiceCapacity>;
 }

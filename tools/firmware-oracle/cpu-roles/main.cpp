@@ -973,7 +973,7 @@ int main(int argc,char** argv) {
                                         heldNativeStages[slot],heldSelection.voices[slot].key);
                                 throw std::runtime_error("Native/H8 control readback differs");
                             }
-                            heldChanges|=result.changedMask;
+                            heldChanges|=result.changedMask.lowWord();
                             continue;
                         }
                         if(event.kind==ControlGroupProbe::Kind::groupBegin) {
@@ -1026,7 +1026,7 @@ int main(int argc,char** argv) {
                                         slot,(unsigned long long)(pcm->cycles-pcm->native_voice_install_cycle[slot]),
                                         pcm->ram2[slot][7],pcm->ram2[slot][9],pcm->ram2[slot][10],pcm->ram2[slot][3],pcm->ram2[slot][4]);
                                 std::fprintf(stderr,"[DEBUG-group-replay] traversal mismatch midi=%02x/%02x frame=%u kind=%u status=%u masks=%06x/%06x\n",
-                                    packet[0],packet.size()>1 ? packet[1] : 0,frame,unsigned(event.kind),unsigned(result.status),event.updated,result.changedMask);
+                                    packet[0],packet.size()>1 ? packet[1] : 0,frame,unsigned(event.kind),unsigned(result.status),event.updated,result.changedMask.lowWord());
                                 throw std::runtime_error("Native/H8 control group traversal differs");
                             }
                             if(event.kind==ControlGroupProbe::Kind::group) ++groups;

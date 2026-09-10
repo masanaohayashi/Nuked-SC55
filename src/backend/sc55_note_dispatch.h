@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_channel.h"
 #include "sc55_voice_operation.h"
 #include "sc55_preset.h"
@@ -37,7 +38,7 @@ struct PartialVoiceInputs
 struct PartialDispatchState
 {
     std::array<std::array<uint8_t,2>,16> previousKeys{};
-    std::array<PartialVoiceInputs,24> voices{};
+    std::array<PartialVoiceInputs,voiceCapacity> voices{};
 
     bool stage(unsigned part,unsigned partial,PartialVoiceDispatch dispatch,
                uint8_t adjustedKey,PartialVoiceInputs input) noexcept
@@ -73,8 +74,8 @@ struct InstalledVoice
 // its immutable sound data before normal installation. No PCM key-on here.
 struct VoiceInstallationState
 {
-    std::array<InstalledVoice,24> voices{};
-    std::array<uint8_t,24> pendingRelease{};
+    std::array<InstalledVoice,voiceCapacity> voices{};
+    std::array<uint8_t,voiceCapacity> pendingRelease{};
 
     bool install(unsigned slot,const VoiceInstallationInput& input,
                  uint8_t& preparationFlags,VoiceAllocator& allocator) noexcept
@@ -110,7 +111,7 @@ inline std::optional<std::array<PartialVoiceDispatch,2>> PlanPartialVoiceDispatc
         const auto& raw = patch.partial[i].raw;
         if (!(candidates&(1u<<i)) || (raw[2] == 255 && raw[3] == 255)) continue;
         const auto voice = i == 1 && slots[1] >= 128 ? slots[0] : slots[i];
-        if (voice < 128 && voice >= 24) return std::nullopt;
+        if (voice < 128 && voice >= voiceCapacity) return std::nullopt;
         result[i] = {true,voice};
     }
     return result;
@@ -285,7 +286,7 @@ inline MelodicAllocationResult AllocateMelodicNote(
     const MelodicAllocationInputs& input,const SoundData& data,VoiceAllocator& allocator) noexcept
 {
     MelodicAllocationResult result;
-    if (input.part >= 16 || allocator.freeCount > 24) return result;
+    if (input.part >= 16 || allocator.freeCount > voiceCapacity) return result;
     if (event.kind != MidiDecoder::Kind::message || (event.status&0xf0) != 0x90
         || event.dataSize != 2 || event.first > 127 || event.second == 0 || event.second > 127
         || input.rhythm) return result;
@@ -334,7 +335,7 @@ inline MelodicAllocationResult PrepareMonoReuseAllocation(const MelodicNoteVeloc
     const auto reuse=allocator.prepareGroupReuse(group,{0xff,{255,255}});
     if (!patch || !reuse) return result;
     for(const auto voice:reuse->voices)
-        if(voice<24 && (allocator.allocations[voice].part!=part || allocator.allocations[voice].noteGroup!=group)) return result;
+        if(voice<voiceCapacity && (allocator.allocations[voice].part!=part || allocator.allocations[voice].noteGroup!=group)) return result;
     result.selection=selection;
     if (!selection.partials.candidates.count) {
         result.status=MelodicAllocationResult::Status::velocityRejected; return result;

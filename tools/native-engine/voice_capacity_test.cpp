@@ -42,6 +42,6 @@ int main()
     }
     sc55::VoiceAllocator original;
     check(original.initializeTables());
-    check(original.freeCount == 24 && original.allocations.size() == 24);
+    check(original.freeCount == 24 && original.allocations.size() == sc55::voiceCapacity);
     std::cout << "Voice allocation 24..128 step4: single/paired exhaustion and reclaim PASS\n";
 }

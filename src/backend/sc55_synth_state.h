@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include <array>
 #include <cstdint>
 #include "sc55_display_events.h"
@@ -27,7 +28,7 @@ struct SynthState
     };
     // Audio publishes raw sound state once per voice. Display-only aggregation
     // is performed by the snapshot consumer, never by NativeSynth::state().
-    std::array<VoiceLevel,24> voiceLevels{};
+    std::array<VoiceLevel,voiceCapacity> voiceLevels{};
     void calculateDisplayLevels() noexcept
     {
         for(auto& part:parts) part.envelopeLevel=0;
@@ -42,7 +43,8 @@ struct SynthState
     // PCM enable/key bits, not allocated or audible voice count. The reference
     // chip may keep these enabled after all notes have ended; use Part::voices
     // for musical ownership (and audio measurements for actual silence).
-    uint32_t activeVoiceMask=0;
+    VoiceSet keyedVoices;
+    uint32_t activeVoiceMask=0; // Low hardware word for legacy diagnostics only.
     uint8_t selectedPart=0; // Display order 0..15; GS order is different.
     bool failed=false;
     bool allSelected=false,globalMuted=false;

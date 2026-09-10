@@ -102,6 +102,19 @@ public:
     { toggleOptimization->setToggleState (enabled, juce::dontSendNotification); }
     void setOptimizationAvailable (bool available)
     { toggleOptimization->setEnabled (available); }
+    void setOnVoicesChanged (std::function<void(unsigned)> callback)
+    { onVoicesChanged = std::move (callback); }
+    void setVoiceLimit (unsigned voices, bool available, bool force = false)
+    {
+        sliderVoices->setEnabled (available);
+        // Do not overwrite a pending asynchronous drag/text notification with
+        // the unchanged processor value during the editor's meter refresh.
+        if ((force || voices != shownVoiceLimit) && ! sliderVoices->isMouseButtonDown (true))
+        {
+            shownVoiceLimit = voices;
+            sliderVoices->setValue (voices, juce::dontSendNotification);
+        }
+    }
 
     void setRomChoices (const juce::StringArray& names,
                        const juce::String& selectedName);
@@ -124,6 +137,8 @@ private:
     Action onImportRom;
     RomSelectionAction onRomSelected;
     std::function<void(bool)> onOptimizationChanged;
+    std::function<void(unsigned)> onVoicesChanged;
+    unsigned shownVoiceLimit = 0;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> audioDeviceSettings;
     juce::String selectedRomName;
     static constexpr int importRomItemId = 0x10000;

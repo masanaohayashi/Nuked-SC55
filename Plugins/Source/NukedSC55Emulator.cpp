@@ -613,7 +613,7 @@ bool NukedSC55Emulator::usesNativeEngine (EngineMode mode) noexcept
 }
 
 bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newHostSampleRate,
-                                  const std::string& nativeCacheDirectory, EngineMode mode)
+                                  const std::string& nativeCacheDirectory, EngineMode mode, unsigned maximumVoices)
 {
     sc55debug::log ("initialise requested directory=\"%s\" hostRate=%.2f",
                     romDirectory.c_str(), newHostSampleRate);
@@ -693,7 +693,7 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
                 data[static_cast<size_t> (RomLocation::ROM2)],
                 data[static_cast<size_t> (RomLocation::WAVEROM1)],
                 data[static_cast<size_t> (RomLocation::WAVEROM2)],
-                data[static_cast<size_t> (RomLocation::WAVEROM3)], rendering);
+                data[static_cast<size_t> (RomLocation::WAVEROM3)], rendering, maximumVoices);
         }
         catch (const std::exception& exception)
         {

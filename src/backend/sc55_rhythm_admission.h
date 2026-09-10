@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_voice_lifecycle.h"
 #include "sc55_note_dispatch.h"
 
@@ -25,14 +26,14 @@ public:
     const std::optional<VoiceAllocator::GroupAllocation>& group() const noexcept { return group_; }
 
     template<class Read,class Write>
-    Status run(VoiceAllocator& allocator,std::array<VoiceStopState,24>& lifecycle,Read&& read,Write&& write)
+    Status run(VoiceAllocator& allocator,std::array<VoiceStopState,voiceCapacity>& lifecycle,Read&& read,Write&& write)
     {
         if (status_ != Status::ready) return status_;
         if (request_.part >= 16 || request_.value > 127 || request_.voiceCount < 1
-            || request_.voiceCount > 2 || policy_.startPartControl >= 16 || allocator.freeCount > 24)
+            || request_.voiceCount > 2 || policy_.startPartControl >= 16 || allocator.freeCount > voiceCapacity)
             return status_ = Status::invalidInput;
         for (unsigned part = 0; part < 16; ++part)
-            if (policy_.reserves[part] > 24 || allocator.partVoiceCount[part] > 24)
+            if (policy_.reserves[part] > voiceCapacity || allocator.partVoiceCount[part] > voiceCapacity)
                 return status_ = Status::invalidInput;
         // Once processing begins a failure is terminal: an earlier phase may
         // have stopped hardware or marked groups. Never silently replay it.
@@ -75,7 +76,7 @@ public:
 
     template<class Read,class Write>
     Status run(const SoundData& data,VoiceAllocator& allocator,
-        std::array<VoiceStopState,24>& lifecycle,Read&& read,Write&& write)
+        std::array<VoiceStopState,voiceCapacity>& lifecycle,Read&& read,Write&& write)
     {
         if (status_ != Status::ready) return status_;
         status_ = Status::invalidInput;

@@ -100,7 +100,7 @@ public:
     static bool usesNativeEngine (EngineMode mode) noexcept;
     bool initialise (const std::string& romDirectory, double hostSampleRate,
                      const std::string& nativeCacheDirectory,
-                     EngineMode mode = EngineMode::environment);
+                     EngineMode mode = EngineMode::environment, unsigned maximumVoices = 24);
     void release();
     void clearPendingMidi() noexcept;
 

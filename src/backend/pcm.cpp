@@ -229,8 +229,8 @@ static void PCM_UpdatePitchConsumers(pcm_t& pcm,unsigned channel) noexcept
 
 void PCM_SetVoicePitch(pcm_t& pcm,unsigned channel,uint16_t increment) noexcept
 {
-    if(channel>=32) return;
-    pcm.ram2[channel][0]=increment;
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 32)) return;
+    pcm.voiceRam2(channel)[0]=increment;
     pcm.select_channel=uint8_t(channel);
     pcm.write_latch=(pcm.write_latch&0xf0000u)|increment;
     PCM_UpdatePitchConsumers(pcm,channel);
@@ -239,8 +239,8 @@ void PCM_SetVoicePitch(pcm_t& pcm,unsigned channel,uint16_t increment) noexcept
 void PCM_ApplyVoiceUpdate(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderUpdate& update)
 {
     if(!pcm.native_signal) PCM_SynchronizeNativeReadback(pcm);
-    if(channel>=24) return;
-    auto* words=pcm.ram2[channel];
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return;
+    auto* words=pcm.voiceRam2(channel);
     words[0]=update.phaseIncrement;
     words[1]=uint16_t((uint16_t(uint8_t(update.panLeft))<<8)|uint8_t(update.panRight));
     words[2]=uint16_t((uint16_t(uint8_t(update.reverbSend))<<8)|uint8_t(update.chorusSend));
@@ -278,38 +278,41 @@ uint16_t PCM_ControlRandomWord(const pcm_t& pcm) noexcept
 int PCM_TakeVoiceBoundary(pcm_t& pcm) noexcept
 {
     if(pcm.native_signal) return pcm.native_signal->takeVoiceBoundary();
+    if(pcm.native_voice_count && pcm.irq_assert) {
+        const auto slot=pcm.irq_channel; pcm.irq_assert=false; pcm.postIrq(false); return slot;
+    }
     return pcm.irq_assert ? int(PCM_Read(pcm,0x3e)&31) : -1;
 }
 
 void PCM_SetVoiceRamp(pcm_t& pcm,unsigned channel,sc55::EnvelopeRamp::Stage stage,uint16_t command) noexcept
 {
-    if(channel>=32) return;
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 32)) return;
     if(!pcm.native_signal) PCM_SynchronizeNativeReadback(pcm);
     const auto index=unsigned(stage);
-    pcm.ram2[channel][3+index]=command;
+    pcm.voiceRam2(channel)[3+index]=command;
     pcm.select_channel=uint8_t(channel);
     pcm.write_latch=(pcm.write_latch&0xf0000u)|command;
     if(pcm.use_simulation && channel<24) {
         auto& voices=pcm.native_signal ? pcm.native_signal->voices : pcm.sim;
         voices.envelopes[channel].ramps[index].command=command;
     }
-    else pcm.sim_dirty|=1u<<channel;
-    if(channel>=28) pcm.effects_dirty=true;
+    else if(channel<32) pcm.sim_dirty|=1u<<channel;
+    if(!pcm.native_voice_count && channel>=28) pcm.effects_dirty=true;
 }
 
 uint16_t PCM_VoiceRampLevel(pcm_t& pcm,unsigned channel,sc55::EnvelopeRamp::Stage stage) noexcept
 {
-    if(channel>=32) return 0;
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 32)) return 0;
     pcm.select_channel=uint8_t(channel);
     pcm.read_latch=pcm.native_signal && channel<24 && !(pcm.sim_dirty&(1u<<channel))
         ? pcm.native_signal->voices.envelopes[channel].ramps[unsigned(stage)].level
-        : pcm.ram2[channel][9+unsigned(stage)];
+        : pcm.voiceRam2(channel)[9+unsigned(stage)];
     return uint16_t(pcm.read_latch);
 }
 
 std::array<uint16_t,2> PCM_PeekVoiceGainLevels(const pcm_t& pcm,unsigned channel) noexcept
 {
-    if(channel>=24) return {};
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return {};
     // Before rendering a pending legacy write, that control view is newer.
     // Otherwise the renderer owns the current levels; do not materialize all
     // voices' wave/filter histories merely to read two gains or draw a meter.
@@ -317,7 +320,13 @@ std::array<uint16_t,2> PCM_PeekVoiceGainLevels(const pcm_t& pcm,unsigned channel
         const auto& ramps=pcm.native_signal->voices.envelopes[channel].ramps;
         return {ramps[0].level,ramps[1].level};
     }
-    return {pcm.ram2[channel][9],pcm.ram2[channel][10]};
+    return {pcm.voiceRam2(channel)[9],pcm.voiceRam2(channel)[10]};
+}
+
+void PCM_CommitVoiceKeys(pcm_t& pcm,sc55::VoiceSet enabled)
+{
+    if(pcm.native_voice_count) pcm.native_keys=enabled;
+    PCM_CommitVoiceKeys(pcm,enabled.lowWord());
 }
 
 void PCM_CommitVoiceKeys(pcm_t& pcm,uint32_t enabled)
@@ -333,7 +342,7 @@ void PCM_CommitVoiceKeys(pcm_t& pcm,uint32_t enabled)
 
 std::array<uint16_t,2> PCM_VoiceGainLevels(pcm_t& pcm,unsigned channel)
 {
-    if(channel>=24) return {};
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return {};
     const auto levels=PCM_PeekVoiceGainLevels(pcm,channel);
     pcm.select_channel=uint8_t(channel);
     pcm.read_latch=levels[1];
@@ -343,21 +352,21 @@ std::array<uint16_t,2> PCM_VoiceGainLevels(pcm_t& pcm,unsigned channel)
 bool PCM_CompleteVoiceEnable(pcm_t& pcm,unsigned channel,uint16_t level,uint16_t command)
 {
     PCM_SynchronizeNativeReadback(pcm);
-    if(channel>=24) return false;
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return false;
     pcm.select_channel=uint8_t(channel);
-    pcm.read_latch=pcm.ram2[channel][7];
+    pcm.read_latch=pcm.voiceRam2(channel)[7];
     if(pcm.native_signal) {
         if(!pcm.native_signal->voiceReady(channel)) return false;
     } else if(!(pcm.read_latch&32)
         || pcm.cycles-pcm.native_voice_install_cycle[channel]<2*625) return false;
     // No audio frame occurs inside the old hold/level/command transaction.
-    pcm.ram2[channel][11]=uint16_t(level>>1);
-    pcm.ram2[channel][5]=command;
+    pcm.voiceRam2(channel)[11]=uint16_t(level>>1);
+    pcm.voiceRam2(channel)[5]=command;
     pcm.write_latch=(pcm.write_latch&0xf0000u)|command;
     if(pcm.use_simulation) {
         auto& voices=pcm.native_signal ? pcm.native_signal->voices : pcm.sim;
         voices.envelopes[channel].ramps[2]={command,uint16_t(level>>1)};
-    } else pcm.sim_dirty|=1u<<channel;
+    } else if(channel<32) pcm.sim_dirty|=1u<<channel;
     return true;
 }
 
@@ -366,12 +375,13 @@ static void PCM_InstallSimulatedVoice(pcm_t& pcm,unsigned channel,const sc55::Vo
 void PCM_InstallVoice(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderStart& start)
 {
     PCM_SynchronizeNativeReadback(pcm);
-    if(channel>=24) return;
-    pcm.ram2[channel][7]=start.mode;
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return;
+    pcm.voiceRam2(channel)[7]=start.mode;
+    if(pcm.native_voice_count) pcm.native_pitch_source[channel]=start.pitchSource<128 ? start.pitchSource : uint8_t(start.mode&31);
     pcm.native_voice_install_cycle[channel]=pcm.cycles;
-    pcm.ram1[channel][4]=start.start&0xfffffu;
-    pcm.ram1[channel][2]=start.loop&0xfffffu;
-    pcm.ram1[channel][0]=start.end&0xfffffu;
+    pcm.voiceRam1(channel)[4]=start.start&0xfffffu;
+    pcm.voiceRam1(channel)[2]=start.loop&0xfffffu;
+    pcm.voiceRam1(channel)[0]=start.end&0xfffffu;
     pcm.write_latch=start.end&0xfffffu;
     PCM_ApplyVoiceUpdate(pcm,channel,start.controls);
     if(pcm.use_simulation) PCM_InstallSimulatedVoice(pcm,channel,start);
@@ -382,7 +392,7 @@ std::array<uint16_t,3> PCM_SynchronizeVoiceEnvelopes(pcm_t& pcm,unsigned channel
     const std::array<uint16_t,3>& commands,const std::array<uint16_t,3>& levels)
 {
     auto result=levels;
-    if(channel>=24) return result;
+    if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return result;
     if(pcm.native_signal && !(pcm.sim_dirty&(1u<<channel))) {
         auto& envelopes=pcm.native_signal->voices.envelopes[channel];
         result=envelopes.synchronize(commands,levels);
@@ -391,8 +401,8 @@ std::array<uint16_t,3> PCM_SynchronizeVoiceEnvelopes(pcm_t& pcm,unsigned channel
         pcm.select_channel=uint8_t(channel);
         for(unsigned i=0;i<3;++i) {
             const bool held=commands[i]==0xff00;
-            pcm.ram2[channel][3+i]=envelopes.ramps[i].command;
-            pcm.ram2[channel][9+i]=envelopes.ramps[i].level;
+            pcm.voiceRam2(channel)[3+i]=envelopes.ramps[i].command;
+            pcm.voiceRam2(channel)[9+i]=envelopes.ramps[i].level;
             const auto value=held ? envelopes.ramps[i].level : uint16_t(0xff00);
             pcm.write_latch=(pcm.write_latch&0xf0000u)|value;
             if(!held) pcm.read_latch=envelopes.ramps[i].level;
@@ -404,18 +414,18 @@ std::array<uint16_t,3> PCM_SynchronizeVoiceEnvelopes(pcm_t& pcm,unsigned channel
     for(unsigned i=0;i<3;++i) {
         const bool held=commands[i]==0xff00;
         const uint16_t value=held ? uint16_t(levels[i]>>1) : uint16_t(0xff00);
-        pcm.ram2[channel][held ? 9+i : 3+i]=value;
+        pcm.voiceRam2(channel)[held ? 9+i : 3+i]=value;
         pcm.write_latch=(pcm.write_latch&0xf0000u)|value;
         if(!held) {
-            pcm.read_latch=pcm.ram2[channel][9+i];
+            pcm.read_latch=pcm.voiceRam2(channel)[9+i];
             result[i]=uint16_t(pcm.read_latch<<1);
         }
     }
     if(pcm.use_simulation) {
         auto& voices=pcm.native_signal ? pcm.native_signal->voices : pcm.sim;
         for(unsigned i=0;i<3;++i)
-            voices.envelopes[channel].ramps[i]={pcm.ram2[channel][3+i],pcm.ram2[channel][9+i]};
-    } else pcm.sim_dirty|=1u<<channel;
+            voices.envelopes[channel].ramps[i]={pcm.voiceRam2(channel)[3+i],pcm.voiceRam2(channel)[9+i]};
+    } else if(channel<32) pcm.sim_dirty|=1u<<channel;
     return result;
 }
 
@@ -1239,7 +1249,7 @@ static void PCM_RenderIntegerVoice(pcm_t& pcm, uint32_t* ram1, uint16_t* ram2,
     int sampl=0, sampr=0, rc0=0, rc1=0;
     int newnibble=0, old_nibble=0;
     bool usenew=false;
-    if (pcm.skip_inactive_voices && pcm.is_mk1 && slot<24 && !key && pcm.nfs)
+    if (pcm.skip_inactive_voices && pcm.is_mk1 && (slot<24 || pcm.native_voice_count) && !key && pcm.nfs)
     {
         // A disabled slot contributes exactly zero to all four buses.
         // Its sample/filter history and gain readback are cleared by
@@ -1610,7 +1620,7 @@ static void PCM_RenderIntegerVoice(pcm_t& pcm, uint32_t* ram1, uint16_t* ram2,
     }
 
     // mix reverb/chorus?
-    int slot2 = (lastVoice) ? 31 : slot + 1;
+    int slot2 = lastVoice ? 31 : (slot == 30 ? -1 : int(slot + 1));
     switch (slot2)
     {
         // 17, 18 - reverb
@@ -2223,10 +2233,15 @@ void PCM_Update(pcm_t& pcm, uint64_t cycles, bool stopOnInterrupt)
         if (pcm.use_simulation)
             PCM_UpdateVoicesSimulated(pcm, rcadd, rcadd2);
         else
-        for (unsigned slot = 0; slot < pcm.config.reg_slots; ++slot)
-            PCM_RenderIntegerVoice(pcm, pcm.ram1[slot], pcm.ram2[slot],
-                pcm.ram2[pcm.ram2[slot][7] & 31][0], slot,
-                bool((voice_active >> slot) & 1), slot + 1 == pcm.config.reg_slots, rcadd, rcadd2);
+        {
+        const auto voiceCount=pcm.native_voice_count ? pcm.native_voice_count : pcm.config.reg_slots;
+        for (unsigned slot = 0; slot < voiceCount; ++slot)
+            PCM_RenderIntegerVoice(pcm, pcm.voiceRam1(slot), pcm.voiceRam2(slot),
+                pcm.native_voice_count ? pcm.voiceRam2(pcm.native_pitch_source[slot])[0]
+                    : pcm.ram2[pcm.ram2[slot][7] & 31][0], slot,
+                pcm.native_voice_count ? pcm.native_keys.contains(slot) : bool((voice_active >> slot) & 1),
+                slot + 1 == voiceCount, rcadd, rcadd2);
+        }
 
         if (pcm.nfs)
         {

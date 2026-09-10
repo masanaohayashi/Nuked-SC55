@@ -357,6 +357,7 @@ struct SampleAddressSetup
 {
     uint16_t mode = 0;
     uint32_t start = 0, loop = 0, end = 0;
+    uint8_t pitchSource = 255;
 };
 
 struct SampleControl { uint16_t mode; uint8_t loopFlag; };
@@ -370,7 +371,7 @@ inline SampleControl DecodeSampleControl(uint32_t loop, uint8_t descriptorFlags,
                                          uint8_t voice, uint8_t historyNibble) noexcept
 {
     return {uint16_t(((historyNibble & 15u) << 12) | ((loop >> 12) & 0x0f00)
-                    | ((descriptorFlags & 1u) << 6) | voice),
+                    | ((descriptorFlags & 1u) << 6) | (voice & 31u)),
             uint8_t(descriptorFlags & 2)};
 }
 

@@ -107,6 +107,8 @@ public:
     bool setOptimizationEnabled (bool enabled);
     bool isOptimizationEnabled() const noexcept { return optimizationAvailable && optimizationEnabled; }
     bool isOptimizationAvailable() const noexcept { return optimizationAvailable; }
+    bool setMaximumVoices (unsigned voices);
+    unsigned getMaximumVoices() const noexcept { return maximumVoices.load (std::memory_order_relaxed); }
 
     /** Returns the persistent user data directory (App Group on Apple platforms). */
     static juce::File getUserSettingsDirectory();
@@ -177,6 +179,7 @@ private:
     bool optimizationEnabled = NukedSC55Emulator::usesNativeEngine (
         NukedSC55Emulator::EngineMode::environment);
     bool optimizationAvailable = false; // Updated only when selecting/loading ROMs.
+    std::atomic<unsigned> maximumVoices { 24 };
     std::atomic<bool> audioReady { false };
     std::atomic<bool> romSelectionRequested { false };
     std::atomic<double> currentSampleRate { 0.0 };

@@ -1,4 +1,5 @@
 #pragma once
+#include "sc55_voice_set.h"
 #include "sc55_voice_links.h"
 #include <algorithm>
 #include <optional>
@@ -312,9 +313,12 @@ struct BasicVoiceAllocator
     // Allocator tables initialized by 04:04b9..0569. Other subsystem fields
     // cleared by that ROM region are outside this object. Preserve fields the
     // firmware does not touch, including PCM links initialized earlier.
-    bool initializeTables(unsigned voices = Capacity, unsigned groupCount = Capacity) noexcept
+    unsigned voiceLimit = 24;
+    bool initializeTables(unsigned voices = 24, unsigned groupCount = 24) noexcept
     {
         if (voices < 1 || voices > Capacity || groupCount < 1 || groupCount > Capacity) return false;
+        voiceLimit = voices;
+        for (unsigned i=voices;i<Capacity;++i) allocations[i].status=0x94;
         groups.next.fill(255); groups.previous.fill(255);
         for(auto& voice:allocations) { voice.releaseRequested=0; voice.nextFree=255; }
         freeHead = uint8_t(voices-1); freeTail = 0; freeCount = uint8_t(voices);
@@ -542,5 +546,5 @@ private:
         return true;
     }
 };
-using VoiceAllocator = BasicVoiceAllocator<24>;
+using VoiceAllocator = BasicVoiceAllocator<voiceCapacity>;
 }

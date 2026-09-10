@@ -37,6 +37,7 @@
 
 #include "pcm_sim.h"
 #include "audio.h"
+#include "sc55_voice_set.h"
 #include "sc55_effect_parameter.h"
 
 struct mcu_t;
@@ -64,6 +65,18 @@ struct pcm_t
 #endif
     uint32_t ram1[32][8]{};
     uint16_t ram2[32][16]{};
+    // Native voices 24..127 do not alias hardware effect rows 28..31.
+    unsigned native_voice_count = 0; // Zero selects unchanged hardware addressing.
+    uint32_t native_ram1[104][8]{};
+    uint16_t native_ram2[104][16]{};
+    sc55::VoiceSet native_keys;
+    uint8_t native_pitch_source[128]{};
+    uint32_t* voiceRam1(unsigned slot) noexcept
+    { return native_voice_count && slot>=24 ? native_ram1[slot-24] : ram1[slot]; }
+    uint16_t* voiceRam2(unsigned slot) noexcept
+    { return native_voice_count && slot>=24 ? native_ram2[slot-24] : ram2[slot]; }
+    const uint16_t* voiceRam2(unsigned slot) const noexcept
+    { return native_voice_count && slot>=24 ? native_ram2[slot-24] : ram2[slot]; }
     mcu_t*   mcu                 = nullptr;
     // Device identity and endpoints are independent of firmware execution.
     // mcu is retained only for legacy diagnostic probes.
@@ -80,7 +93,7 @@ struct pcm_t
     uint64_t cycles              = 0;
     // Native startup must retain its initial ramps through the key-latch pass
     // and the following active-voice pass, before periodic control may write.
-    uint64_t native_voice_install_cycle[24]{};
+    uint64_t native_voice_install_cycle[128]{};
     uint32_t voice_mask          = 0; // same size as voice_mask_pending
     uint32_t voice_mask_pending  = 0; // 28 bits wide?
     uint32_t write_latch         = 0; // 20 bits wide?
@@ -143,6 +156,7 @@ void PCM_ApplyVoiceUpdate(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderUpd
 void PCM_SetVoicePitch(pcm_t& pcm,unsigned channel,uint16_t increment) noexcept;
 void PCM_InstallVoice(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderStart& start);
 void PCM_CommitVoiceKeys(pcm_t& pcm,uint32_t enabled);
+void PCM_CommitVoiceKeys(pcm_t& pcm,sc55::VoiceSet enabled);
 bool PCM_CompleteVoiceEnable(pcm_t& pcm,unsigned channel,uint16_t level,uint16_t command);
 std::array<uint16_t,2> PCM_VoiceGainLevels(pcm_t& pcm,unsigned channel);
 std::array<uint16_t,3> PCM_SynchronizeVoiceEnvelopes(pcm_t& pcm,unsigned channel,
