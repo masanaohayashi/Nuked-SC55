@@ -8,8 +8,10 @@ namespace sc55
 {
 // Owns note groups and physical voice allocation. A note group survives release
 // until its last voice is returned; capacity and pedal decisions share this owner.
-struct VoiceAllocator
+template<unsigned Capacity>
+struct BasicVoiceAllocator
 {
+    static_assert(Capacity > 0 && Capacity <= 128);
     struct NoteGroup
     {
         uint8_t next=0, previous=0, status=0, key=0;
@@ -39,13 +41,13 @@ struct VoiceAllocator
         void clearRelease() noexcept { releaseRequested=releaseCommand=0; }
         bool free() const noexcept { return (status&128)!=0; }
     };
-    VoiceLinks pcmLinks;
-    VoiceGroupLinks groups;
-    std::array<VoiceAllocation,24> allocations{};
-    std::array<NoteGroup,24> noteGroups{};
+    BasicVoiceLinks<Capacity> pcmLinks;
+    BasicVoiceGroupLinks<Capacity> groups;
+    std::array<VoiceAllocation,Capacity> allocations{};
+    std::array<NoteGroup,Capacity> noteGroups{};
     std::array<uint8_t,16> partHead{}, partTail{}, partMinimum{}, partVoiceCount{};
     std::array<uint8_t,16> partFlags{}, partPrevious{};
-    std::array<uint8_t,24> activity{};
+    std::array<uint8_t,Capacity> activity{};
     uint8_t shortage = 0;
     uint8_t freeCount = 0, freeGroupHead = 0xff, freeHead = 0xff, freeTail = 0xff;
 
@@ -57,7 +59,7 @@ struct VoiceAllocator
     template<class Store>
     void publishReleaseRequests(Store&& store) const
     {
-        for (unsigned slot = 24; slot-- > 0;)
+        for (unsigned slot = Capacity; slot-- > 0;)
             store(uint8_t(slot),allocations[slot].releaseCommand);
     }
 
@@ -72,7 +74,7 @@ struct VoiceAllocator
     // Merely selects slots/flags; does not mutate or prepare PCM voices.
     std::optional<MonoReuse> prepareMonoReuse(unsigned part,MonoReuse input) const noexcept
     {
-        if (part >= 16 || partHead[part] >= 24) return std::nullopt;
+        if (part >= 16 || partHead[part] >= Capacity) return std::nullopt;
         return prepareGroupReuse(partHead[part],input);
     }
 
@@ -83,7 +85,7 @@ struct VoiceAllocator
         if(part>=16 || source>=128) return std::nullopt;
         unsigned visited=0;
         for(auto group=partTail[part];group<128;group=noteGroups[group].previous) {
-            if(group>=24 || ++visited>24) return std::nullopt;
+            if(group>=Capacity || ++visited>Capacity) return std::nullopt;
             if(noteGroups[group].key==source && noteGroups[group].noteClass==0x80) return group;
         }
         return uint8_t(255);
@@ -91,15 +93,15 @@ struct VoiceAllocator
 
     std::optional<MonoReuse> prepareGroupReuse(unsigned group,MonoReuse input) const noexcept
     {
-        if(group>=24) return std::nullopt;
+        if(group>=Capacity) return std::nullopt;
         const auto tail = groups.tail[group], head = groups.head[group];
-        if (tail >= 24) return std::nullopt;
+        if (tail >= Capacity) return std::nullopt;
         input.flags = uint8_t((input.flags&0x1f)|0x40);
         input.voices[0] = tail;
         if (allocations[tail].status == 0x94) input.flags |= 0x80;
         if (head != tail)
         {
-            if (head < 128 && head >= 24) return std::nullopt;
+            if (head < 128 && head >= Capacity) return std::nullopt;
             input.voices[1] = head;
             if (head < 128 && allocations[head].status == 0x94) input.flags |= 0x80;
         }
@@ -112,12 +114,12 @@ struct VoiceAllocator
     // tail skips status/hold handling but can still release a distinct head.
     bool releaseMonoGroup(unsigned part) noexcept
     {
-        if (part >= 16 || partHead[part] >= 24) return false;
+        if (part >= 16 || partHead[part] >= Capacity) return false;
         const auto group = partHead[part], tail = groups.tail[group], head = groups.head[group];
         auto updated = *this;
         if (tail < 128)
         {
-            if (tail >= 24) return false;
+            if (tail >= Capacity) return false;
             updated.noteGroups[group].status = 2;
             if (partFlags[part]&1)
             {
@@ -129,7 +131,7 @@ struct VoiceAllocator
         }
         if (head != tail)
         {
-            if (head >= 24) return false;
+            if (head >= Capacity) return false;
             updated.allocations[head].requestRelease();
         }
         *this = updated;
@@ -148,7 +150,7 @@ struct VoiceAllocator
         unsigned visited = 0;
         for (auto group = partHead[part]; group < 128; group = noteGroups[group].next)
         {
-            if (group >= 24 || ++visited > 24) return std::nullopt;
+            if (group >= Capacity || ++visited > Capacity) return std::nullopt;
             if (noteGroups[group].key != note || !noteGroups[group].acceptsNoteOff(selector)) continue;
             auto updated = *this;
             updated.noteGroups[group].status = 2;
@@ -164,9 +166,9 @@ struct VoiceAllocator
                 if (!retained)
                 {
                     const auto tail = groups.tail[group];
-                    if (tail >= 24) return std::nullopt;
+                    if (tail >= Capacity) return std::nullopt;
                     const auto previous = groups.previous[tail];
-                    if (previous < 128 && previous >= 24) return std::nullopt;
+                    if (previous < 128 && previous >= Capacity) return std::nullopt;
                     updated.allocations[tail].requestRelease();
                     if (previous < 128)
                     { updated.allocations[previous].requestRelease(); }
@@ -188,7 +190,7 @@ struct VoiceAllocator
         unsigned visited = 0;
         for (auto group = partHead[part]; group < 128; group = noteGroups[group].next)
         {
-            if (group >= 24 || ++visited > 24) return false;
+            if (group >= Capacity || ++visited > Capacity) return false;
             if (noteGroups[group].status != 0 || (rhythm ? !(noteGroups[group].releaseFlags&1)
                 : (noteGroups[group].noteClass&mask) != (selector&mask))) continue;
             updated.noteGroups[group].status = 2;
@@ -200,9 +202,9 @@ struct VoiceAllocator
             }
             if (retained) continue;
             const auto tail = groups.tail[group];
-            if (tail >= 24) return false;
+            if (tail >= Capacity) return false;
             const auto previous = groups.previous[tail];
-            if (previous < 128 && previous >= 24) return false;
+            if (previous < 128 && previous >= Capacity) return false;
             updated.allocations[tail].requestRelease();
             if (previous < 128) { updated.allocations[previous].requestRelease(); }
         }
@@ -224,7 +226,7 @@ struct VoiceAllocator
         unsigned visited = 0;
         for (auto group = partHead[part]; group < 128; group = noteGroups[group].next)
         {
-            if (group >= 24 || ++visited > 24) return false;
+            if (group >= Capacity || ++visited > Capacity) return false;
             const bool deferred = updated.noteGroups[group].releaseHold();
             if (!deferred) continue;
             bool retained = false;
@@ -235,9 +237,9 @@ struct VoiceAllocator
             }
             if (retained) continue;
             const auto tail = groups.tail[group];
-            if (tail >= 24) return false;
+            if (tail >= Capacity) return false;
             const auto previous = groups.previous[tail];
-            if (previous < 128 && previous >= 24) return false;
+            if (previous < 128 && previous >= Capacity) return false;
             updated.allocations[tail].requestRelease();
             if (previous < 128)
             { updated.allocations[previous].requestRelease(); }
@@ -258,7 +260,7 @@ struct VoiceAllocator
         unsigned visited = 0;
         for (auto group = partHead[part]; group < 128; group = noteGroups[group].next)
         {
-            if (group >= 24 || ++visited > 24) return false;
+            if (group >= Capacity || ++visited > Capacity) return false;
             if (noteGroups[group].status != 0) continue;
             unsigned index = 0;
             for (; index < 16; ++index)
@@ -283,7 +285,7 @@ struct VoiceAllocator
         unsigned visited = 0;
         for (auto group = partHead[part]; group < 128; group = noteGroups[group].next)
         {
-            if (group >= 24 || ++visited > 24) return false;
+            if (group >= Capacity || ++visited > Capacity) return false;
             if (noteGroups[group].status != 2) continue;
             unsigned index = 0;
             bool matched = false;
@@ -295,9 +297,9 @@ struct VoiceAllocator
             if (index == 16) break;
             if (!matched || noteGroups[group].held()) continue;
             const auto tail = groups.tail[group];
-            if (tail >= 24) return false;
+            if (tail >= Capacity) return false;
             const auto previous = groups.previous[tail];
-            if (previous < 128 && previous >= 24) return false;
+            if (previous < 128 && previous >= Capacity) return false;
             updated.allocations[tail].requestRelease();
             if (previous < 128)
             { updated.allocations[previous].requestRelease(); }
@@ -310,9 +312,9 @@ struct VoiceAllocator
     // Allocator tables initialized by 04:04b9..0569. Other subsystem fields
     // cleared by that ROM region are outside this object. Preserve fields the
     // firmware does not touch, including PCM links initialized earlier.
-    bool initializeTables(unsigned voices = 24, unsigned groupCount = 24) noexcept
+    bool initializeTables(unsigned voices = Capacity, unsigned groupCount = Capacity) noexcept
     {
-        if (voices < 1 || voices > 24 || groupCount < 1 || groupCount > 24) return false;
+        if (voices < 1 || voices > Capacity || groupCount < 1 || groupCount > Capacity) return false;
         groups.next.fill(255); groups.previous.fill(255);
         for(auto& voice:allocations) { voice.releaseRequested=0; voice.nextFree=255; }
         freeHead = uint8_t(voices-1); freeTail = 0; freeCount = uint8_t(voices);
@@ -340,24 +342,24 @@ struct VoiceAllocator
     // Strictly smaller activity wins, so ties retain the first encountered slot.
     // nullopt denotes corrupt input; Candidate{255,255} denotes no candidate.
     std::optional<Candidate> selectCandidate(unsigned part, uint8_t value,
-        CandidatePass pass, const std::array<uint8_t,24>& activity) const noexcept
+        CandidatePass pass, const std::array<uint8_t,Capacity>& activity) const noexcept
     {
         if (part >= 16) return std::nullopt;
         Candidate best;
         unsigned visited = 0;
         for (auto group = partHead[part]; group < 128; group = noteGroups[group].next)
         {
-            if (group >= 24 || ++visited > 24) return std::nullopt;
+            if (group >= Capacity || ++visited > Capacity) return std::nullopt;
             if (pass == CandidatePass::nonzeroStatusOtherValue && noteGroups[group].status == 0) continue;
             const bool same = noteGroups[group].key == value;
             if (same != (pass == CandidatePass::sameValue)) continue;
             const auto tail = groups.tail[group];
-            if (tail >= 24) return std::nullopt;
+            if (tail >= Capacity) return std::nullopt;
             if (activity[tail] < best.activity) best = {tail,activity[tail]};
             const auto previous = groups.previous[tail];
             if (previous < 128)
             {
-                if (previous >= 24) return std::nullopt;
+                if (previous >= Capacity) return std::nullopt;
                 if (activity[previous] < best.activity) best = {previous,activity[previous]};
             }
         }
@@ -368,12 +370,12 @@ struct VoiceAllocator
     // The result slots follow firmware order (first acquired goes in last slot).
     std::optional<GroupAllocation> createGroup(GroupRequest request) noexcept
     {
-        if (request.part >= 16 || request.voiceCount < 1 || request.voiceCount > 2 || freeGroupHead >= 24)
+        if (request.part >= 16 || request.voiceCount < 1 || request.voiceCount > 2 || freeGroupHead >= Capacity)
             return std::nullopt;
         auto updated = *this;
         const auto group = updated.freeGroupHead, part = request.part;
         const auto tail = updated.partTail[part];
-        if (tail < 128 && tail >= 24) return std::nullopt;
+        if (tail < 128 && tail >= Capacity) return std::nullopt;
         updated.freeGroupHead = updated.noteGroups[group].next;
         if (tail >= 128) updated.partHead[part] = group;
         else updated.noteGroups[tail].next = group;
@@ -405,9 +407,9 @@ struct VoiceAllocator
     // Does not mark active or clear stale links: those are separate operations.
     std::optional<uint8_t> takeFreeVoice() noexcept
     {
-        if (freeHead >= 24) return std::nullopt;
+        if (freeHead >= Capacity) return std::nullopt;
         const auto voice = freeHead, next = allocations[voice].nextFree;
-        if (next < 128 && next >= 24) return std::nullopt;
+        if (next < 128 && next >= Capacity) return std::nullopt;
         freeHead = next;
         if (next >= 128) freeTail = next;
         --freeCount;
@@ -418,7 +420,7 @@ struct VoiceAllocator
     // as group endpoints. This is not generic linked-list append.
     bool attachVoice(unsigned voice, unsigned group, unsigned part) noexcept
     {
-        if (voice >= 24 || group >= 24 || part >= 16) return false;
+        if (voice >= Capacity || group >= Capacity || part >= 16) return false;
         auto updated = *this;
         if (!updated.attachUnchecked(voice,group,part)) return false;
         *this = updated;
@@ -429,7 +431,7 @@ struct VoiceAllocator
     // Invalid references/cycles fail without partially updating any table.
     bool returnVoice(unsigned voice) noexcept
     {
-        if (voice >= 24) return false;
+        if (voice >= Capacity) return false;
         if (allocations[voice].free()) return true; // already free
         auto updated = *this;
         if (!updated.returnActiveVoice(voice,allocations[voice].noteGroup,allocations[voice].part,false)) return false;
@@ -442,7 +444,7 @@ struct VoiceAllocator
     // this does not skip free status and takes caller-supplied group/part.
     bool reclaimStoppedVoice(unsigned voice, unsigned group, unsigned part, bool prepend) noexcept
     {
-        if (voice >= 24) return false;
+        if (voice >= Capacity) return false;
         auto updated = *this;
         if (!updated.returnActiveVoice(voice,group,part,prepend)) return false;
         updated.activity[voice] = 0;
@@ -461,21 +463,21 @@ private:
             auto partner = pcmLinks.first[voice];
             if (partner < 128)
             {
-                if (partner >= 24) return false;
+                if (partner >= Capacity) return false;
                 pcmLinks.second[partner] = 0xff;
             }
             // Read after the previous write, preserving alias/self-link order.
             partner = pcmLinks.second[voice];
             if (partner < 128)
             {
-                if (partner >= 24) return false;
+                if (partner >= Capacity) return false;
                 pcmLinks.first[partner] = 0xff;
             }
             groups.previous[voice] = pcmLinks.first[voice] = 0xff;
         }
         else
         {
-            if (oldTail >= 24) return false;
+            if (oldTail >= Capacity) return false;
             groups.head[group] = oldTail;
             groups.next[oldTail] = pcmLinks.second[oldTail] = uint8_t(voice);
             groups.previous[voice] = pcmLinks.first[voice] = oldTail;
@@ -489,12 +491,12 @@ private:
 
     bool returnActiveVoice(unsigned voice, unsigned group, unsigned part, bool prepend) noexcept
     {
-        if (group >= 24 || part >= 16 || (!prepend && freeTail < 128 && freeTail >= 24)) return false;
+        if (group >= Capacity || part >= 16 || (!prepend && freeTail < 128 && freeTail >= Capacity)) return false;
         if (!groups.detach(voice,group,pcmLinks)) return false;
         allocations[voice].clearRelease();
         if (prepend)
         {
-            if (freeHead < 128 && freeHead >= 24) return false;
+            if (freeHead < 128 && freeHead >= Capacity) return false;
             if (freeHead >= 128) freeTail = uint8_t(voice);
             allocations[voice].nextFree = freeHead;
             freeHead = uint8_t(voice);
@@ -516,7 +518,7 @@ private:
         {
             // 1e59 removes the empty group from the part's group chain.
             const auto next = noteGroups[group].next, previous = noteGroups[group].previous;
-            if ((next < 128 && next >= 24) || (previous < 128 && previous >= 24)) return false;
+            if ((next < 128 && next >= Capacity) || (previous < 128 && previous >= Capacity)) return false;
             if (previous >= 128) partHead[part] = next;
             else noteGroups[previous].next = next;
             if (next >= 128) partTail[part] = previous;
@@ -530,7 +532,7 @@ private:
                 unsigned visited = 0;
                 for (auto item = partHead[part]; item < 128; item = noteGroups[item].next)
                 {
-                    if (item >= 24 || ++visited > 24) return false;
+                    if (item >= Capacity || ++visited > Capacity) return false;
                     minimum = std::min(minimum,noteGroups[item].key);
                 }
                 partMinimum[part] = minimum;
@@ -540,4 +542,5 @@ private:
         return true;
     }
 };
+using VoiceAllocator = BasicVoiceAllocator<24>;
 }

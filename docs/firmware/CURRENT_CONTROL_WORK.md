@@ -16,6 +16,19 @@
 
 ### 可変polyphonyの実装着手（未完了）
 
+追加実装：VoiceLinks/VoiceGroupLinks/VoiceAllocatorを保管容量のtemplateに変更。
+従来名は24要素のaliasを維持し、既存制御／H8比較の構造を変えない。
+BasicVoiceAllocator<128>で24..128・4刻み全27設定の予約上限、単一voice／paired
+groupの満杯判定と返却後のfreeCount/partVoiceCountを確認。これは割当単体試験で、
+128音のMIDI発音やreserve/steal経路の確認ではない。
+PCM_Updateの整数voice演算をPCM_RenderIntegerVoiceへ切出し。voice RAM、pitch source、
+key、最後のvoice判定を引数化。演算式・effects returnの挿入順・共通clockは不変。
+これで拡張voice RAMをeffect行28..31と衝突させずに渡せる接続点を用意した。
+既存native-only checksum3b54320560580fd3維持、voice-set/voice-capacity等4試験PASS。
+まだ製品のNativeVoiceEngineは24型を使用しており、128容量とsliderは未接続。
+Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED
+(`/tmp/sc55-polyphony-foundation-release.log`)。Logicでの確認は未実施。
+
 要求はC++版24..128ボイス／4刻み、H8は24固定。ユーザー配置のsliderVoicesを使う。
 高速PCMへの切替や、複数の24音源へMIDIを振り分ける実装では代用しない。
 最初の変更は128bitの論理VoiceSetと、stop/reclaim・rhythm exclusive・repeated-note
