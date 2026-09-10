@@ -238,7 +238,10 @@ public:
         std::array<SynthState::VoiceLevel,24> levels{};
         const auto active=pcm_.voice_mask&pcm_.voice_mask_pending;
         for(unsigned slot=0;slot<24;++slot)
-            if((active>>slot)&1) {
+            // PCM key bits and gain registers can retain the last values
+            // after the musical voice has been returned. They are not proof
+            // that this slot still belongs to a sounding/releasing note.
+            if(((active>>slot)&1) && !engine_.notes.allocator.allocations[slot].free()) {
                 const auto gains=PCM_PeekVoiceGainLevels(pcm_,slot);
                 levels[slot]={gains[0],gains[1],engine_.installation.voices[slot].input.part,true};
             }

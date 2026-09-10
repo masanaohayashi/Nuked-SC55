@@ -25,6 +25,10 @@ feature or real-song output matches H8. Existing integration/host checks remain
 necessary. The explicit alternative PCM simulation stays available in the core
 but is not selected by this check.
 
+The same Note On/Off fixture also checks that a sounding part has a meter and
+that the display meter clears after the voice finishes, even when PCM key bits
+remain enabled. It does not clear or otherwise modify those DSP bits.
+
 To embed the core, include `sc55_synth.h`, construct `NativeSynth` with imported
 sound data and decoded ROM buffers off the audio thread, then call `push`,
 `applyCommand`, `render` and `state` on one serialized audio owner. Interpret

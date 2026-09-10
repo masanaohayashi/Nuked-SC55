@@ -9,7 +9,21 @@
 下記の過去記録で拡張パネルを次作業に挙げていても、この指示を優先する。
 各作業単位の完了時にコミットする。pushは別途指示がある場合のみ。
 
+2026-09-10実演奏フィードバック：演奏は概ね問題なし。GATCHA55後半のパートが
+切れる件はユーザー指示で今は追わない。今回の対象は演奏終了後のメーター残留。
+
 ## 現在の製品構造
+
+演奏終了後のメーター残留を修正：PCMのkey bit／gain値は発音ボイス返却後も残る。
+`voiceLevels()`がPCM bitだけでactiveと判定していたため、発音0でも表示が残った。
+実Note On/Offでvoices=0／meters=1／pcm_keys=800000を再現し、
+返却済みallocationを表示snapshotから除外するとvoices=0／meters=0へ改善。
+PCM bitは800000のまま保持し、音声生成やEG／ボイス返却を変更していない。
+表示集計は従来通りUI側。発音中の表示維持と終了後の消去をnative-only試験へ追加。
+修正前FAIL `/tmp/sc55-ended-meter-before.log`、修正後PASS `/tmp/sc55-ended-meter-after.log`。
+既存音声checksum3b54320560580fd3も不変。Logic上の表示確認はユーザー確認待ち。
+Release arm64 Standalone＋内蔵AUv3 BUILD SUCCEEDED (`/tmp/sc55-ended-meter-release.log`)。
+Resave・登録・インストールなし。
 
 2026-09-10 通常製品アダプターの負荷を分離計測：`adapter-load`は同じ既定PCMで
 NativeSynth直接とNukedSC55Emulator::renderのFIFO／リサンプル／MIDI経路を比較する。

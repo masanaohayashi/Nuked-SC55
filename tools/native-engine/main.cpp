@@ -35,6 +35,11 @@ int main(int argc,char** argv)
             synth.render({});
             synth.render(frames);
             if(synth.failed()) throw std::runtime_error("Native sound engine failed");
+            if(block==80) {
+                auto sounding=synth.state();sounding.calculateDisplayLevels();
+                if(!sounding.parts[1].envelopeLevel)
+                    throw std::runtime_error("Sounding note has no part meter");
+            }
             for(const auto& frame:frames) {
                 nonzero+=frame.left!=0 || frame.right!=0;
                 for(const auto value:{uint32_t(frame.left),uint32_t(frame.right)})
@@ -46,6 +51,16 @@ int main(int argc,char** argv)
         // as the existing normal product check; not a new fidelity oracle.
         if(!nonzero || checksum!=0x3b54320560580fd3ull)
             throw std::runtime_error("Native-only output differs from the normal product fixture");
+        for(unsigned block=0;block<2000;++block) synth.render(frames);
+        auto stopped=synth.state();stopped.calculateDisplayLevels();
+        unsigned remainingVoices=0,remainingMeters=0;
+        for(const auto& part:stopped.parts) {
+            remainingVoices+=part.voices;
+            remainingMeters+=part.envelopeLevel!=0;
+        }
+        std::printf("Ended note: voices=%u meters=%u pcm_keys=%x\n",remainingVoices,remainingMeters,stopped.activeVoiceMask);
+        if(remainingVoices || remainingMeters)
+            throw std::runtime_error("Ended note leaves a visible part meter");
         std::printf("PASS: native MIDI/control/PCM without H8 or JUCE; checksum=%016llx nonzero=%llu\n",
             (unsigned long long)checksum,(unsigned long long)nonzero);
         return 0;
