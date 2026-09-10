@@ -31,6 +31,48 @@ int main(int argc,char** argv)
         if(argc==3 && std::strcmp(argv[2],"adapter-load")==0) {
             MeasureNativeAdapterLoad(argv[1],roms.romset_info);return 0;
         }
+        if(argc==3 && std::strcmp(argv[2],"engine-switch")==0) {
+            const auto* cache=std::getenv("SC55_TEST_CACHE");
+            if(!cache) throw std::runtime_error("SC55_TEST_CACHE required");
+            using Mode=NukedSC55Emulator::EngineMode;
+            NukedSC55Emulator adapter;
+            std::array<float,256> left{},right{};
+            for(const auto mode:{Mode::native,Mode::h8,Mode::native}) {
+                if(!adapter.initialise(argv[1],48000,cache,mode))
+                    throw std::runtime_error(adapter.getError());
+                // The original firmware must finish booting before a test note.
+                // Its reset-time PCM configuration does not yet run at normal rate.
+                for(int i=0;i<6000;++i) {
+                    adapter.getDebugState();
+                    adapter.render(left.data(),right.data(),256);
+                    const auto boot=adapter.getDebugState();
+                    if(i>=375 && (mode==Mode::native || boot.cycles>40000000)) break;
+                    if(i==5999) throw std::runtime_error("H8 boot timeout");
+                }
+                const uint8_t note[]{0x90,60,100};
+                adapter.sendMidi(note,3);
+                double peak=0;
+                for(int i=0;i<94;++i) {
+                    adapter.render(left.data(),right.data(),256);
+                    for(auto v:left) {
+                        if(!std::isfinite(v)) throw std::runtime_error("Non-finite output");
+                        peak=std::max(peak,std::abs(double(v)));
+                    }
+                }
+                adapter.getDebugState();
+                adapter.render(left.data(),right.data(),256);
+                const auto state=adapter.getDebugState();
+                std::printf("requested=%s active=%s ready=%d peak=%f cycles=%llu pc=%04x\n",
+                    mode==Mode::native?"C++":"H8",state.nativeEngine?"C++":"H8",
+                    state.ready,peak,(unsigned long long)state.cycles,state.pc);
+                if(state.nativeEngine!=(mode==Mode::native) || !state.ready || peak==0
+                    || (mode==Mode::h8 && state.cycles==0))
+                    throw std::runtime_error("Engine selection/render failed");
+                std::printf("engine=%s peak=%f cycles=%llu PASS\n",
+                    state.nativeEngine?"C++":"H8",peak,(unsigned long long)state.cycles);
+            }
+            return 0;
+        }
         Emulator reference;
         if(!reference.Init({}) || !reference.LoadRoms(roms.romset,roms.romset_info)) return 4;
         reference.Reset();reference.GetMCU().native_v121_enabled=false;

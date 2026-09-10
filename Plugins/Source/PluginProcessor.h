@@ -104,6 +104,10 @@ public:
     /** Selects one of the ROM folders returned by getStoredRomNames(). */
     bool selectStoredRom (const juce::String& name);
 
+    // Message-thread comparison switch; per instance, not a host parameter.
+    bool setOptimizationEnabled (bool enabled);
+    bool isOptimizationEnabled() const noexcept { return optimizationEnabled; }
+
     /** Returns the persistent user data directory (App Group on Apple platforms). */
     static juce::File getUserSettingsDirectory();
 
@@ -174,6 +178,8 @@ private:
 
     juce::AudioProcessorValueTreeState parameters;
     std::array<NukedSC55Emulator, 2> emulators;
+    bool optimizationEnabled = NukedSC55Emulator::usesNativeEngine (
+        NukedSC55Emulator::EngineMode::environment);
     juce::AudioBuffer<float> secondaryRenderBuffer;
     std::atomic<bool> audioReady { false };
     std::atomic<bool> twoXEnabled { false };

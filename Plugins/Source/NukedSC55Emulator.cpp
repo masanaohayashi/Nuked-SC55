@@ -722,8 +722,16 @@ void NukedSC55Emulator::logRomSetDiagnostics (const std::string& romDirectory)
 #endif
 }
 
+bool NukedSC55Emulator::usesNativeEngine (EngineMode mode) noexcept
+{
+    if (mode != EngineMode::environment)
+        return mode == EngineMode::native;
+    const auto* option = std::getenv ("NUKED_SC55_USE_H8");
+    return option == nullptr || std::string_view (option) != "1";
+}
+
 bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newHostSampleRate,
-                                  const std::string& nativeCacheDirectory)
+                                  const std::string& nativeCacheDirectory, EngineMode mode)
 {
     sc55debug::log ("initialise requested directory=\"%s\" hostRate=%.2f",
                     romDirectory.c_str(), newHostSampleRate);
@@ -749,7 +757,7 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
         return false;
     }
 
-    try
+    if (usesNativeEngine (mode)) try
     {
         const auto& data = nextRoms->romset_info.rom_data;
         const auto generated = sc55::EnsureNativeSoundDataCache (
@@ -771,8 +779,7 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     // Normal app and plug-in launches use the C++ controller, including AUv3
     // extension processes which do not inherit a Standalone scheme's environment.
     // The H8 implementation remains an explicitly selected comparison oracle.
-    const auto* h8Option = std::getenv ("NUKED_SC55_USE_H8");
-    if (h8Option == nullptr || std::string_view (h8Option) != "1")
+    if (usesNativeEngine (mode))
     {
         const auto& loaded = nextRoms->romset_info.rom_data;
         if (! sc55::CanImportSoundData (loaded[static_cast<size_t> (RomLocation::ROM1)],
@@ -826,6 +833,9 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
             return false;
         }
         nextCore->Reset();
+        // Comparison mode must execute H8, including routines for which the
+        // older emulator has optional v1.21 C++ instruction shortcuts.
+        nextCore->GetMCU().native_v121_enabled = false;
         nextCore->GetMCU().button_pressed.store (0, std::memory_order_relaxed);
         nextCore->SetSampleCallback (&NukedSC55Emulator::sampleSink, this);
         if (! nextCore->StartLCD())

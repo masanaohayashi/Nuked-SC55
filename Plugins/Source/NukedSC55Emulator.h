@@ -96,8 +96,11 @@ public:
     NukedSC55Emulator();
     ~NukedSC55Emulator();
 
+    enum class EngineMode { environment, native, h8 };
+    static bool usesNativeEngine (EngineMode mode) noexcept;
     bool initialise (const std::string& romDirectory, double hostSampleRate,
-                     const std::string& nativeCacheDirectory);
+                     const std::string& nativeCacheDirectory,
+                     EngineMode mode = EngineMode::environment);
     void release();
     void clearPendingMidi() noexcept;
 

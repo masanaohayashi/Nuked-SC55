@@ -53,7 +53,7 @@ SettingsComponent::SettingsComponent ()
     labelCurrentRomCaption->setColour (juce::TextEditor::textColourId, juce::Colours::black);
     labelCurrentRomCaption->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
 
-    labelCurrentRomCaption->setBounds (120, 40, 208, 24);
+    labelCurrentRomCaption->setBounds (120, 24, 208, 24);
 
     comboRoms.reset (new ImportAwareComboBox (juce::String()));
     contentComponent.addAndMakeVisible (comboRoms.get());
@@ -63,7 +63,7 @@ SettingsComponent::SettingsComponent ()
     comboRoms->setTextWhenNoChoicesAvailable (TRANS ("(no choices)"));
     comboRoms->addListener (this);
 
-    comboRoms->setBounds (120, 64, 208, 24);
+    comboRoms->setBounds (120, 48, 208, 24);
 
     juce__label.reset (new juce::Label ("new label",
                                         TRANS ("CLOSE")));
@@ -92,7 +92,7 @@ SettingsComponent::SettingsComponent ()
     labelVoices->setColour (juce::TextEditor::textColourId, juce::Colours::black);
     labelVoices->setColour (juce::TextEditor::backgroundColourId, juce::Colour (0x00000000));
 
-    labelVoices->setBounds (120, 104, 208, 24);
+    labelVoices->setBounds (120, 88, 208, 24);
 
     sliderVoices.reset (new juce::Slider (juce::String()));
     contentComponent.addAndMakeVisible (sliderVoices.get());
@@ -101,7 +101,15 @@ SettingsComponent::SettingsComponent ()
     sliderVoices->setTextBoxStyle (juce::Slider::TextBoxRight, false, 80, 20);
     sliderVoices->addListener (this);
 
-    sliderVoices->setBounds (120, 128, 208, 24);
+    sliderVoices->setBounds (120, 112, 208, 24);
+
+    toggleOptimization.reset (new juce::ToggleButton (juce::String()));
+    contentComponent.addAndMakeVisible (toggleOptimization.get());
+    toggleOptimization->setButtonText (TRANS ("OPTIMIZATION"));
+    toggleOptimization->addListener (this);
+    toggleOptimization->setColour (juce::ToggleButton::textColourId, juce::Colour (0x80ffffff));
+
+    toggleOptimization->setBounds (120, 152, 208, 24);
 
     cachedImage_BinaryData_BackPanel_png_1 = juce::ImageCache::getFromMemory (BinaryData::BackPanel_png, BinaryData::BackPanel_pngSize);
 
@@ -112,6 +120,7 @@ SettingsComponent::SettingsComponent ()
 
 
     //[Constructor] You can add your own custom stuff here..
+    toggleOptimization->setTooltip ("ON: C++ engine. OFF: H8 emulation. Switching resets the sound engine; restart playback from the beginning.");
     viewport->setVisible (false);
 
     labelCurrentRomCaption->setColour (juce::Label::textColourId,
@@ -131,6 +140,7 @@ SettingsComponent::~SettingsComponent()
     viewport = nullptr;
     labelVoices = nullptr;
     sliderVoices = nullptr;
+    toggleOptimization = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -198,6 +208,13 @@ void SettingsComponent::buttonClicked (juce::Button* buttonThatWasClicked)
         if (onClose)
             onClose();
         //[/UserButtonCode_buttonClose]
+    }
+    else if (buttonThatWasClicked == toggleOptimization.get())
+    {
+        //[UserButtonCode_toggleOptimization] -- add your button handler code here..
+        if (onOptimizationChanged)
+            onOptimizationChanged (toggleOptimization->getToggleState());
+        //[/UserButtonCode_toggleOptimization]
     }
 
     //[UserbuttonClicked_Post]
@@ -347,12 +364,12 @@ BEGIN_JUCER_METADATA
                opacityOver="1.0" colourOver="0" resourceDown="BinaryData::PowerButton_down_png"
                opacityDown="1.0" colourDown="0"/>
   <LABEL name="" id="22d6c36a912254f9" memberName="labelCurrentRomCaption"
-         virtualName="" explicitFocusOrder="0" pos="120 40 208 24" textCol="80ffffff"
+         virtualName="" explicitFocusOrder="0" pos="120 24 208 24" textCol="80ffffff"
          edTextCol="ff000000" edBkgCol="0" labelText="ROM" editableSingleClick="0"
          editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
          fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
   <COMBOBOX name="" id="fc40b79ca6ae887" memberName="comboRoms" virtualName="ImportAwareComboBox"
-            explicitFocusOrder="0" pos="120 64 208 24" editable="0" layout="33"
+            explicitFocusOrder="0" pos="120 48 208 24" editable="0" layout="33"
             items="" textWhenNonSelected="" textWhenNoItems="(no choices)"/>
   <LABEL name="new label" id="9df59162551224f7" memberName="juce__label"
          virtualName="" explicitFocusOrder="0" pos="24 48 72 24" textCol="80ffffff"
@@ -364,15 +381,19 @@ BEGIN_JUCER_METADATA
             scrollbarThickness="8" contentType="0" jucerFile="" contentClass=""
             constructorParams=""/>
   <LABEL name="" id="99e6f1a5834abd67" memberName="labelVoices" virtualName=""
-         explicitFocusOrder="0" pos="120 104 208 24" textCol="80ffffff"
+         explicitFocusOrder="0" pos="120 88 208 24" textCol="80ffffff"
          edTextCol="ff000000" edBkgCol="0" labelText="VOICES" editableSingleClick="0"
          editableDoubleClick="0" focusDiscardsChanges="0" fontname="Default font"
          fontsize="15.0" kerning="0.0" bold="0" italic="0" justification="33"/>
   <SLIDER name="" id="6ae5429c6a975756" memberName="sliderVoices" virtualName=""
-          explicitFocusOrder="0" pos="120 128 208 24" min="24.0" max="128.0"
+          explicitFocusOrder="0" pos="120 112 208 24" min="24.0" max="128.0"
           int="8.0" style="LinearHorizontal" textBoxPos="TextBoxRight"
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
+  <TOGGLEBUTTON name="" id="b655948b5f5d1e98" memberName="toggleOptimization"
+                virtualName="" explicitFocusOrder="0" pos="120 152 208 24" txtcol="80ffffff"
+                buttonText="OPTIMIZATION" connectedEdges="0" needsCallback="1"
+                radioGroupId="0" state="0"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA

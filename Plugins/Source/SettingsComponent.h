@@ -96,6 +96,10 @@ public:
             });
     }
     void setOnRomSelected (RomSelectionAction callback) { onRomSelected = std::move (callback); }
+    void setOnOptimizationChanged (std::function<void(bool)> callback)
+    { onOptimizationChanged = std::move (callback); }
+    void setOptimizationEnabled (bool enabled)
+    { toggleOptimization->setToggleState (enabled, juce::dontSendNotification); }
 
     void setRomChoices (const juce::StringArray& names,
                        const juce::String& selectedName);
@@ -117,6 +121,7 @@ private:
     Action onClose;
     Action onImportRom;
     RomSelectionAction onRomSelected;
+    std::function<void(bool)> onOptimizationChanged;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> audioDeviceSettings;
     juce::String selectedRomName;
     static constexpr int importRomItemId = 0x10000;
@@ -131,6 +136,7 @@ private:
     std::unique_ptr<juce::Viewport> viewport;
     std::unique_ptr<juce::Label> labelVoices;
     std::unique_ptr<juce::Slider> sliderVoices;
+    std::unique_ptr<juce::ToggleButton> toggleOptimization;
     juce::Image cachedImage_BinaryData_BackPanel_png_1;
 
 

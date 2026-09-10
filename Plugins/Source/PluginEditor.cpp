@@ -732,6 +732,15 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
             settingsComponent->setAudioDeviceManager (&holder->deviceManager);
 #endif
     settingsComponent->setOnImportRom ([this] { showRomFileChooser(); });
+    settingsComponent->setOnOptimizationChanged ([this] (bool enabled)
+    {
+        const bool switched = audioProcessor.setOptimizationEnabled (enabled);
+        settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
+        syncFrontPanelIndicators();
+        if (! switched)
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                "Engine switch failed", audioProcessor.getUiStatus().error);
+    });
     settingsComponent->setOnRomSelected ([this] (const juce::String& name)
     {
         if (! audioProcessor.selectStoredRom (name))
@@ -1570,6 +1579,7 @@ void NukedSC55AudioProcessorEditor::refreshRomChoices()
         return;
 
     const auto uiStatus = audioProcessor.getUiStatus();
+    settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
     const auto selectedRomName = uiStatus.romDirectory.isEmpty()
                                ? juce::String()
                                : juce::File (uiStatus.romDirectory).getFileName();

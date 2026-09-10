@@ -14,6 +14,23 @@
 
 ## 現在の製品構造
 
+設定の`toggleOptimization`を比較用のインスタンス単位切替へ接続。
+ON=C++、OFF=H8。初期値のみ既存NUKED_SC55_USE_H8環境変数を参照し、
+UI操作は環境変数を変更しない。今回の選択はprocessor寿命内だけ保持し、
+host parameter／セッション保存項目は追加しない。editor再作成では選択を維持。
+切替はmessage-threadで内蔵player停止・最大CPUリセット要求後、両2X音源を
+再初期化。JUCE suspendProcessingで進行中callbackと同期し、重い初期化中は
+callback lockを保持せずhostが無音を返せるようにする。失敗は旧方式へ復元を試み、
+UIにエラー表示。音源状態の途中引継ぎではなく、曲の先頭から再比較する用途。
+H8側は旧部分移植native_v121_enabledもfalseに固定。native cache生成はC++側だけ。
+既存PCM DSPは共通のまま、元プロジェクト全体の過去版へ戻す機能ではない。
+`engine-switch`試験で明示C++→H8→C++を同一adapterで再初期化し、
+各方式のready／発音／H8 clock進行を確認。環境変数USE_H8=1でも明示選択が優先。
+H8はfirmware起動完了を待ってNote Onを送る。最初の固定2秒待機では未起動だった。
+ログ`/tmp/sc55-engine-switch-test.log`。Release arm64 Standalone＋内蔵AUv3
+BUILD SUCCEEDED (`/tmp/sc55-engine-switch-release.log`)。Logicでのボタン操作、
+失敗時復元とホスト処理中の切替は実行未確認。Resave／インストール／pushなし。
+
 終了時にメーターが瞬時に消える挙動への追加修正：`NativeMeterDecay`を
 message-threadのLCD描画に接続。上昇は即時、下降は1段40msでゼロまで減衰する。
 これはUI表示用の時定数で、実機計測値ではない。steady_clockの経過時間を使い、

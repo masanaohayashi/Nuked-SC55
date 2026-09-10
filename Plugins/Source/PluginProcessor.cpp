@@ -686,6 +686,28 @@ bool NukedSC55AudioProcessor::selectStoredRom (const juce::String& name)
     return selectStoredRomInternal (name, true);
 }
 
+bool NukedSC55AudioProcessor::setOptimizationEnabled (bool enabled)
+{
+    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
+    if (optimizationEnabled == enabled)
+        return true;
+
+    const bool previous = optimizationEnabled;
+    optimizationEnabled = enabled;
+    stopMidiFile();
+    resetMaximumProcessLoad();
+    if (selectedRomDirectory == juce::File())
+        return true;
+    if (initialiseRomDirectory (selectedRomDirectory))
+        return true;
+
+    const auto switchError = uiError;
+    optimizationEnabled = previous;
+    const bool restored = initialiseRomDirectory (selectedRomDirectory);
+    uiError = restored ? switchError : switchError + "\nRestore failed: " + uiError;
+    return false;
+}
+
 bool NukedSC55AudioProcessor::selectStoredRomInternal (const juce::String& name,
                                                        bool notifyHost)
 {
@@ -1353,14 +1375,25 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
         return true;
     }
 
-    const juce::ScopedLock callbackLock (getCallbackLock());
+    // suspendProcessing synchronises with the in-flight callback, then releases
+    // its lock. Hosts can render silence while ROM/core setup runs off audio.
+    struct Suspension
+    {
+        juce::AudioProcessor& processor;
+        bool previous;
+        explicit Suspension (juce::AudioProcessor& p) : processor (p), previous (p.isSuspended())
+        { processor.suspendProcessing (true); }
+        ~Suspension() { processor.suspendProcessing (previous); }
+    } suspension (*this);
     audioReady.store (false, std::memory_order_release);
+    const auto mode = optimizationEnabled ? NukedSC55Emulator::EngineMode::native
+                                          : NukedSC55Emulator::EngineMode::h8;
     const auto settingsDirectory = getUserSettingsDirectory();
     const auto nativeCacheDirectory = settingsDirectory.isDirectory()
         ? settingsDirectory.getChildFile ("NativeSoundData").getFullPathName().toStdString()
         : std::string();
     if (! emulators[0].initialise (directory.getFullPathName().toStdString(), sampleRate,
-                                  nativeCacheDirectory))
+                                  nativeCacheDirectory, mode))
     {
         uiError = juce::String (emulators[0].getError());
         sc55debug::log ("ROM directory initialisation failed: %s", emulators[0].getError().c_str());
@@ -1371,7 +1404,7 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
     // Once the audio callback starts, 2X changes only affect MIDI routing and
     // output mixing; no message-thread core lifetime change can race rendering.
     if (! emulators[1].initialise (directory.getFullPathName().toStdString(), sampleRate,
-                                  nativeCacheDirectory))
+                                  nativeCacheDirectory, mode))
     {
         sc55debug::log ("2X secondary initialisation failed: %s; continuing with one emulator",
                         emulators[1].getError().c_str());
