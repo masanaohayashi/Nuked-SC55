@@ -50,6 +50,37 @@ With `SC55_ROM_DIRECTORY` configured, this is the `native-polyphony` CTest.
 
 ## Expanded-voice diagnostics
 
+### Permanent-silence regression (present in v0.0.7)
+
+`sc55-native-engine-check ROM_DIRECTORY stall-regression` replays three reduced,
+deterministic MIDI streams through the product's native controller/reference
+PCM. It checks capacities 24/64/128 and render blocks of 1/32/257 samples:
+no latched failure, later notes produce changing audio, and all voices drain
+after note/pedal release. Configure `SC55_ROM_DIRECTORY` to run it through
+CTest as `native-stall-regression`. No ROM or song data is embedded.
+
+One stream exercises mono reuse after envelope completion has legitimately
+detached a two-partial note's PCM links, but before its group slots are reclaimed.
+The two installed partials then require two independent preparation tasks,
+not one linked task. The dispatcher must consume both atomically and preserve
+independent modulation initialization. Restoring the links or merely deferring
+the mismatched task does not implement this lifecycle.
+
+Another exercises a queued Note Off followed by Program Change during held-key
+return. Note Off must use its captured tone, not the receiver's newer program.
+Otherwise reuse can select an incompatible number of partials and permanently
+fail the engine. The third changes programs, restarts a CC84 source group, then
+attempts mono reuse of another old-program group. Consuming the part-level
+invalidation for the first group must not make the second group's old tone and
+partial layout reusable. Check the selected group's installed tone and take the
+existing stop/reallocate path when it differs from the new admission.
+
+`sc55-voice-dispatch-check` also checks detached pairs at low
+and expanded slot indices, linked-pair ordering, and unchanged pending flags
+when an incomplete/mismatched batch is rejected; this test needs no ROM.
+
+### Other diagnostics
+
 - `sc55-pcm-voice-bank-check` checks all 128 logical pitch banks and their
   isolation from the hardware effect banks. Include `-fsanitize=bounds` in
   diagnostic builds: ASan alone misses out-of-range subarrays inside `pcm_t`.

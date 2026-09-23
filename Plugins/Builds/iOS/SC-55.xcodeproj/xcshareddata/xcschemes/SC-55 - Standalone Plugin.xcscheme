@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Scheme version="1.3" ProjucerGeneratedScheme="Standalone">
+  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+    <BuildActionEntries>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES"
+                        buildForArchiving="YES" buildForAnalyzing="YES">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="7843F8D3DD5C0A56C174C917"
+                            BuildableName="SC-55.app" BlueprintName="SC-55 - Standalone Plugin"
+                            ReferencedContainer="container:SC-55.xcodeproj"/>
+      </BuildActionEntry>
+    </BuildActionEntries>
+  </BuildAction>
+  <TestAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES">
+    <Testables/>
+  </TestAction>
+  <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB"
+                selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB"
+                launchStyle="0" useCustomWorkingDirectory="NO" allowLocationSimulation="YES">
+    <BuildableProductRunnable runnableDebuggingMode="0">
+      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="7843F8D3DD5C0A56C174C917"
+                          BuildableName="SC-55.app" BlueprintName="SC-55 - Standalone Plugin"
+                          ReferencedContainer="container:SC-55.xcodeproj"/>
+    </BuildableProductRunnable>
+  </LaunchAction>
+  <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES">
+    <BuildableProductRunnable runnableDebuggingMode="0">
+      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="7843F8D3DD5C0A56C174C917"
+                          BuildableName="SC-55.app" BlueprintName="SC-55 - Standalone Plugin"
+                          ReferencedContainer="container:SC-55.xcodeproj"/>
+    </BuildableProductRunnable>
+  </ProfileAction>
+  <AnalyzeAction buildConfiguration="Debug"/>
+  <ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
+</Scheme>

@@ -47,12 +47,17 @@ add_executable(sc55-voice-capacity-check voice_capacity_test.cpp)
 target_compile_features(sc55-voice-capacity-check PRIVATE cxx_std_20)
 target_include_directories(sc55-voice-capacity-check PRIVATE "${BACKEND}")
 add_test(NAME voice-capacity COMMAND sc55-voice-capacity-check)
+add_executable(sc55-voice-dispatch-check voice_dispatch_test.cpp)
+target_link_libraries(sc55-voice-dispatch-check PRIVATE sc55-native-engine)
+add_test(NAME voice-dispatch COMMAND sc55-voice-dispatch-check)
 if(SC55_ROM_DIRECTORY)
     enable_testing()
     add_test(NAME native-without-h8
         COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}")
     add_test(NAME native-polyphony
         COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" polyphony)
+    add_test(NAME native-stall-regression
+        COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" stall-regression)
     if(SC55_MONO_REUSE_SONG)
         add_test(NAME native-mono-completion
             COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" song-notes "${SC55_MONO_REUSE_SONG}")

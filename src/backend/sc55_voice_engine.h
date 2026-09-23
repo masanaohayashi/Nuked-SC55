@@ -88,7 +88,7 @@ public:
     // The scheduler chooses when to run us; it never takes a command itself
     // or changes the continuation after a capacity/PCM wait.
     template<class Read,class Write>
-    CommandResult serviceCommand(const Configuration& config,std::span<const std::optional<uint16_t>,16> tones,
+    CommandResult serviceCommand(const Configuration& config,[[maybe_unused]] std::span<const std::optional<uint16_t>,16> tones,
         const PartControllerState& controllers,const SoundData& data,
         const PitchConversion& conversion,const LfoWaveformTables& waves,Read&& read,Write&& write)
     {
@@ -101,7 +101,9 @@ public:
                 if(part>=16) { result.failed=true; return result; }
                 if(const auto* note=std::get_if<NoteRequest>(&*command)) {
                     if(note->action==NoteRequest::Action::on) admission=PendingAdmission{*note};
-                    else result.failed=!releaseNote(*note,config.parts.routing[part].noteFlags,tones[part]);
+                    // The receiver may already have decoded a later program.
+                    // A held-key return belongs to this queued Note Off's tone.
+                    else result.failed=!releaseNote(*note,config.parts.routing[part].noteFlags,note->tone);
                 } else if(const auto* pedal=std::get_if<PedalRequest>(&*command)) {
                     result.failed=!applyPedal(*pedal);
                     if(!result.failed && pedal->kind==PedalRequest::Kind::portamento) refreshControls(config);
@@ -261,8 +263,9 @@ public:
 
     // Voice-management commands act on one serialized owner. The receiver
     // supplies routing/tone values, never edits held keys or publishes a
-    // release snapshot itself. A mono return retains the selected live tone,
-    // not the tone of the key being released.
+    // release snapshot itself. A mono return uses the selected tone when
+    // Note Off was received, not the tone of the key being released or a
+    // subsequent Program Change decoded ahead of command service.
     bool releaseNote(const NoteRequest& request,uint8_t noteFlags,
         std::optional<uint16_t> selectedTone) noexcept
     {
@@ -991,7 +994,16 @@ private:
             if(!found) { outcome.failed=true; return; }
             group=*found;
         }
-        if (reuseInvalidated(part) && (!polySource || group<voiceCapacity)) {
+        // A CC84 source restart consumes the part-level invalidation, but
+        // other groups from the old program may still sound. Never reuse
+        // their PCM pairing/partial layout with a different tone. A newly
+        // replenished slot has no installation for this admission yet.
+        bool staleTone=false;
+        if(group<voiceCapacity)
+            for(const auto slot:{allocator.groups.head[group],allocator.groups.tail[group]})
+                if(slot<voiceCapacity && slot!=admission->addedMonoVoice)
+                    staleTone |= installation.voices[slot].input.tone!=*tone;
+        if ((reuseInvalidated(part) || staleTone) && (!polySource || group<voiceCapacity)) {
             reuseInvalidation_&=uint16_t(~(1u<<part));
             if(polySource && group<voiceCapacity) {
                 if(!stopGroup(part,group,

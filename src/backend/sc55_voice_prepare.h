@@ -35,6 +35,9 @@ struct NormalVoicePreparationEntry
     VoiceStopState lifecycle;
     PreparedPartPitch previousPitch;
     const VoiceControlState* continuing = nullptr; // Live owner, borrowed only during preparation.
+    // Two entries need not be one PCM-linked task: a completed envelope can
+    // detach the pair before task1 reuses its still-owned group slots.
+    bool linkedToPrevious = true;
 };
 
 struct PreparedNormalVoiceBatch
@@ -59,7 +62,7 @@ struct DispatchedNormalVoiceInputs
     unsigned count = 0;
 };
 
-// Match this installed note to the next firmware-ordered preparation task,
+// Match this installed note to the next firmware-ordered preparation tasks,
 // then assemble DSP requests in that task's order (not partial array order).
 // One/two distinct normal owners; no same-slot partial overwrite semantics.
 // Absent/special samples are not DSP owners. Previous pitch/control policy is
@@ -100,18 +103,27 @@ inline std::optional<DispatchedNormalVoiceInputs> DispatchNormalVoiceInputs(
     }
     if (count == 0) return std::nullopt;
     auto pending = lifecycle; auto nextActivity = activity;
-    const auto task = DispatchNextVoiceTask(pending,links,nextActivity);
-    if (!task || task->kind != VoiceTaskDispatch::Kind::prepare || task->count != count) return std::nullopt;
     DispatchedNormalVoiceInputs result; result.count = count;
     VoiceSet selected = 0;
-    for (unsigned i = 0; i < count; ++i)
+    unsigned dispatched = 0;
+    while (dispatched < count)
     {
-        const auto slot = task->slots[i];
-        if (slot >= voiceCapacity || !(slots&(VoiceSet::single(slot))) || (selected&(VoiceSet::single(slot)))) return std::nullopt;
-        selected |= VoiceSet::single(slot);
-        for (const auto& entry : byPartial)
-            if (entry && entry->slot == slot)
-            { result.entries[i] = *entry; result.entries[i].lifecycle = pending[slot]; }
+        const auto task = DispatchNextVoiceTask(pending,links,nextActivity);
+        if (!task || task->kind != VoiceTaskDispatch::Kind::prepare
+            || !task->count || task->count > count-dispatched) return std::nullopt;
+        for (unsigned i = 0; i < task->count; ++i)
+        {
+            const auto slot = task->slots[i];
+            if (slot >= voiceCapacity || !(slots&(VoiceSet::single(slot))) || (selected&(VoiceSet::single(slot)))) return std::nullopt;
+            selected |= VoiceSet::single(slot);
+            for (const auto& entry : byPartial)
+                if (entry && entry->slot == slot)
+                {
+                    auto& destination=result.entries[dispatched++];
+                    destination=*entry; destination.lifecycle=pending[slot];
+                    destination.linkedToPrevious=i!=0;
+                }
+        }
     }
     lifecycle = pending; activity = nextActivity;
     return result;
@@ -178,10 +190,13 @@ public:
             // Do not retain the caller's live-owner pointer across a yield.
             operation.entries_[i].continuing=nullptr;
         }
-        const auto& firstRecord = entries[0].request.installed.input;
-        const auto controllerInput = controllers.inputs(firstRecord.part,firstRecord.originalKey);
-        if (!controllerInput) return std::nullopt;
-        const auto controllerState = PrepareVoiceControllers(*controllerInput);
+        std::array<VoiceControllerState,2> controllerStates{};
+        for(unsigned i=0;i<result.count;++i) {
+            const auto& record=entries[i && entries[i].linkedToPrevious ? i-1 : i].request.installed.input;
+            const auto input=controllers.inputs(record.part,record.originalKey);
+            if(!input) return std::nullopt;
+            controllerStates[i]=PrepareVoiceControllers(*input);
+        }
         const auto& modulation = *data.modulationPreparation();
         auto& secondSetup=operation.secondSetup_;
         // 5639 metadata,5c20/5ff5 controllers,37fc depths for both.
@@ -206,10 +221,10 @@ public:
             secondSetup[i].controller = prepared.controls.secondController;
             secondSetup[i].input.suppressPositiveControl = (partial.raw[8]&4) != 0;
             secondSetup[i].timing.attackControlEnabled = (partial.raw[8]&16) != 0;
-            controllerState.apply(prepared.controls.level,secondSetup[i].input,prepared.controls.pitch,
+            controllerStates[i].apply(prepared.controls.level,secondSetup[i].input,prepared.controls.pitch,
                 first[slot].block,second[slot].block);
             auto& inputFirst = prepared.firstControls;
-            if (entries[0].request.installed.flags&128)
+            if (entries[i && entries[i].linkedToPrevious ? i-1 : i].request.installed.flags&128)
                 inputFirst.pitchDepth = PrepareModulationDepths(partial,first[slot].block,second[slot].block,modulation.depths);
             inputFirst.mode = patch.common[2]; inputFirst.baseRate = patch.common[3];
             inputFirst.delay = patch.common[4]; inputFirst.attack = patch.common[5];
@@ -243,18 +258,20 @@ private:
     {
         const auto& entries=entries_; auto& result=result_;
         const auto& modulation=*data.modulationPreparation();
-        const auto firstSlot = entries[0].slot;
-        if ((entries[0].request.installed.flags&128)
-            && InitializeFirstVoiceModulation(firstSlot,first,result.voices[0]->firstControls,modulation.timing,
-            modulation.depths.pitch,*data.modulationRates(),waves,read,write) == ModulationRoute::invalidInput)
-            return false;
-        if (result.count == 2 && (entries[0].request.installed.flags&128))
+        for(unsigned i=0;i<result.count;++i)
         {
-            const auto secondSlot = entries[1].slot;
-            const auto& input = result.voices[1]->firstControls;
-            // 558d calls the full3d1a initializer, not the periodic3d44 tail.
-            if (!InitializeSharedFirstModulation(first[secondSlot].block,first[secondSlot].sharing,
-                first[firstSlot].block,first[firstSlot].sharing,input.pitchDepth,input.depthControl,modulation.depths.pitch))
+            const auto slot=entries[i].slot;
+            const bool linked=i!=0 && entries[i].linkedToPrevious;
+            if(!(entries[linked ? i-1 : i].request.installed.flags&128)) continue;
+            const auto& input=result.voices[i]->firstControls;
+            if(linked) {
+                const auto source=entries[i-1].slot;
+                // 558d's paired initializer is only for an actual PCM link.
+                if(!InitializeSharedFirstModulation(first[slot].block,first[slot].sharing,
+                    first[source].block,first[source].sharing,input.pitchDepth,input.depthControl,modulation.depths.pitch))
+                    return false;
+            } else if(InitializeFirstVoiceModulation(slot,first,input,modulation.timing,
+                modulation.depths.pitch,*data.modulationRates(),waves,read,write)==ModulationRoute::invalidInput)
                 return false;
         }
         return true;
