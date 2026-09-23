@@ -23,6 +23,7 @@
 #include <utility>
 #include "BinaryData.h"
 #include "SC55Lcd.h"
+#include "SC55LcdRenderer.h"
 #include "SC55Debug.h"
 #include "SettingsComponent.h"
 #if JUCE_STANDALONE_APPLICATION
@@ -61,15 +62,7 @@ public:
     {
         g.fillAll (romLoaded ? juce::Colour (0xffff6f0f)
                             : juce::Colour (0xff707070));
-        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
-
-        const auto destination = getLocalBounds().toFloat();
-        g.drawImage (romLoaded ? background : noRomBackground, destination,
-                     juce::RectanglePlacement::stretchToFit, false);
-
-        if (displayEnabled)
-            g.drawImage (glyphLayer, destination,
-                         juce::RectanglePlacement::stretchToFit, false);
+        renderer.paint (g, getLocalBounds().toFloat());
     }
 
 private:
@@ -116,23 +109,27 @@ private:
         displayEnabled = romLoaded
                       && processor.copyLcdDisplay (displayMask.data(), LCD_DISPLAY_WIDTH);
 
-        juce::Image::BitmapData pixels (glyphLayer,
-                                       juce::Image::BitmapData::writeOnly);
-        for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
         {
-            for (int x = 0; x < LCD_DISPLAY_WIDTH; ++x)
+            juce::Image::BitmapData pixels (glyphLayer,
+                                           juce::Image::BitmapData::writeOnly);
+            for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
             {
-                const auto value = displayMask[static_cast<size_t> (y)
-                                               * LCD_DISPLAY_WIDTH + x];
-                const auto colour = value == 1
-                                  ? juce::Colours::black
-                                  : value == 2
-                                    ? juce::Colour (0xffc85000)
-                                    : juce::Colours::transparentBlack;
-                pixels.setPixelColour (x, y, colour);
+                for (int x = 0; x < LCD_DISPLAY_WIDTH; ++x)
+                {
+                    const auto value = displayMask[static_cast<size_t> (y)
+                                                   * LCD_DISPLAY_WIDTH + x];
+                    const auto colour = value == 1
+                                      ? juce::Colours::black
+                                      : value == 2
+                                        ? juce::Colour (0xffc85000)
+                                        : juce::Colours::transparentBlack;
+                    pixels.setPixelColour (x, y, colour);
+                }
             }
         }
 
+        renderer.setFrame (romLoaded ? background : noRomBackground,
+                           glyphLayer, displayEnabled);
         repaint();
         if (refreshCallback)
             refreshCallback();
@@ -143,6 +140,7 @@ private:
     juce::Image background;
     juce::Image noRomBackground;
     juce::Image glyphLayer;
+    SC55LcdRenderer renderer;
     std::array<uint8_t, LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT> displayMask {};
     bool romLoaded = false;
     bool displayEnabled = false;
