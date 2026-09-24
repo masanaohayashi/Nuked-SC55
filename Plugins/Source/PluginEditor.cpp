@@ -1196,7 +1196,8 @@ void NukedSC55AudioProcessorEditor::loadSequenceFile (const juce::File& file)
     {
         const auto options = juce::MessageBoxOptions::makeOptionsOk (
             juce::AlertWindow::WarningIcon, "SC-55",
-            "このシーケンスファイルを再生できませんでした:\n" + file.getFileName());
+            juce::String::fromUTF8 ("このシーケンスファイルを再生できませんでした:\n")
+                + file.getFileName());
         juce::AlertWindow::showAsync (options, nullptr);
     }
 

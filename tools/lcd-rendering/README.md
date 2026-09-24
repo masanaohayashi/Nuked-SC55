@@ -1,9 +1,9 @@
 # LCD rendering regression
 
 Exercises the editor's `SC55LcdRenderer` without ROMs or an audio device.
-The renderer follows TX81Z: floating-point dot rectangles and JUCE
-`fillRectList`, transformed directly into the destination, with no glyph image
-resampling or custom downsampling filter.
+Background and glyphs are composited at the native 741x268 resolution. The
+complete image is then drawn with JUCE's high-quality image resampling, with
+no conversion of pixels to rectangles and no separately scaled glyph layer.
 
 ```sh
 cmake -S tools/lcd-rendering -B /tmp/sc55-lcd-rendering-build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -17,11 +17,9 @@ Generate a 244x88 Piano 1 fixture using the real background and font:
 /tmp/sc55-lcd-rendering-build/sc55-lcd-rendering-check /tmp/sc55-lcd.png
 ```
 
-Checks the mean brightness of a six-pixel gap pattern reduced sixfold across
-all six phases (the old bilinear image path fails all six); edge coverage at
-50–400% effective scales; equivalent direct/host transforms; repeat painting;
-display-off/on and changing glyph content. Allows up to 2/255 colour rounding
-between equivalent transforms and 3/255 for fractional coverage of the stripes.
+Checks agreement with scaling a single composited image at 50–400% effective
+scales, repeat painting, display-off/on, and changing glyph content.
+The old rectangle renderer fails the single-image comparison at all scales.
 
-The PNG is a synthetic display state, not a live app screenshot. Native window
-and host checks on Windows, Linux and macOS remain separate validation.
+The PNG is a synthetic display state, not a live app screenshot. These tests
+use software images; native window and host checks remain separate validation.

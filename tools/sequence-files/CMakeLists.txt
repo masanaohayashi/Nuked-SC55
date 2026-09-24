@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.20)
+project(sc55_sequence_files LANGUAGES CXX)
+set(SOURCE "${CMAKE_CURRENT_LIST_DIR}/../../Plugins/Source")
+add_executable(sc55-sequence-path-test path-test.cpp
+    ${SOURCE}/MidiFilePlayer.cpp ${SOURCE}/RcpFilePlayer.cpp ${SOURCE}/WrdFilePlayer.cpp)
+target_include_directories(sc55-sequence-path-test PRIVATE "${SOURCE}")
+target_compile_features(sc55-sequence-path-test PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(sc55-sequence-path-test PRIVATE /utf-8)
+endif()
+enable_testing()
+add_test(NAME sequence-unicode-path COMMAND sc55-sequence-path-test)

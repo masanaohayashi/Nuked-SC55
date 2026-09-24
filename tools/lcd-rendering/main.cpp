@@ -16,19 +16,6 @@ static juce::Image render (SC55LcdRenderer& renderer, float scale)
     return output;
 }
 
-static int blendedPixels (const juce::Image& image, juce::Rectangle<int> region)
-{
-    int count = 0;
-    for (int y = region.getY(); y < region.getBottom(); ++y)
-        for (int x = region.getX(); x < region.getRight(); ++x)
-        {
-            const auto value = image.getPixelAt (x, y).getRed();
-            if (value > 0 && value < 255)
-                ++count;
-        }
-    return count;
-}
-
 static bool samePixels (const juce::Image& a, const juce::Image& b, int tolerance = 0)
 {
     if (a.getBounds() != b.getBounds())
@@ -70,68 +57,25 @@ int main (int argc, char** argv)
     SC55LcdRenderer renderer;
     renderer.setFrame (background, glyphs, true);
     int failures = 0;
-    // Each output pixel covers one complete six-pixel period. Its brightness
-    // must be 255/6 for every phase, including when the gap misses all four
-    // bilinear samples. This checks energy preservation, not merely grey edges.
-    for (int phase = 0; phase < 6; ++phase)
-    {
-        juce::Image stripes (juce::Image::RGB, 36, 12, true, juce::SoftwareImageType());
-        stripes.clear (stripes.getBounds(), juce::Colours::white);
-        juce::Image dots (juce::Image::ARGB, 36, 12, true, juce::SoftwareImageType());
-        for (int y = 0; y < 12; ++y)
-            for (int x = 0; x < 36; ++x)
-                if ((x + phase) % 6 != 0)
-                    dots.setPixelAt (x, y, juce::Colours::black);
-        SC55LcdRenderer smallRenderer;
-        smallRenderer.setFrame (stripes, dots, true);
-        juce::Image reduced (juce::Image::RGB, 6, 2, true, juce::SoftwareImageType());
-        { juce::Graphics g (reduced); smallRenderer.paint (g, { 0, 0, 6, 2 }); }
-        bool pass = true;
-        for (int y = 0; y < 2; ++y)
-            for (int x = 0; x < 6; ++x)
-                pass &= std::abs (int (reduced.getPixelAt (x, y).getRed()) - 43) <= 3;
-        std::cout << "six-pixel gap phase=" << phase << (pass ? " PASS\n" : " FAIL\n");
-        failures += ! pass;
-    }
-    for (float scale : { 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f, 1.0f })
+    // Compare against a single native-size composite scaled by JUCE. This
+    // catches separate background/glyph scaling and dot-to-rectangle conversion.
+    auto composite = background.createCopy();
+    { juce::Graphics g (composite); g.drawImageAt (glyphs, 0, 0); }
+    for (float scale : { 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f })
     {
         const auto output = render (renderer, scale);
-        const auto characters = juce::Rectangle<float> (72, 6, 255, 17)
-                                    .transformedBy (juce::AffineTransform::scale (scale)).toNearestInt();
-        const auto meters = juce::Rectangle<float> (137, 34, 187, 73)
-                                .transformedBy (juce::AffineTransform::scale (scale)).toNearestInt();
-        const auto textEdges = blendedPixels (output, characters);
-        const auto meterEdges = blendedPixels (output, meters);
-        // Nearest sampling loses subpixel gaps: the entire fixture stays binary.
-        const bool pass = textEdges > 0 && meterEdges > 0;
-        std::cout << "scale=" << scale << " character edge pixels=" << textEdges
-                  << " meter edge pixels=" << meterEdges << (pass ? " PASS\n" : " FAIL\n");
-        failures += ! pass;
-        // Host scaling must agree with painting directly into physical bounds.
-        // Also check that repeated paints do not change the frame.
         juce::Image expected (juce::Image::RGB, output.getWidth(), output.getHeight(),
                               true, juce::SoftwareImageType());
-        SC55LcdRenderer directRenderer;
-        directRenderer.setFrame (background, glyphs, true);
-        { juce::Graphics g (expected); directRenderer.paint (g, expected.getBounds().toFloat()); }
-        // Equivalent fractional transforms may round coverage by 1-2/255.
-        if (! samePixels (output, expected, 2) || ! samePixels (output, render (renderer, scale)))
         {
-            int different = 0;
-            int maxError = 0;
-            for (int y = 0; y < output.getHeight(); ++y)
-                for (int x = 0; x < output.getWidth(); ++x)
-                {
-                    const auto error = std::abs (int (output.getPixelAt (x, y).getRed())
-                                                - int (expected.getPixelAt (x, y).getRed()));
-                    different += error != 0;
-                    maxError = juce::jmax (maxError, error);
-                }
-            std::cout << "transform/repaint mismatch FAIL pixels=" << different
-                      << " maxError=" << maxError << '\n';
-            ++failures;
+            juce::Graphics g (expected);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+            g.drawImage (composite, { 0, 0, 344, 124 }, juce::RectanglePlacement::stretchToFit, false);
         }
-
+        const bool pass = samePixels (output, expected)
+            && samePixels (output, render (renderer, scale));
+        std::cout << "single image scale=" << scale << (pass ? " PASS\n" : " FAIL\n");
+        failures += ! pass;
     }
 
     // The display-off/ROM state must discard the previous glyph frame.
@@ -143,7 +87,7 @@ int main (int argc, char** argv)
             if (off.getPixelAt (x, y) != juce::Colour (0xff707070))
                 ++failures;
 
-    // Updating content at the same size must replace the rectangle lists.
+    // Updating content at the same size must replace the composite image.
     background.clear (background.getBounds(), juce::Colours::white);
     renderer.setFrame (background, glyphs, true);
     const auto onAgain = render (renderer, 1.0f);

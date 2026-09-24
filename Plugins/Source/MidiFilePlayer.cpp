@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 
 namespace
 {
@@ -42,7 +43,13 @@ bool MidiFileData::load (const std::string& path, std::string& error, bool loadW
     clear();
     error.clear();
 
+   #if defined (_WIN32)
+    // JUCE supplies UTF-8 paths; the narrow Windows CRT uses the system code page.
+    const std::filesystem::path nativePath (std::u8string (path.begin(), path.end()));
+    std::FILE* file = _wfopen (nativePath.c_str(), L"rb");
+   #else
     std::FILE* file = std::fopen (path.c_str(), "rb");
+   #endif
     if (file == nullptr) { error = "Cannot open: " + path; return false; }
 
     std::fseek (file, 0, SEEK_END);

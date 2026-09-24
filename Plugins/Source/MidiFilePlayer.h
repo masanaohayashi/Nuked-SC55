@@ -61,7 +61,7 @@ struct MidiFileData
     double songEndSeconds = 0.0;
     double lastBarSeconds = 2.0;
 
-    /** Returns false and fills in `error` if the file is not a usable SMF. */
+    /** Loads a UTF-8 path. Returns false and fills in `error` if the file is not a usable SMF. */
     bool load (const std::string& path, std::string& error, bool loadWrd = true);
 
     /** The song plus one bar of tail, so releases and reverb are not cut off. */
