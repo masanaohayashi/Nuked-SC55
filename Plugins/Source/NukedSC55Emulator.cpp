@@ -1,4 +1,5 @@
 #include "NukedSC55Emulator.h"
+#include "MidiFifoDispatch.h"
 
 #include "SC55Lcd.h"
 #include "SC55Debug.h"
@@ -767,7 +768,6 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
     dcCoefficient = 1.0 - (2.0 * pi * dcBlockerHz / hostSampleRate);
     dcPreviousInput[0] = dcPreviousInput[1] = 0.0f;
     dcPreviousOutput[0] = dcPreviousOutput[1] = 0.0f;
-    midiDropMessage = false;
     gsResetSent = false;
 
     if (nativePlayer != nullptr)
@@ -826,7 +826,6 @@ void NukedSC55Emulator::release()
     sourceUnderruns.store (0, std::memory_order_relaxed);
     lastLoggedMidiPacketCount = 0;
     sourcePosition = 0.0;
-    midiDropMessage = false;
     gsResetSent = false;
     debugAllLed.store (false, std::memory_order_relaxed);
     debugMuteLed.store (false, std::memory_order_relaxed);
@@ -1103,32 +1102,20 @@ void NukedSC55Emulator::drainMidi()
     }
 
     auto& mcu = core->GetMCU();
-    auto read = midiRead.load (std::memory_order_relaxed);
+    const auto read = midiRead.load (std::memory_order_relaxed);
     const auto write = midiWrite.load (std::memory_order_acquire);
-    while (read != write)
-    {
-        const uint8_t byte = midiFifo[read];
-
-        if (byte >= 0x80 && byte < 0xf7)
+    const auto nextRead = sc55::midiPlayback::dispatchMidiFifo (
+        std::span<const uint8_t> (midiFifo, midiFifoBytes), read, write,
+        [&mcu]
         {
             const uint32_t backlog = (mcu.uart_write_ptr + uart_buffer_size - mcu.uart_read_ptr)
                                    % uart_buffer_size;
-            const bool ringNearlyFull = backlog >= uart_buffer_size - uartRingHeadroom;
-
-            // Do not gate MIDI on firmware boot. The UART ring is the hardware
-            // boundary; once it is close to full, discard the rest of the
-            // current MIDI message rather than overwriting unread bytes.
-            midiDropMessage = ringNearlyFull;
-        }
-
-        if (! midiDropMessage)
-            core->PostMIDI (byte);
-        else
-            midiDroppedBytes.fetch_add (1, std::memory_order_relaxed);
-
-        read = (read + 1) % midiFifoBytes;
-    }
-    midiRead.store (read, std::memory_order_release);
+            // Preserve order at the emulated UART boundary. A full UART ring
+            // defers the current message so Pause/Stop commands cannot vanish.
+            return backlog >= uart_buffer_size - uartRingHeadroom;
+        },
+        [this] (uint8_t byte) { core->PostMIDI (byte); });
+    midiRead.store (nextRead, std::memory_order_release);
 }
 
 void NukedSC55Emulator::publishDebugState() noexcept

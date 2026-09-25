@@ -3,16 +3,16 @@
 Use Visual Studio 2026 with the C++ desktop workload, MSVC ARM64 build tools,
 and a Windows SDK installed.
 
-1. Open `Builds/VisualStudio2026/SC-55.sln`.
+1. Open `Builds/VisualStudio2026/GS-55.sln`.
 2. Select `Release` and `ARM64` in the solution toolbar.
 3. Build the solution. The Windows target is the standalone application.
 
-Output: `Builds/VisualStudio2026/ARM64/Release/Standalone Plugin/SC-55.exe`.
+Output: `Builds/VisualStudio2026/ARM64/Release/Standalone Plugin/GS-55.exe`.
 
 From a Visual Studio Developer PowerShell, starting in the repository root:
 
 ```powershell
-msbuild Plugins/Builds/VisualStudio2026/SC-55.sln /m /p:Configuration=Release /p:Platform=ARM64
+msbuild Plugins/Builds/VisualStudio2026/GS-55.sln /m /p:Configuration=Release /p:Platform=ARM64
 ```
 
 To build the Windows installer (install Inno Setup first), run from the

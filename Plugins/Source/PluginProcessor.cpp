@@ -7,6 +7,7 @@
 */
 
 #include "PluginProcessor.h"
+#include "MidiPlaybackCommands.h"
 #include "PluginEditor.h"
 #include "SC55Debug.h"
 
@@ -1169,22 +1170,8 @@ void NukedSC55AudioProcessor::processMidiPlaybackCommands() noexcept
 
 void NukedSC55AudioProcessor::sendAllNotesOff() noexcept
 {
-    // CC123 releases keys, but a held damper/sostenuto pedal can keep those
-    // voices sounding. Clear both pedals first so Pause and Stop silence notes
-    // even when the MIDI file ended with a pedal-down event.
-    for (int channel = 0; channel < 16; ++channel)
-    {
-        const uint8_t holdOff[3] = { static_cast<uint8_t> (0xb0 | channel), 64, 0 };
-        const uint8_t sostenutoOff[3] = { static_cast<uint8_t> (0xb0 | channel), 66, 0 };
-        sendMidiToEmulator (holdOff, 3);
-        sendMidiToEmulator (sostenutoOff, 3);
-    }
-
-    for (int channel = 0; channel < 16; ++channel)
-    {
-        const uint8_t allOff[3] = { static_cast<uint8_t> (0xb0 | channel), 123, 0 };
-        sendMidiToEmulator (allOff, 3);
-    }
+    sc55::midiPlayback::sendAllNotesOff (
+        [this] (const uint8_t* data, int size) { sendMidiToEmulator (data, size); });
 }
 
 void NukedSC55AudioProcessor::sendResetAllControllers() noexcept

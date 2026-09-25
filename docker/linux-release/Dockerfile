@@ -39,9 +39,9 @@ RUN test -f Plugins/Builds/LinuxMakefile/Makefile \
     && test -f Plugins/JuceLibraryCode/JuceHeader.h \
     && make -C Plugins/Builds/LinuxMakefile CONFIG="${BUILD_TYPE}" clean \
     && make -C Plugins/Builds/LinuxMakefile CONFIG="${BUILD_TYPE}" -j"${BUILD_JOBS}" all \
-    && install -Dm755 Plugins/Builds/LinuxMakefile/build/SC-55 /out/bin/SC-55 \
+    && install -Dm755 Plugins/Builds/LinuxMakefile/build/GS-55 /out/bin/GS-55 \
     && mkdir -p /out/lib/vst3 \
-    && cp -R Plugins/Builds/LinuxMakefile/build/SC-55.vst3 /out/lib/vst3/SC-55.vst3
+    && cp -R Plugins/Builds/LinuxMakefile/build/GS-55.vst3 /out/lib/vst3/GS-55.vst3
 
 FROM scratch
 

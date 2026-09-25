@@ -165,7 +165,6 @@ private:
     std::atomic<uint32_t> sourceRead { 0 };
     std::atomic<uint32_t> sourceWrite { 0 };
 
-    bool midiDropMessage = false;
     uint8_t midiFifo[midiFifoBytes] {};
     std::atomic<uint32_t> midiRead { 0 };
     std::atomic<uint32_t> midiWrite { 0 };

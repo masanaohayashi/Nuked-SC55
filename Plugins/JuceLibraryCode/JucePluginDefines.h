@@ -41,10 +41,10 @@
  #define JucePlugin_Enable_ARA             0
 #endif
 #ifndef  JucePlugin_Name
- #define JucePlugin_Name                   "SC-55"
+ #define JucePlugin_Name                   "GS-55"
 #endif
 #ifndef  JucePlugin_Desc
- #define JucePlugin_Desc                   "SC-55"
+ #define JucePlugin_Desc                   "GS-55"
 #endif
 #ifndef  JucePlugin_Manufacturer
  #define JucePlugin_Manufacturer           "STUDIO-R"
@@ -77,13 +77,13 @@
  #define JucePlugin_EditorRequiresKeyboardFocus  0
 #endif
 #ifndef  JucePlugin_Version
- #define JucePlugin_Version                0.0.10
+ #define JucePlugin_Version                0.0.11
 #endif
 #ifndef  JucePlugin_VersionCode
- #define JucePlugin_VersionCode            0xa
+ #define JucePlugin_VersionCode            0xb
 #endif
 #ifndef  JucePlugin_VersionString
- #define JucePlugin_VersionString          "0.0.10"
+ #define JucePlugin_VersionString          "0.0.11"
 #endif
 #ifndef  JucePlugin_VSTUniqueID
  #define JucePlugin_VSTUniqueID            JucePlugin_PluginCode
@@ -140,7 +140,7 @@
  #define JucePlugin_IAASubType             JucePlugin_PluginCode
 #endif
 #ifndef  JucePlugin_IAAName
- #define JucePlugin_IAAName                "STUDIO-R: SC-55"
+ #define JucePlugin_IAAName                "STUDIO-R: GS-55"
 #endif
 #ifndef  JucePlugin_VSTNumMidiInputs
  #define JucePlugin_VSTNumMidiInputs       16

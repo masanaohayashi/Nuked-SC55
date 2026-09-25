@@ -334,11 +334,11 @@ check_artifacts() {
   local artifact
 
   ARTIFACTS=(
-    "${DIST_DIR}/SC-55-${VERSION}-macOS.dmg"
-    "${DIST_DIR}/SC-55-Linux-x64-${VERSION}.tar.gz"
-    "${DIST_DIR}/SC-55-Linux-arm64-${VERSION}.tar.gz"
-    "${DIST_DIR}/SC-55 Windows x64 ${VERSION} Setup.exe"
-    "${DIST_DIR}/SC-55 Windows ARM64 ${VERSION} Setup.exe"
+    "${DIST_DIR}/GS-55-${VERSION}-macOS.dmg"
+    "${DIST_DIR}/GS-55-Linux-x64-${VERSION}.tar.gz"
+    "${DIST_DIR}/GS-55-Linux-arm64-${VERSION}.tar.gz"
+    "${DIST_DIR}/GS-55 Windows x64 ${VERSION} Setup.exe"
+    "${DIST_DIR}/GS-55 Windows ARM64 ${VERSION} Setup.exe"
   )
 
   for artifact in "${ARTIFACTS[@]}"; do
@@ -346,12 +346,12 @@ check_artifacts() {
   done
 
   for artifact in \
-    "${DIST_DIR}/SC-55-Linux-x64-${VERSION}.tar.gz" \
-    "${DIST_DIR}/SC-55-Linux-arm64-${VERSION}.tar.gz"; do
-    tar -tzf "$artifact" | grep -F 'bin/SC-55' >/dev/null \
+    "${DIST_DIR}/GS-55-Linux-x64-${VERSION}.tar.gz" \
+    "${DIST_DIR}/GS-55-Linux-arm64-${VERSION}.tar.gz"; do
+    tar -tzf "$artifact" | grep -F 'bin/GS-55' >/dev/null \
       || die "Linux archive is missing the standalone app: $artifact"
     tar -tzf "$artifact" \
-      | grep -F 'lib/vst3/SC-55.vst3/Contents/Resources/moduleinfo.json' >/dev/null \
+      | grep -F 'lib/vst3/GS-55.vst3/Contents/Resources/moduleinfo.json' >/dev/null \
       || die "Linux archive is missing the VST3 plug-in: $artifact"
   done
 }
@@ -364,7 +364,7 @@ create_draft_release() {
 
   log "Creating and pushing tag: $RELEASE_TAG"
   git -C "$REPO_ROOT" tag -a "$RELEASE_TAG" "$RELEASE_COMMIT" \
-    -m "SC-55 $RELEASE_TAG"
+    -m "GS-55 $RELEASE_TAG"
   git -C "$REPO_ROOT" push "$RELEASE_REMOTE" "$RELEASE_TAG"
 
   release_args=(
@@ -372,7 +372,7 @@ create_draft_release() {
     "${ARTIFACTS[@]}"
     --repo "$GH_REPO"
     --verify-tag
-    --title "SC-55 $RELEASE_TAG"
+    --title "GS-55 $RELEASE_TAG"
     --generate-notes
     --draft
   )
@@ -440,7 +440,7 @@ main() {
 
   cat <<EOF
 
-SC-55 draft release ready
+GS-55 draft release ready
   tag     : $RELEASE_TAG
   commit  : $RELEASE_COMMIT
   repo    : $GH_REPO

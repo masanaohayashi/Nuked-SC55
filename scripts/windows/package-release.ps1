@@ -11,11 +11,11 @@ Set-StrictMode -Version Latest
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $repoRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
 $projectDir = Join-Path $repoRoot 'Plugins\Builds\VisualStudio2026'
-$solution = Join-Path $projectDir 'SC-55.sln'
+$solution = Join-Path $projectDir 'GS-55.sln'
 $jucer = Join-Path $repoRoot 'Plugins\Nuked-SC55.jucer'
 $distDir = Join-Path $repoRoot 'dist'
 $buildRoot = Join-Path $projectDir "$Architecture\$Configuration"
-$issPath = Join-Path $scriptDir 'SC-55.iss'
+$issPath = Join-Path $scriptDir 'GS-55.iss'
 if ([string]::IsNullOrWhiteSpace($Version)) { [xml]$jucerXml = Get-Content -LiteralPath $jucer -Raw; $Version = [string]$jucerXml.JUCERPROJECT.version }
 if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid version: $Version" }
 if (-not (Test-Path -LiteralPath $solution)) { throw "Missing solution: $solution" }
@@ -37,12 +37,12 @@ function Invoke-Native([string]$FilePath, [string[]]$Arguments) { Write-Host "==
 if ($Clean -and (Test-Path -LiteralPath $buildRoot)) { Remove-Item -LiteralPath $buildRoot -Recurse -Force }
 if (-not $SkipBuild) { Invoke-Native (Find-MSBuild) @($solution, '/m', '/t:Rebuild', "/p:Configuration=$Configuration", "/p:Platform=$Architecture", '/v:minimal') }
 $vst3Platform = if ($Architecture -eq 'ARM64') { 'arm64-win' } else { 'x86_64-win' }
-$standalone = Join-Path $buildRoot 'Standalone Plugin\SC-55.exe'
-$vst3Bundle = Join-Path $buildRoot 'VST3\SC-55.vst3'
-$vst3Binary = Join-Path $vst3Bundle "Contents\$vst3Platform\SC-55.vst3"
+$standalone = Join-Path $buildRoot 'Standalone Plugin\GS-55.exe'
+$vst3Bundle = Join-Path $buildRoot 'VST3\GS-55.vst3'
+$vst3Binary = Join-Path $vst3Bundle "Contents\$vst3Platform\GS-55.vst3"
 foreach ($artifact in @($standalone, $vst3Bundle, $vst3Binary)) { if (-not (Test-Path -LiteralPath $artifact)) { throw "Required build output not found: $artifact" } }
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
-$outputName = "SC-55 Windows $Architecture $Version Setup.exe"
+$outputName = "GS-55 Windows $Architecture $Version Setup.exe"
 $outputPath = Join-Path $distDir $outputName
 if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force }
 $allowed = if ($Architecture -eq 'ARM64') { 'arm64' } else { 'x64compatible' }

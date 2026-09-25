@@ -3,6 +3,7 @@
 #include "MidiFilePlayer.h"
 #include "song_notes_probe.h"
 #include "stall_regression.h"
+#include "pause_regression.h"
 #include <cstdio>
 
 #if defined(SC55_CONTROL_TIMING_ORACLE) || defined(SC55_NATIVE_IO_AUDIT)
@@ -25,6 +26,8 @@ int main(int argc,char** argv)
         const auto& rom1=rom[size_t(RomLocation::ROM1)];
         const auto& rom2=rom[size_t(RomLocation::ROM2)];
         const auto encoded=sc55::ImportSoundData(rom1,rom2);
+        if(argc==3 && std::string_view(argv[2])=="pause-regression")
+            return probePauseRelease(rom,encoded);
         if(argc==3 && std::string_view(argv[2])=="stall-regression")
             return probeNativeStalls(rom,encoded);
         if(argc==4 && std::string_view(argv[2])=="song-notes")

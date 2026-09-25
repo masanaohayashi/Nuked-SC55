@@ -44,11 +44,11 @@ supported architectures. From the repository root, run:
 ./scripts/linux/package-release.sh
 ```
 
-This creates `dist/SC-55-Linux-x64-<version>.tar.gz` and
-`dist/SC-55-Linux-arm64-<version>.tar.gz`. To build only one architecture, pass
+This creates `dist/GS-55-Linux-x64-<version>.tar.gz` and
+`dist/GS-55-Linux-arm64-<version>.tar.gz`. To build only one architecture, pass
 `--architecture x64` or `--architecture arm64`. Each archive contains the JUCE
-standalone app at `bin/SC-55` and the VST3 plug-in at
-`lib/vst3/SC-55.vst3`; runtime libraries are not bundled. The Linux build uses
+standalone app at `bin/GS-55` and the VST3 plug-in at
+`lib/vst3/GS-55.vst3`; runtime libraries are not bundled. The Linux build uses
 the Projucer-generated `Plugins/Builds/LinuxMakefile` exporter inside Docker.
 The script reads `<version>` from `Plugins/Nuked-SC55.jucer` and disables the
 Docker Buildx cache by default so every invocation rebuilds the binaries; pass

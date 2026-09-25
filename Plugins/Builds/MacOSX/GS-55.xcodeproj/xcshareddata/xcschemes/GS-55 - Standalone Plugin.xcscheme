@@ -6,8 +6,8 @@
       <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES"
                         buildForArchiving="YES" buildForAnalyzing="YES">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="7843F8D3DD5C0A56C174C917"
-                            BuildableName="SC-55.app" BlueprintName="SC-55 - Standalone Plugin"
-                            ReferencedContainer="container:SC-55.xcodeproj"/>
+                            BuildableName="GS-55.app" BlueprintName="GS-55 - Standalone Plugin"
+                            ReferencedContainer="container:GS-55.xcodeproj"/>
       </BuildActionEntry>
     </BuildActionEntries>
   </BuildAction>
@@ -19,15 +19,15 @@
                 launchStyle="0" useCustomWorkingDirectory="NO" allowLocationSimulation="YES">
     <BuildableProductRunnable runnableDebuggingMode="0">
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="7843F8D3DD5C0A56C174C917"
-                          BuildableName="SC-55.app" BlueprintName="SC-55 - Standalone Plugin"
-                          ReferencedContainer="container:SC-55.xcodeproj"/>
+                          BuildableName="GS-55.app" BlueprintName="GS-55 - Standalone Plugin"
+                          ReferencedContainer="container:GS-55.xcodeproj"/>
     </BuildableProductRunnable>
   </LaunchAction>
   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES">
     <BuildableProductRunnable runnableDebuggingMode="0">
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="7843F8D3DD5C0A56C174C917"
-                          BuildableName="SC-55.app" BlueprintName="SC-55 - Standalone Plugin"
-                          ReferencedContainer="container:SC-55.xcodeproj"/>
+                          BuildableName="GS-55.app" BlueprintName="GS-55 - Standalone Plugin"
+                          ReferencedContainer="container:GS-55.xcodeproj"/>
     </BuildableProductRunnable>
   </ProfileAction>
   <AnalyzeAction buildConfiguration="Debug"/>

@@ -23,17 +23,17 @@
     <key>CFBundleIdentifier</key>
     <string>tokyo.studio-r.sc55</string>
     <key>CFBundleName</key>
-    <string>SC-55</string>
+    <string>GS-55</string>
     <key>CFBundleDisplayName</key>
-    <string>SC-55</string>
+    <string>GS-55</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.10</string>
+    <string>0.0.11</string>
     <key>CFBundleVersion</key>
-    <string>0.0.10</string>
+    <string>0.0.11</string>
     <key>NSHumanReadableCopyright</key>
     <string>2026 STUDIO-R</string>
     <key>NSHighResolutionCapable</key>

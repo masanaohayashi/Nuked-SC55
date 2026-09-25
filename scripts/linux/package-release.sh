@@ -58,10 +58,10 @@ Examples:
   ./scripts/linux/package-release.sh --architecture all --force
 
 Archives are written to dist/:
-  SC-55-Linux-x64-VERSION.tar.gz
-  SC-55-Linux-arm64-VERSION.tar.gz
+  GS-55-Linux-x64-VERSION.tar.gz
+  GS-55-Linux-arm64-VERSION.tar.gz
 
-Each archive contains bin/SC-55 and lib/vst3/SC-55.vst3.
+Each archive contains bin/GS-55 and lib/vst3/GS-55.vst3.
 EOF
 }
 
@@ -152,11 +152,11 @@ docker_platform() {
 }
 
 archive_name() {
-  printf 'SC-55-Linux-%s-%s.tar.gz' "$1" "$VERSION"
+  printf 'GS-55-Linux-%s-%s.tar.gz' "$1" "$VERSION"
 }
 
 package_name() {
-  printf 'SC-55-Linux-%s-%s' "$1" "$VERSION"
+  printf 'GS-55-Linux-%s-%s' "$1" "$VERSION"
 }
 
 check_output_paths() {
@@ -228,20 +228,20 @@ build_architecture() {
   log "Building ${platform} (${CONFIGURATION})"
   docker "${docker_args[@]}"
 
-  verify_binary "$architecture" "${export_dir}/bin/SC-55"
+  verify_binary "$architecture" "${export_dir}/bin/GS-55"
 
   local vst3_binary
-  vst3_binary="$(find "${export_dir}/lib/vst3/SC-55.vst3/Contents" \
-    -type f -name 'SC-55.so' -print -quit)"
+  vst3_binary="$(find "${export_dir}/lib/vst3/GS-55.vst3/Contents" \
+    -type f -name 'GS-55.so' -print -quit)"
   [[ -n "$vst3_binary" ]] \
-    || die "required VST3 binary is missing: ${export_dir}/lib/vst3/SC-55.vst3"
+    || die "required VST3 binary is missing: ${export_dir}/lib/vst3/GS-55.vst3"
   verify_binary "$architecture" "$vst3_binary"
-  [[ -f "${export_dir}/lib/vst3/SC-55.vst3/Contents/Resources/moduleinfo.json" ]] \
-    || die "VST3 manifest is missing: ${export_dir}/lib/vst3/SC-55.vst3"
+  [[ -f "${export_dir}/lib/vst3/GS-55.vst3/Contents/Resources/moduleinfo.json" ]] \
+    || die "VST3 manifest is missing: ${export_dir}/lib/vst3/GS-55.vst3"
 
   cp -R "${export_dir}/bin" "${package_dir}/bin"
   mkdir -p "${package_dir}/lib/vst3"
-  cp -R "${export_dir}/lib/vst3/SC-55.vst3" "${package_dir}/lib/vst3/SC-55.vst3"
+  cp -R "${export_dir}/lib/vst3/GS-55.vst3" "${package_dir}/lib/vst3/GS-55.vst3"
 
   cp "${REPO_ROOT}/README.md" "${package_dir}/README.md"
   cp "${REPO_ROOT}/LICENSE" "${package_dir}/LICENSE"
@@ -249,14 +249,14 @@ build_architecture() {
   cp "${REPO_ROOT}/CHANGELOG.md" "${package_dir}/CHANGELOG.md"
 
   {
-    printf 'SC-55 Linux release\n'
+    printf 'GS-55 Linux release\n'
     printf 'Version: %s\n' "$VERSION"
     printf 'Architecture: %s (%s)\n' "$architecture" "$platform"
     printf 'Configuration: %s\n' "$CONFIGURATION"
     printf 'Source revision: %s\n' "$source_revision"
     printf 'Built at (UTC): %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '\nRun the standalone app with: ./bin/SC-55\n'
-    printf 'Install the VST3 plug-in from: lib/vst3/SC-55.vst3\n'
+    printf '\nRun the standalone app with: ./bin/GS-55\n'
+    printf 'Install the VST3 plug-in from: lib/vst3/GS-55.vst3\n'
     printf 'SDL2, GTK3, WebKitGTK, ALSA, and related runtime libraries are required on the target Linux system.\n'
   } >"${package_dir}/BUILD-INFO.txt"
 
@@ -267,10 +267,10 @@ build_architecture() {
   log "Creating ${archive_file}"
   COPYFILE_DISABLE=1 tar -czf "$archive_path" -C "$BUILD_ROOT" "$package"
 
-  tar -tzf "$archive_path" | grep -F "${package}/bin/SC-55" >/dev/null \
+  tar -tzf "$archive_path" | grep -F "${package}/bin/GS-55" >/dev/null \
     || die "archive is missing standalone app: ${archive_path}"
   tar -tzf "$archive_path" \
-    | grep -F "${package}/lib/vst3/SC-55.vst3/Contents/Resources/moduleinfo.json" >/dev/null \
+    | grep -F "${package}/lib/vst3/GS-55.vst3/Contents/Resources/moduleinfo.json" >/dev/null \
     || die "archive is missing VST3 plug-in: ${archive_path}"
 
   printf '%s\n' "${archive_path}"

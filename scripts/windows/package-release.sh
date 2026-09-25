@@ -193,7 +193,7 @@ main() {
   done
 
   log "Windows installers are available in ${REPO_ROOT}/dist"
-  for installer in "${REPO_ROOT}/dist"/SC-55\ Windows\ *\ Setup.exe; do
+  for installer in "${REPO_ROOT}/dist"/GS-55\ Windows\ *\ Setup.exe; do
     if [[ -f "$installer" ]]; then
       printf '%s\n' "$installer"
     fi

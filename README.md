@@ -1,4 +1,4 @@
-# Nuked SC-55
+# Nuked GS-55
 
 Fork of [nukeykt/Nuked-SC55](https://github.com/nukeykt/Nuked-SC55) with the
 goal of extracting the emulator backend so that it can be used in other
@@ -69,8 +69,8 @@ produce both x64 and arm64 Linux archives. Docker Desktop must be running:
 
 The archives are written to `dist/` as `tar.gz` files. Build one architecture
 only with `--architecture x64` or `--architecture arm64`; use `--force` to
-replace an existing archive. Each package contains the `SC-55` standalone app
-at `bin/SC-55` and the VST3 plug-in at `lib/vst3/SC-55.vst3`, plus release
+replace an existing archive. Each package contains the `GS-55` standalone app
+at `bin/GS-55` and the VST3 plug-in at `lib/vst3/GS-55.vst3`, plus release
 documentation. SDL2, GTK3, WebKitGTK, ALSA, and related runtime libraries are
 required on the target Linux system. The script performs a clean Docker build
 on every invocation; pass `--cache` only when a faster cached development build

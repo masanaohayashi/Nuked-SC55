@@ -50,8 +50,13 @@ add_test(NAME voice-capacity COMMAND sc55-voice-capacity-check)
 add_executable(sc55-voice-dispatch-check voice_dispatch_test.cpp)
 target_link_libraries(sc55-voice-dispatch-check PRIVATE sc55-native-engine)
 add_test(NAME voice-dispatch COMMAND sc55-voice-dispatch-check)
+add_executable(sc55-midi-fifo-dispatch-check midi_fifo_dispatch_test.cpp)
+target_compile_features(sc55-midi-fifo-dispatch-check PRIVATE cxx_std_20)
+add_test(NAME midi-fifo-dispatch COMMAND sc55-midi-fifo-dispatch-check)
 if(SC55_ROM_DIRECTORY)
     enable_testing()
+    add_test(NAME midi-pause-releases-pedal-held-note
+        COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}" pause-regression)
     add_test(NAME native-without-h8
         COMMAND sc55-native-engine-check "${SC55_ROM_DIRECTORY}")
     add_test(NAME native-polyphony

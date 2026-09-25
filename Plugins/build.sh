@@ -13,7 +13,7 @@ cd "$SCRIPT_DIR"
 
 JUCE="$SCRIPT_DIR/../3rdparty/JUCE"
 CONFIG=${1:-Release}
-XCODE_PROJECT="$SCRIPT_DIR/Builds/MacOSX/SC-55.xcodeproj"
+XCODE_PROJECT="$SCRIPT_DIR/Builds/MacOSX/GS-55.xcodeproj"
 JUCE_HEADER="$SCRIPT_DIR/JuceLibraryCode/JuceHeader.h"
 DERIVED_DATA_PATH="${SC55_DERIVED_DATA_PATH:-$SCRIPT_DIR/Builds/MacOSX/build/DerivedData}"
 
@@ -47,12 +47,12 @@ echo "==> ビルド ($CONFIG)"
 # 前回の archive が残したシンボリックリンクがあると出力先を作れない
 find "$SCRIPT_DIR/Builds/MacOSX/build/$CONFIG" -maxdepth 1 -type l -delete 2>/dev/null || true
 xcodebuild -project "$XCODE_PROJECT" \
-           -scheme "SC-55 - Standalone Plugin" -configuration "$CONFIG" \
+           -scheme "GS-55 - Standalone Plugin" -configuration "$CONFIG" \
            -derivedDataPath "$DERIVED_DATA_PATH" \
            ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
            -destination 'platform=macOS' build
 
 echo
-echo "完了: Plugins/Builds/MacOSX/build/$CONFIG/SC-55.app"
+echo "完了: Plugins/Builds/MacOSX/build/$CONFIG/GS-55.app"
 echo "ROM は SC-55 v1.x の5ファイル (sc55_rom1.bin, sc55_rom2.bin, sc55_waverom1-3.bin) を"
 echo "同じフォルダに置き、初回起動時に選択してください。"

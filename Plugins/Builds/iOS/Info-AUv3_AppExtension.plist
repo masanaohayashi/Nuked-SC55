@@ -23,17 +23,17 @@
     <key>CFBundleIdentifier</key>
     <string>tokyo.studio-r.sc55.sc55AUv3</string>
     <key>CFBundleName</key>
-    <string>SC-55</string>
+    <string>GS-55</string>
     <key>CFBundleDisplayName</key>
-    <string>SC-55</string>
+    <string>GS-55</string>
     <key>CFBundlePackageType</key>
     <string>XPC!</string>
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.0.10</string>
+    <string>0.0.11</string>
     <key>CFBundleVersion</key>
-    <string>0.0.10</string>
+    <string>0.0.11</string>
     <key>NSHumanReadableCopyright</key>
     <string>2026 STUDIO-R</string>
     <key>NSHighResolutionCapable</key>
@@ -54,9 +54,9 @@
         <array>
           <dict>
             <key>name</key>
-            <string>STUDIO-R: SC-55</string>
+            <string>STUDIO-R: GS-55</string>
             <key>description</key>
-            <string>SC-55</string>
+            <string>GS-55</string>
             <key>factoryFunction</key>
             <string>SC55AUFactoryAUv3</string>
             <key>manufacturer</key>
@@ -66,7 +66,7 @@
             <key>subtype</key>
             <string>Sc55</string>
             <key>version</key>
-            <integer>10</integer>
+            <integer>11</integer>
             <key>sandboxSafe</key>
             <true/>
             <key>tags</key>

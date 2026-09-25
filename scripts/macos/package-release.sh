@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build, notarize, staple, and publish the SC-55 macOS release.
+# Build, notarize, staple, and publish the GS-55 macOS release.
 #
 # The generated DMG contains:
-#   SC-55.app
+#   GS-55.app
 #   Applications -> /Applications
 #
 # The script intentionally refuses to run with a dirty worktree. A release
@@ -35,7 +35,7 @@ PACKAGE_ONLY=0
 FORCE=0
 
 JUCER_FILE="${REPO_ROOT}/Plugins/Nuked-SC55.jucer"
-XCODE_PROJECT="${REPO_ROOT}/Plugins/Builds/MacOSX/SC-55.xcodeproj"
+XCODE_PROJECT="${REPO_ROOT}/Plugins/Builds/MacOSX/GS-55.xcodeproj"
 MACOS_PROJECT_DIR="${REPO_ROOT}/Plugins/Builds/MacOSX"
 APP_ENTITLEMENTS="${MACOS_PROJECT_DIR}/Standalone_Plugin.entitlements"
 APPEX_ENTITLEMENTS="${MACOS_PROJECT_DIR}/AUv3_AppExtension.entitlements"
@@ -57,7 +57,7 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/macos/package-release.sh [options]
 
-Builds a signed Universal macOS app, creates a DMG containing SC-55.app and
+Builds a signed Universal macOS app, creates a DMG containing GS-55.app and
 an Applications-folder link, notarizes and staples the DMG, then publishes a
 GitHub Release with the DMG attached unless --package-only is specified.
 
@@ -296,13 +296,13 @@ archive_app() {
   local normalized_appex_entitlements="$WORK_DIR/AUv3_AppExtension.entitlements"
   local normalized_app_entitlements="$WORK_DIR/Standalone_Plugin.entitlements"
 
-  log "Archiving SC-55 - Standalone Plugin (${BUILD_CONFIGURATION}, ${BUILD_ARCHS})"
+  log "Archiving GS-55 - Standalone Plugin (${BUILD_CONFIGURATION}, ${BUILD_ARCHS})"
   # The checked-in project has a custom Sign Target phase. Build the archive
   # with an ad-hoc signature and without install-time stripping; the final
   # Developer ID signatures are applied below after all binary transformations.
   if ! xcodebuild archive \
     -project "$XCODE_PROJECT" \
-    -scheme "SC-55 - Standalone Plugin" \
+    -scheme "GS-55 - Standalone Plugin" \
     -configuration "$BUILD_CONFIGURATION" \
     -destination "generic/platform=macOS" \
     -archivePath "$ARCHIVE_PATH" \
@@ -324,7 +324,7 @@ archive_app() {
   fi
 
   [[ -d "$APP_PATH" ]] || die "archive did not produce: $APP_PATH"
-  [[ -d "$APP_PATH/Contents/PlugIns/SC-55.appex" ]] \
+  [[ -d "$APP_PATH/Contents/PlugIns/GS-55.appex" ]] \
     || die "AUv3 app extension is missing from the archived app"
 
   prepare_entitlements "$APPEX_ENTITLEMENTS" "$normalized_appex_entitlements"
@@ -335,7 +335,7 @@ archive_app() {
     --verbose=4 --timestamp --options runtime \
     --entitlements "$normalized_appex_entitlements" \
     --generate-entitlement-der \
-    "$APP_PATH/Contents/PlugIns/SC-55.appex"
+    "$APP_PATH/Contents/PlugIns/GS-55.appex"
   codesign --force --sign "$APP_IDENTITY" \
     --verbose=4 --timestamp --options runtime \
     --entitlements "$normalized_app_entitlements" \
@@ -357,7 +357,7 @@ create_dmg() {
   log "Preparing DMG contents"
   mkdir -p "$DMG_STAGE"
   COPYFILE_DISABLE=1 ditto --norsrc --noextattr --noqtn \
-    "$APP_PATH" "$DMG_STAGE/SC-55.app"
+    "$APP_PATH" "$DMG_STAGE/GS-55.app"
   ln -s /Applications "$DMG_STAGE/Applications"
 
   log "Creating DMG: $DMG_PATH"
@@ -422,11 +422,11 @@ verify_dmg_contents() {
   fi
   MOUNTED=1
 
-  [[ -d "$MOUNT_POINT/SC-55.app" ]] || die "DMG is missing SC-55.app"
+  [[ -d "$MOUNT_POINT/GS-55.app" ]] || die "DMG is missing GS-55.app"
   [[ -L "$MOUNT_POINT/Applications" ]] || die "DMG is missing Applications link"
   [[ "$(readlink "$MOUNT_POINT/Applications")" == "/Applications" ]] \
     || die "Applications link does not target /Applications"
-  codesign --verify --deep --strict --verbose=2 "$MOUNT_POINT/SC-55.app"
+  codesign --verify --deep --strict --verbose=2 "$MOUNT_POINT/GS-55.app"
 
   hdiutil detach "$MOUNT_POINT" >/dev/null \
     || hdiutil detach "$MOUNT_POINT" -force >/dev/null \
@@ -448,7 +448,7 @@ publish_release() {
 
   log "Creating and pushing tag: $RELEASE_TAG"
   git -C "$REPO_ROOT" tag -a "$RELEASE_TAG" "$RELEASE_COMMIT" \
-    -m "SC-55 $RELEASE_TAG"
+    -m "GS-55 $RELEASE_TAG"
   git -C "$REPO_ROOT" push "$RELEASE_REMOTE" "$RELEASE_TAG"
 
   release_args=(
@@ -503,15 +503,15 @@ main() {
     && "$RELEASE_TAG" != "v${version}."* ]]; then
     die "release tag must match the Nuked-SC55.jucer version (${version}): $RELEASE_TAG"
   fi
-  RELEASE_TITLE="SC-55 ${RELEASE_TAG}"
+  RELEASE_TITLE="GS-55 ${RELEASE_TAG}"
 
   DIST_DIR="${REPO_ROOT}/dist"
   WORK_DIR="${DIST_DIR}/work/${RELEASE_TAG}"
-  ARCHIVE_PATH="${WORK_DIR}/SC-55.xcarchive"
-  APP_PATH="${ARCHIVE_PATH}/Products/Applications/SC-55.app"
+  ARCHIVE_PATH="${WORK_DIR}/GS-55.xcarchive"
+  APP_PATH="${ARCHIVE_PATH}/Products/Applications/GS-55.app"
   DMG_STAGE="${WORK_DIR}/dmg-root"
-  DMG_VOLUME_NAME="SC-55 ${version}"
-  DMG_PATH="${DIST_DIR}/SC-55-${version}-macOS.dmg"
+  DMG_VOLUME_NAME="GS-55 ${version}"
+  DMG_PATH="${DIST_DIR}/GS-55-${version}-macOS.dmg"
   RELEASE_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   MOUNT_POINT=""
   MOUNTED=0
@@ -546,7 +546,7 @@ main() {
 
   cat <<EOF
 
-SC-55 package ready
+GS-55 package ready
   tag     : $RELEASE_TAG
   commit  : $RELEASE_COMMIT
   DMG     : $DMG_PATH
