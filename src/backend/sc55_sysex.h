@@ -55,19 +55,37 @@ public:
             if (bytes_[3] == 1) return {Status::gmOn};
             if (bytes_[3] == 2) return {Status::gmOff};
         }
-        if (size_ < 8 || bytes_[0] != 0x41 || bytes_[1] != deviceId
-            || (bytes_[2] != 0x42 && bytes_[2] != 0x45)
-            || (bytes_[3] != 0x11 && bytes_[3] != 0x12)) return {Status::ignored};
+        // RCP v2 files commonly use Roland's three-byte manufacturer ID
+        // (00 00 41), while many SMFs use the legacy one-byte form (41).
+        // Both forms carry the same device/model/command and payload fields.
+        std::size_t manufacturerLength = 0;
+        if (size_ > 0 && bytes_[0] == 0x41)
+            manufacturerLength = 1;
+        else if (size_ >= 3 && bytes_[0] == 0x00 && bytes_[1] == 0x00
+                 && bytes_[2] == 0x41)
+            manufacturerLength = 3;
+        else
+            return {Status::ignored};
+
+        const auto deviceIndex = manufacturerLength;
+        const auto modelIndex = deviceIndex + 1;
+        const auto commandIndex = modelIndex + 1;
+        const auto payloadIndex = commandIndex + 1;
+        if (size_ < payloadIndex + 4 || bytes_[deviceIndex] != deviceId
+            || (bytes_[modelIndex] != 0x42 && bytes_[modelIndex] != 0x45)
+            || (bytes_[commandIndex] != 0x11 && bytes_[commandIndex] != 0x12))
+            return {Status::ignored};
         unsigned checksum = 0;
-        for (std::size_t i = 4; i < size_; ++i) checksum += bytes_[i];
+        for (std::size_t i = payloadIndex; i < size_; ++i) checksum += bytes_[i];
         if (!ignoreChecksum && (checksum & 127)) return {Status::badChecksum};
-        return {Status::roland,bytes_[2],bytes_[3],std::span(bytes_).subspan(4,size_-5)};
+        return {Status::roland, bytes_[modelIndex], bytes_[commandIndex],
+                std::span(bytes_).subspan(payloadIndex, size_ - payloadIndex - 1)};
     }
 
 private:
-    // v1.21 final command+address+data limit88h, plus manufacturer/device/model
-    // and checksum. Larger input is drained, not truncated into a valid packet.
-    std::array<uint8_t,0x88+4> bytes_{};
+    // Space for the longest v1.21 packet with either Roland manufacturer-ID
+    // form, including the checksum. Larger input is drained, never truncated.
+    std::array<uint8_t,0x88+6> bytes_{};
     std::size_t size_ = 0;
     bool active_ = false, overflow_ = false;
 };

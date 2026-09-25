@@ -6,6 +6,7 @@
 #include "NativeMeterDecay.h"
 #include "sc55_synth.h"
 #include "sc55_display.h"
+#include "sc55_lcd_meter_render.h"
 
 #include <algorithm>
 #include <array>
@@ -274,20 +275,9 @@ public:
             meterTargets[p] = state.parts[gsPart (p)].envelopeLevel;
         const auto meterBars = nativeMeters.update (meterTargets,
             std::chrono::duration<double> (std::chrono::steady_clock::now().time_since_epoch()).count());
-        for (unsigned matrix = 0; matrix < 2; ++matrix)
-        {
-            for (unsigned group = 0; group < 4; ++group)
-                next.data[20 + matrix * 40 + group] = uint8_t (matrix * 4 + group);
-            for (unsigned p = 0; p < 16; ++p)
-            {
-                const unsigned bars = meterBars[p];
-                for (unsigned row = 0; row < 8; ++row)
-                    if (bars >= (1 - matrix) * 8 + 8 - row)
-                        next.cg[(matrix * 4 + p / 5) * 8 + row] |= uint8_t (1u << (4 - p % 5));
-            }
-        }
-        // 04:3065..3072 selects the received 64-byte CG bank while CF34
-        // is active; the LCD consumes it in the same order as normal bars.
+        next.nativeMeterBars = meterBars;
+        next.hasNativeMeterBars = true;
+        next.hasSysExMeterGlyphs = display.bitmapVisible;
         if (display.bitmapVisible)
             std::copy (display.bitmap.begin(), display.bitmap.end(), next.cg.begin());
         const std::lock_guard lock (mutex);
@@ -343,7 +333,20 @@ public:
             renderStandardMask (destination, destinationStride,
                                 203, 153 + i * 35, current.data[static_cast<size_t> (55 + i)], current);
 
-        renderLevelIndicators (destination, destinationStride, current);
+        if (current.hasNativeMeterBars)
+        {
+            const auto pixelBytes = (static_cast<size_t> (LCD_DISPLAY_HEIGHT) - 1)
+                                  * destinationStride + LCD_DISPLAY_WIDTH;
+            const std::span<uint8_t> pixels (destination, pixelBytes);
+            if (current.hasSysExMeterGlyphs)
+                (void) sc55::renderSysExLevelMeterPixels (
+                    pixels, destinationStride, current.cg);
+            else
+                (void) sc55::renderNativeLevelMeterPixels (
+                    pixels, destinationStride, current.nativeMeterBars);
+        }
+        else
+            renderLevelIndicators (destination, destinationStride, current);
         renderLeftRightIndicator (destination, destinationStride, current);
         return true;
     }
@@ -363,6 +366,9 @@ private:
         uint32_t displayAddress = 0;
         std::array<uint8_t, 80> data {};
         std::array<uint8_t, 64> cg {};
+        std::array<unsigned, 16> nativeMeterBars {};
+        bool hasNativeMeterBars = false;
+        bool hasSysExMeterGlyphs = false;
     };
 
     static const uint8_t* glyph (const Snapshot& state, uint8_t character)
@@ -428,9 +434,8 @@ private:
     static void renderLevelIndicators (uint8_t* destination, size_t stride,
                                        const Snapshot& state)
     {
-        // These coordinates are outside the 741x268 SC-55 LCD mask in the
-        // current Nuked layout, but retaining the source renderer's calls here
-        // keeps this adapter aligned if the panel dimensions are extended.
+        // Firmware-backed LCDs select their glyphs through actual DDRAM.
+        // Native mode uses numeric levels or the ROM's fixed SysEx layout.
         for (int i = 0; i < 2; ++i)
         {
             for (int j = 0; j < 4; ++j)
@@ -507,7 +512,8 @@ private:
 };
 
 NukedSC55Emulator::NukedSC55Emulator()
-    : lcdBackend (std::make_unique<LcdCaptureBackend>())
+    : panelRasterSysEx (std::make_unique<sc55::PanelRasterSysExController>()),
+      lcdBackend (std::make_unique<LcdCaptureBackend>())
 {
     installBackendDiagnostics();
 }
@@ -792,6 +798,7 @@ void NukedSC55Emulator::release()
     }
 
     ready.store (false, std::memory_order_release);
+    panelRasterSysEx->reset();
     debugRomFamily.store (static_cast<uint8_t> (RomFamily::unknown),
                           std::memory_order_release);
 
@@ -849,6 +856,12 @@ void NukedSC55Emulator::sendMidi (const uint8_t* data, int size)
         return;
 
     midiPacketCount.fetch_add (1, std::memory_order_relaxed);
+
+    const auto panelResult = panelRasterSysEx->receiveSysEx (
+        std::span<const uint8_t> (data, static_cast<size_t> (size)),
+        midiInputState.read().receiveExclusive);
+    if (panelResult != sc55::PanelRasterSysExController::PacketResult::ignored)
+        return; // Private panel data must never reach the sound engine.
 
     for (int i = 0; i < size; ++i)
     {
@@ -1288,10 +1301,21 @@ bool NukedSC55Emulator::getNativeState (sc55::SynthState& destination) const noe
     return true;
 }
 
-bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride) const
+bool NukedSC55Emulator::copyLcdDisplay (uint8_t* destination, size_t destinationStride,
+                                        bool* contentChanged, bool* isRasterOverlay,
+                                        bool forceRasterCopy) const
 {
+    if (contentChanged != nullptr) *contentChanged = true;
+    if (isRasterOverlay != nullptr) *isRasterOverlay = false;
     if (destination == nullptr || destinationStride < static_cast<size_t> (LCD_DISPLAY_WIDTH))
         return false;
+
+    if (panelRasterSysEx->copyLatestToMask (destination, destinationStride,
+                                            contentChanged, forceRasterCopy))
+    {
+        if (isRasterOverlay != nullptr) *isRasterOverlay = true;
+        return true;
+    }
 
     if (lcdBackend == nullptr)
     {

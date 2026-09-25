@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="rm0YrK" name="SC-55" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.10"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.0.11"
               companyName="STUDIO-R" companyCopyright="2026 STUDIO-R" companyWebsite="studio-r.tokyo"
               bundleIdentifier="tokyo.studio-r.sc55" pluginFormats="buildAUv3,buildStandalone,buildVST3"
               pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn"
@@ -62,6 +62,8 @@
       <FILE id="NScLcdH" name="lcd.h" compile="0" resource="0" file="../src/backend/lcd.h"/>
       <FILE id="NScLcdB" name="lcd_back.h" compile="0" resource="0" file="../src/backend/lcd_back.h"/>
       <FILE id="NScLcdF" name="lcd_font.h" compile="0" resource="0" file="../src/backend/lcd_font.h"/>
+      <FILE id="NScPanelRasterH" name="sc55_panel_raster.h" compile="0" resource="0"
+            file="../src/backend/sc55_panel_raster.h"/>
       <FILE id="NScIntC" name="mcu_interrupt.cpp" compile="1" resource="0"
             file="../src/backend/mcu_interrupt.cpp"/>
       <FILE id="NScIntH" name="mcu_interrupt.h" compile="0" resource="0"

@@ -822,9 +822,12 @@ NukedSC55AudioProcessor::WrdDisplayState NukedSC55AudioProcessor::getWrdDisplayS
     return state;
 }
 
-bool NukedSC55AudioProcessor::copyLcdDisplay (uint8_t* destination, size_t destinationStride)
+bool NukedSC55AudioProcessor::copyLcdDisplay (uint8_t* destination, size_t destinationStride,
+                                               bool* contentChanged, bool* isRasterOverlay,
+                                               bool forceRasterCopy)
 {
-    return emulator.copyLcdDisplay (destination, destinationStride);
+    return emulator.copyLcdDisplay (destination, destinationStride,
+                                   contentChanged, isRasterOverlay, forceRasterCopy);
 }
 
 void NukedSC55AudioProcessor::releaseResources()
@@ -1166,6 +1169,17 @@ void NukedSC55AudioProcessor::processMidiPlaybackCommands() noexcept
 
 void NukedSC55AudioProcessor::sendAllNotesOff() noexcept
 {
+    // CC123 releases keys, but a held damper/sostenuto pedal can keep those
+    // voices sounding. Clear both pedals first so Pause and Stop silence notes
+    // even when the MIDI file ended with a pedal-down event.
+    for (int channel = 0; channel < 16; ++channel)
+    {
+        const uint8_t holdOff[3] = { static_cast<uint8_t> (0xb0 | channel), 64, 0 };
+        const uint8_t sostenutoOff[3] = { static_cast<uint8_t> (0xb0 | channel), 66, 0 };
+        sendMidiToEmulator (holdOff, 3);
+        sendMidiToEmulator (sostenutoOff, 3);
+    }
+
     for (int channel = 0; channel < 16; ++channel)
     {
         const uint8_t allOff[3] = { static_cast<uint8_t> (0xb0 | channel), 123, 0 };

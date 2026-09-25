@@ -19,6 +19,8 @@ Differences from upstream:
 - Improved performance without sacrificing accuracy.
 - Support for ASIO output on Windows when building from source.
 - Loads roms based on their hashes instead of requiring specific filenames.
+- The JUCE plug-in accepts a full-resolution, four-colour LCD raster over its
+  documented private SysEx extension ([format and encoder](docs/panel-sysex.md)).
 
 ## Building
 

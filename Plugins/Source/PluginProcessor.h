@@ -156,7 +156,9 @@ public:
     void resetMaximumProcessLoad() noexcept { processLoadResetRequested.store (true); }
 
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
-    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride);
+    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride,
+                         bool* contentChanged = nullptr, bool* isRasterOverlay = nullptr,
+                         bool forceRasterCopy = false);
 
     /** Returns the immutable WRD data and audio-clock snapshot for the window. */
     WrdDisplayState getWrdDisplayState() const noexcept;

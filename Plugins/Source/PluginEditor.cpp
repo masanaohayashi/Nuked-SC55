@@ -105,9 +105,27 @@ private:
 
     void refreshDisplay()
     {
+        const auto previousRomLoaded = romLoaded;
         romLoaded = processor.getUiStatus().audioReady;
-        displayEnabled = romLoaded
-                      && processor.copyLcdDisplay (displayMask.data(), LCD_DISPLAY_WIDTH);
+        bool contentChanged = true;
+        bool isRasterOverlay = false;
+        displayEnabled = processor.copyLcdDisplay (displayMask.data(), LCD_DISPLAY_WIDTH,
+                                                   &contentChanged, &isRasterOverlay,
+                                                   ! rasterCached);
+        // A committed SysEx raster is immutable until the next COMMIT/CLEAR.
+        // Avoid decoding and compositing its 198K pixels on every UI timer tick.
+        if (displayEnabled && isRasterOverlay)
+        {
+            if (rasterCached && ! contentChanged && previousRomLoaded == romLoaded)
+            {
+                if (refreshCallback)
+                    refreshCallback();
+                return;
+            }
+            rasterCached = true;
+        }
+        else
+            rasterCached = false;
 
         {
             juce::Image::BitmapData pixels (glyphLayer,
@@ -122,7 +140,9 @@ private:
                                       ? juce::Colours::black
                                       : value == 2
                                         ? juce::Colour (0xffc85000)
-                                        : juce::Colours::transparentBlack;
+                                        : value == 3
+                                          ? juce::Colours::white
+                                          : juce::Colours::transparentBlack;
                     pixels.setPixelColour (x, y, colour);
                 }
             }
@@ -144,6 +164,7 @@ private:
     std::array<uint8_t, LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT> displayMask {};
     bool romLoaded = false;
     bool displayEnabled = false;
+    bool rasterCached = false;
 };
 
 namespace

@@ -9,6 +9,7 @@
 #include "NativeSynthStateExchange.h"
 #include "NativeMidiInputState.h"
 #include "sc55_synth_command.h"
+#include "sc55_panel_raster.h"
 
 template <typename SampleType>
 struct AudioFrame;
@@ -119,7 +120,9 @@ public:
     bool getNativeState (sc55::SynthState& destination) const noexcept;
 
     /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
-    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride) const;
+    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride,
+                         bool* contentChanged = nullptr, bool* isRasterOverlay = nullptr,
+                         bool forceRasterCopy = false) const;
 
     bool isReady() const noexcept { return ready.load (std::memory_order_acquire); }
 
@@ -220,6 +223,9 @@ private:
     std::atomic<bool> debugSoloEnabled { false };
     std::atomic<bool> debugStandby { false }, debugFastDisplayScroll { false };
     NativeMidiInputState midiInputState;
+    // MIDI/audio thread produces complete rasters; the message thread reads an
+    // immutable triple-buffered snapshot for the LCD component.
+    mutable std::unique_ptr<sc55::PanelRasterSysExController> panelRasterSysEx;
 
     // The jcmoyer backend is per-instance. The mutex only protects the object
     // lifetime while the message-thread LCD snapshot is taken.

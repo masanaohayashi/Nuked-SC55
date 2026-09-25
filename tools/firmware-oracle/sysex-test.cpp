@@ -2,13 +2,17 @@
 #include "sc55_part_settings.h"
 #include "sc55_note_start.h"
 #include "sc55_rhythm_presets.h"
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 #include <vector>
 
 using Receiver = sc55::SysExReceiver;
 using Status = Receiver::Status;
-static void require(bool value) { if (!value) throw std::runtime_error("Native SysEx regression"); }
+static void require(bool value, const char* message = "Native SysEx regression")
+{
+    if (!value) throw std::runtime_error(message);
+}
 
 int main()
 {
@@ -65,6 +69,13 @@ int main()
         bytes.push_back(uint8_t((128-(sum&127))&127)); bytes.push_back(0xf7);
         return bytes;
     };
+    auto extendedRolandPacket = [](std::span<const uint8_t> payload) {
+        std::vector<uint8_t> bytes{0xf0,0x00,0x00,0x41,0x10,0x45,0x12};
+        unsigned sum = 0;
+        for (auto byte : payload) { bytes.push_back(byte); sum += byte; }
+        bytes.push_back(uint8_t((128-(sum&127))&127)); bytes.push_back(0xf7);
+        return bytes;
+    };
     auto volume = packet({0x40,0,4,37});
     auto textPacket=packet({0x10,0,0,'T',0,'S','T'}); textPacket[3]=0x45;
     feed(std::span(textPacket).first(textPacket.size()-1));
@@ -87,6 +98,28 @@ int main()
         && display.textRevision==1);
     require(display.write(std::span(tooMuchText).first(35))==sc55::DisplayData::WriteResult::applied
         && display.textLength==32);
+    const char rcpPanelText[] = "Programed By Brother-Nao";
+    std::vector<uint8_t> rcpTextFields{0x10,0,0};
+    rcpTextFields.insert(rcpTextFields.end(),rcpPanelText,rcpPanelText+sizeof(rcpPanelText)-1);
+    auto extendedText = extendedRolandPacket(std::span(rcpTextFields));
+    const auto priorTextRevision = display.textRevision;
+    feed(extendedText);
+    require(last == Status::roland && display.textRevision == priorTextRevision + 1
+        && display.textLength == sizeof(rcpPanelText)-1
+        && std::equal(rcpPanelText,rcpPanelText+sizeof(rcpPanelText)-1,display.text.begin()),
+        "RCP three-byte Roland manufacturer SysEx did not reach the SC-55 panel text");
+    auto badExtendedText = extendedText;
+    badExtendedText[badExtendedText.size()-2] ^= 1;
+    feed(badExtendedText);
+    require(last == Status::badChecksum && display.textRevision == priorTextRevision + 1,
+        "three-byte Roland manufacturer SysEx bypassed checksum validation");
+    std::array<uint8_t,67> extendedDots{};
+    extendedDots[0]=0x10; extendedDots[1]=1;
+    for(unsigned i=0;i<64;++i) extendedDots[i+3]=uint8_t(i ^ 0x2a);
+    feed(extendedRolandPacket(extendedDots));
+    require(last == Status::roland && display.bitmapRevision == 2
+        && display.bitmap[63] == (63 ^ 0x2a),
+        "RCP three-byte Roland manufacturer SysEx did not reach the SC-55 custom glyph RAM");
     feed(std::span(volume).first(volume.size()-1));
     require(master.volume == 100 && applied == 0);
     const uint8_t realtime[]{0xf8,0xfe}; feed(realtime);
