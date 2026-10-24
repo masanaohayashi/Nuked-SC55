@@ -4,41 +4,26 @@ project(sc55_native_engine LANGUAGES C CXX)
 get_filename_component(ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(BACKEND "${ROOT}/src/backend")
 
-# NativeSynth/control are header-defined. The only compiled sound dependency
-# is the existing PCM DSP and patch-data decoder/hash, including the explicit
-# optional PCM comparison renderer.
-# No Emulator, MCU, interrupt/kernel, sub-MCU, LCD, JUCE or host adapter sources.
+# NativeSynth, its controller and the tone generator are header-defined. The
+# only compiled sources are the patch-data decoder and its hash.
 add_library(sc55-native-engine STATIC
-    ${BACKEND}/pcm.cpp
-    ${BACKEND}/pcm_sim.cpp
     ${BACKEND}/sc55_patch.cpp
     ${BACKEND}/sha/sha224-256.c)
 target_compile_features(sc55-native-engine PUBLIC cxx_std_20)
 target_include_directories(sc55-native-engine PUBLIC "${BACKEND}")
 
-# Filesystem/file hashing/ROM decoding belong to this setup-time consumer, not the
-# sound library. Reuse the product's ROM loader and wave unscrambler.
+# ROM loading (sc55_rom_set.h) is header-only; song files come from the plug-in's readers.
 add_executable(sc55-native-engine-check main.cpp
     ${ROOT}/Plugins/Source/MidiFilePlayer.cpp
     ${ROOT}/Plugins/Source/RcpFilePlayer.cpp
-    ${ROOT}/Plugins/Source/WrdFilePlayer.cpp
-    ${ROOT}/src/common/rom_loader.cpp
-    ${BACKEND}/rom.cpp ${BACKEND}/rom_io.cpp ${BACKEND}/standard_romsets.cpp
-    ${BACKEND}/file_io.cpp ${BACKEND}/file_hashing.cpp
-    ${BACKEND}/diagnostics.cpp)
-target_include_directories(sc55-native-engine-check PRIVATE "${ROOT}/src/common" "${ROOT}/Plugins/Source")
+    ${ROOT}/Plugins/Source/WrdFilePlayer.cpp)
+target_include_directories(sc55-native-engine-check PRIVATE "${ROOT}/Plugins/Source")
 target_link_libraries(sc55-native-engine-check PRIVATE sc55-native-engine)
 
 set(SC55_ROM_DIRECTORY "" CACHE PATH "Optional local SC-55 v1.21 ROM directory for the native-only check")
 set(SC55_MONO_REUSE_SONG "" CACHE FILEPATH "Optional local ANMDLYGS.RCP for mono completion regression")
 set(SC55_MONO_REPLENISH_SONG "" CACHE FILEPATH "Optional local 55KTIZKE.RCP for mono replenishment regression")
 enable_testing()
-add_executable(sc55-pcm-voice-bank-check pcm_voice_bank_test.cpp)
-target_link_libraries(sc55-pcm-voice-bank-check PRIVATE sc55-native-engine)
-add_test(NAME pcm-voice-bank COMMAND sc55-pcm-voice-bank-check)
-add_executable(sc55-pcm-voice-equivalence-check pcm_voice_equivalence_test.cpp)
-target_link_libraries(sc55-pcm-voice-equivalence-check PRIVATE sc55-native-engine)
-add_test(NAME pcm-voice-equivalence COMMAND sc55-pcm-voice-equivalence-check)
 add_executable(sc55-tone-generator-check tone_generator_test.cpp)
 target_link_libraries(sc55-tone-generator-check PRIVATE sc55-native-engine)
 add_test(NAME tone-generator-vector COMMAND sc55-tone-generator-check)

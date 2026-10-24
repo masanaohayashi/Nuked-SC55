@@ -688,19 +688,13 @@ bool NukedSC55Emulator::initialise (const std::string& romDirectory, double newH
         const auto& data = nextRoms->romset_info.rom_data;
         try
         {
-            // Explicit comparison switch, not the native engine's default:
-            // some tones still differ substantially from the chip renderer.
-            const auto* simulation = std::getenv ("SC55_SIM");
-            const auto rendering = simulation != nullptr && std::string_view (simulation) == "1"
-                ? sc55::NativeSynth::VoiceRendering::nativeVoices
-                : sc55::NativeSynth::VoiceRendering::referenceChip;
             nextNativePlayer = std::make_unique<sc55::NativeSynth> (
                 std::span (static_cast<const uint8_t*> (bytes.getData()), bytes.getSize()),
                 data[static_cast<size_t> (RomLocation::ROM1)],
                 data[static_cast<size_t> (RomLocation::ROM2)],
                 data[static_cast<size_t> (RomLocation::WAVEROM1)],
                 data[static_cast<size_t> (RomLocation::WAVEROM2)],
-                data[static_cast<size_t> (RomLocation::WAVEROM3)], rendering, maximumVoices);
+                data[static_cast<size_t> (RomLocation::WAVEROM3)], maximumVoices);
         }
         catch (const std::exception& exception)
         {

@@ -1,7 +1,7 @@
 #pragma once
 #include "sc55_voice_set.h"
 #include "sc55_voice_engine.h"
-#include "pcm.h"
+#include "sc55_tone_generator.h"
 #include "sc55_sysex.h"
 #include "sc55_part_settings.h"
 #include "sc55_rhythm_settings.h"
@@ -31,9 +31,9 @@ class NativeMelodicPlayer
 public:
     // ROM-backed setup. Legacy/custom research callers may still supply only
     // PartSettings; product preview uses this complete imported config source.
-    NativeMelodicPlayer(const SoundData& data,pcm_t& pcm,const SystemDefaults& defaults,
+    NativeMelodicPlayer(const SoundData& data,ToneGenerator& tone,const SystemDefaults& defaults,
         RhythmPresetTable rhythm,MelodicPresetTable melodic,std::optional<EffectsTables> effects = {})
-        : NativeMelodicPlayer(data,pcm,defaults.parts(),std::move(rhythm),std::move(melodic))
+        : NativeMelodicPlayer(data,tone,defaults.parts(),std::move(rhythm),std::move(melodic))
     {
         defaults_ = defaults;
         system_.master = defaults.master();
@@ -47,12 +47,12 @@ public:
         if (effectsTables_) requestDefaultEffects();
     }
 
-    NativeMelodicPlayer(const SoundData& data, pcm_t& pcm,PartSettings settings = {},
+    NativeMelodicPlayer(const SoundData& data, ToneGenerator& tone,PartSettings settings = {},
         std::optional<RhythmPresetTable> rhythm = {},std::optional<MelodicPresetTable> melodic = {})
-        : data_(data), elapsedCycles_(pcm.cycles), pcm_(pcm), parts_(std::move(settings)), rhythm_(std::move(rhythm)), melodic_(std::move(melodic))
+        : data_(data), tone_(tone), parts_(std::move(settings)), rhythm_(std::move(rhythm)), melodic_(std::move(melodic))
     {
         if (!data.pitchTiming() || data.patchCount() < 224
-            || !engine_.notes.allocator.initializeTables(pcm.native_voice_count ? pcm.native_voice_count : 24, pcm.native_voice_count ? pcm.native_voice_count : 24))
+            || !engine_.notes.allocator.initializeTables(tone.voiceCount(), tone.voiceCount()))
         { failed_ = true; return; }
         if (rhythm_)
         {
@@ -73,14 +73,6 @@ public:
         }
         for (unsigned slot = 0; slot < voiceCapacity; ++slot)
             engine_.runtime.first[slot].firstStage = engine_.runtime.second[slot].firstStage = 22;
-        // 3c=0 emits one frame per PCM pass. Keep the public sample-rate
-        // query consistent so the product resampler receives32kHz, not64kHz.
-        pcm_.enable_oversampling=false;
-        write(0x3c,0); // Undithered PCM output; effects are configured separately.
-        write(0x3d,0xb7); // 24 PCM slots, mk1 wave-bank addressing.
-        // 04:2643..264b seeds the channel30 LFSR. Zero is an absorbing
-        // state, so omitting boot leaves random LFO/tuning reads constant.
-        write(0x3e,30); write(0x34,0xff); write(0x35,0xff);
     }
 
     bool failed() const noexcept { return failed_ || engine_.failed() || queue_.failed(); }
@@ -237,14 +229,13 @@ public:
     std::array<SynthState::VoiceLevel,voiceCapacity> voiceLevels() const noexcept
     {
         std::array<SynthState::VoiceLevel,voiceCapacity> levels{};
-        const auto active=pcm_.native_voice_count ? pcm_.native_keys
-            : VoiceSet(pcm_.voice_mask&pcm_.voice_mask_pending);
+        const auto active=tone_.keys();
         for(unsigned slot=0;slot<voiceCapacity;++slot)
             // PCM key bits and gain registers can retain the last values
             // after the musical voice has been returned. They are not proof
             // that this slot still belongs to a sounding/releasing note.
             if(active.contains(slot) && !engine_.notes.allocator.allocations[slot].free()) {
-                const auto gains=PCM_PeekVoiceGainLevels(pcm_,slot);
+                const auto gains=tone_.gainLevels(slot);
                 levels[slot]={gains[0],gains[1],engine_.installation.voices[slot].input.part,true};
             }
         return levels;
@@ -425,7 +416,7 @@ public:
     VoiceControlRuntime::ControlStep resumeControlGroupAudit() noexcept
     {
         const auto result=engine_.resumeControl(controllers_,
-            data_,conversion_,waves_,[&](uint8_t a) { return read(a); },ControlWriter{pcm_});
+            data_,conversion_,waves_,NoRegisterRead{},ControlWriter{tone_});
         serviceRequested_=true;
         return result;
     }
@@ -436,7 +427,7 @@ public:
         if(engine_.runtime.controlPhase()!=PeriodicVoiceUpdatePass::Phase::select)
             return {VoiceControlRuntime::ControlProgress::failed};
         return engine_.resumeControl(controllers_,data_,conversion_,waves_,
-            [&](uint8_t a) {return read(a);},ControlWriter{pcm_},VoiceControlRuntime::ControlSlice::phase);
+            NoRegisterRead{},ControlWriter{tone_},VoiceControlRuntime::ControlSlice::phase);
     }
     VoiceControlRuntime::ControlStep readControlVoiceAudit(uint8_t expectedSlot) noexcept
     {
@@ -449,7 +440,7 @@ public:
             if(phase==Phase::publish || (reading && engine_.runtime.controlVoice()!=expectedSlot))
                 return {Progress::failed,0,changed};
             const auto result=engine_.resumeControl(controllers_,data_,conversion_,waves_,
-                [&](uint8_t a) {return read(a);},ControlWriter{pcm_},VoiceControlRuntime::ControlSlice::phase);
+                NoRegisterRead{},ControlWriter{tone_},VoiceControlRuntime::ControlSlice::phase);
             changed|=result.changedMask;
             if(result.status!=Progress::advancedPhase) return {result.status,result.updatedMask,changed};
             if(reading) {
@@ -546,32 +537,6 @@ public:
     uint32_t controlCyclesUntilNextTick() const noexcept
     { return engine_.clock.untilNextExpiration(); }
 
-    // One bounded PCM slice. PCM_Update rounds up to a complete chip pass;
-    // charge that actual duration, including any deadline overshoot, to the
-    // control clock. The caller splits host buffers at MIDI offsets.
-    void step() noexcept
-    {
-        service();
-        const auto duration = std::min<uint32_t>(625,cyclesUntilNextService());
-        const auto before=pcm_.cycles;
-        PCM_Update(pcm_,pcm_.cycles + duration);
-        advanceTime(pcm_.cycles-before);
-        service();
-    }
-
-    // Block scheduler for the fixed v1.21 24-slot/32kHz PCM configuration.
-    // MIDI has already split the host span. Within it, only the common control
-    // deadline, a PCM interrupt or an unfinished transition requires a yield.
-    void renderFrames(std::size_t frames) noexcept
-    {
-        renderFrames(frames,[&](std::size_t count) noexcept {
-            const auto before=pcm_.cycles;
-            PCM_Update(pcm_,before+count*625,true);
-            const auto elapsed=pcm_.cycles-before;
-            return elapsed%625 ? std::size_t(0) : std::size_t(elapsed/625);
-        });
-    }
-
     // The synth owns signal generation and output buffers. The controller only
     // supplies deadlines and consumes the number of frames actually rendered;
     // a waveform event may end a batch early. No retained callable or allocation.
@@ -644,7 +609,7 @@ private:
     { engine_.seedPitchHistory(part,tone,voiceConfiguration(),data_); }
     bool stopPartGroups(unsigned part) noexcept
     {
-        return engine_.stopPartGroups(part,[&](uint8_t a) { return read(a); },ControlWriter{pcm_});
+        return engine_.stopPartGroups(part,NoRegisterRead{},ControlWriter{tone_});
     }
     void setPartModeValue(unsigned part,bool poly) noexcept
     {
@@ -653,7 +618,7 @@ private:
     }
     bool applyPartMode(unsigned part,bool poly) noexcept
     {
-        if(!engine_.changePartMode(part,poly,[&](uint8_t a) { return read(a); },ControlWriter{pcm_})) return false;
+        if(!engine_.changePartMode(part,poly,NoRegisterRead{},ControlWriter{tone_})) return false;
         return true;
     }
     bool changeRhythmMode(unsigned part,uint8_t value) noexcept
@@ -745,18 +710,18 @@ private:
     bool serviceEffects() noexcept
     {
         struct EffectWriter {
-            pcm_t& pcm;
+            ToneGenerator& tone;
             void configureChorus(const ChorusSetup& setup) const noexcept
-            { PCM_ConfigureChorus(pcm,setup); }
+            { tone.effects().configureChorus(setup); tone.enableEffects(); }
             void configureReverb(const ReverbSetup& setup) const noexcept
-            { PCM_ConfigureReverb(pcm,setup); }
+            { tone.effects().configureReverb(setup); }
             void updateEffect(EffectParameter parameter,uint16_t value) const noexcept
-            { PCM_UpdateEffect(pcm,parameter,value); }
+            { tone.effects().update(parameter,value); }
             void setChorusMix(const std::array<uint8_t,3>& mix) const noexcept
-            { PCM_SetChorusMix(pcm,mix); }
-            void beginReverbDrain() const noexcept { PCM_BeginReverbDrain(pcm); }
+            { tone.effects().setChorusMix(mix); }
+            void beginReverbDrain() const noexcept { tone.effects().beginReverbDrain(); }
         };
-        const EffectWriter word{pcm_};
+        const EffectWriter word{tone_};
         if(!effects_.advance(*effectsTables_,system_.effects.reverb[0],word)) {
             failed_=true; return false;
         }
@@ -772,8 +737,8 @@ private:
     // progression. Later MIDI remains owned by queue_ until this completes.
     void serviceReset() noexcept
     {
-        const auto load = [&](uint8_t a) { return read(a); };
-        const auto store = ControlWriter{pcm_};
+        const auto load = NoRegisterRead{};
+        const auto store = ControlWriter{tone_};
         const auto progress=engine_.resetVoices(load,store);
         using Progress=NativeVoiceEngine::ResetProgress;
         if(progress==Progress::failed) { failed_=true; return; }
@@ -867,31 +832,25 @@ private:
                 selectedRhythmProgram_[peer] = *resolved;
             }
     }
-    uint8_t read(uint8_t address) noexcept { return PCM_Read(pcm_,address); }
-    void write(uint8_t address,uint8_t value) noexcept { PCM_Write(pcm_,address,value); }
+    // The controller's view of the tone generator: voice and envelope values,
+    // never device registers. NoRegisterRead keeps it that way at compile time.
+    struct NoRegisterRead { uint8_t operator()(uint8_t) const = delete; };
     struct ControlWriter
     {
-        pcm_t& target;
-        void operator()(uint8_t address,uint8_t value) const noexcept { PCM_Write(target,address,value); }
-        void updateVoice(uint8_t channel,const VoiceRenderUpdate& update) const noexcept
-        { PCM_ApplyVoiceUpdate(target,channel,update); }
-        void installVoice(uint8_t channel,const VoiceRenderStart& start) const noexcept
-        { PCM_InstallVoice(target,channel,start); }
-        void commitVoiceKeys(VoiceSet enabled) const noexcept { PCM_CommitVoiceKeys(target,enabled); }
-        std::array<uint16_t,2> voiceGainLevels(uint8_t channel) const noexcept
-        { return PCM_VoiceGainLevels(target,channel); }
-        uint16_t voiceRampLevel(uint8_t channel,EnvelopeRamp::Stage stage) const noexcept
-        { return PCM_VoiceRampLevel(target,channel,stage); }
-        void setVoiceRamp(uint8_t channel,EnvelopeRamp::Stage stage,uint16_t command) const noexcept
-        { PCM_SetVoiceRamp(target,channel,stage,command); }
-        void setVoicePitch(uint8_t channel,uint16_t increment) const noexcept
-        { PCM_SetVoicePitch(target,channel,increment); }
-        uint16_t randomWord() const noexcept { return PCM_ControlRandomWord(target); }
+        ToneGenerator& tone;
+        void updateVoice(uint8_t channel,const VoiceRenderUpdate& update) const noexcept { tone.update(channel,update); }
+        void installVoice(uint8_t channel,const VoiceRenderStart& start) const noexcept { tone.install(channel,start); }
+        void commitVoiceKeys(VoiceSet enabled) const noexcept { tone.setKeys(enabled); }
+        std::array<uint16_t,2> voiceGainLevels(uint8_t channel) const noexcept { return tone.gainLevels(channel); }
+        uint16_t voiceRampLevel(uint8_t channel,EnvelopeRamp::Stage stage) const noexcept { return tone.rampLevel(channel,stage); }
+        void setVoiceRamp(uint8_t channel,EnvelopeRamp::Stage stage,uint16_t command) const noexcept { tone.setRamp(channel,stage,command); }
+        void setVoicePitch(uint8_t channel,uint16_t increment) const noexcept { tone.setPitch(channel,increment); }
+        uint16_t randomWord() const noexcept { return tone.randomWord(); }
         bool completeVoiceEnable(uint8_t channel,uint16_t level,uint16_t command) const noexcept
-        { return PCM_CompleteVoiceEnable(target,channel,level,command); }
+        { return tone.completeEnable(channel,level,command); }
         std::array<uint16_t,3> synchronizeEnvelopes(uint8_t channel,
             const std::array<uint16_t,3>& commands,const std::array<uint16_t,3>& levels) const noexcept
-        { return PCM_SynchronizeVoiceEnvelopes(target,channel,commands,levels); }
+        { return tone.synchronizeEnvelopes(channel,commands,levels); }
     };
     bool tasksPending() const noexcept
     { return engine_.operationsPending(); }
@@ -1140,7 +1099,7 @@ private:
                     if(defaults_ && result.payload.size()>=3 && result.payload[0]==0x40
                         && (result.payload[1]&0xf0)==0x30)
                         status=reply.prepareInformation(result.payload,defaults_->identity,
-                            [&](uint32_t address) {return PCM_ReadROM(pcm_,address);});
+                            [&](uint32_t address) {return tone_.waveByte(address);});
                     if(status==ParameterReply::Result::unsupported)
                         status=reply.prepareSystem(result.payload,system_.name,system_.capacity,system_.effects,
                             rhythm_ ? std::span<const RhythmPresetTable::Record>(rhythmSettings_.records()) : std::span<const RhythmPresetTable::Record>{},
@@ -1392,7 +1351,7 @@ private:
         if(holdAdmissionsAudit_) return;
 #endif
         const auto result=engine_.serviceCommand(voiceConfiguration(),selectedTone_,controllers_,data_,conversion_,waves_,
-            [&](uint8_t a) { return read(a); },ControlWriter{pcm_});
+            NoRegisterRead{},ControlWriter{tone_});
         if(result.failed) failed_=true;
         if(result.unsupported) ++unsupported_;
         if(result.program) updateCapacityMode(result.program->part,result.program->tone);
@@ -1420,8 +1379,8 @@ private:
         if(failed()) return;
         // Receive the hardware notification before any task-level wait.
         // A latched IRQ must not block notifications from other PCM voices.
-        if(engine_.acceptsPcmBoundary() && PCM_HasVoiceBoundary(pcm_)) {
-            const auto slot=unsigned(PCM_TakeVoiceBoundary(pcm_));
+        if(engine_.acceptsPcmBoundary() && tone_.hasLoopEvent()) {
+            const auto slot=unsigned(tone_.takeLoopEvent());
             if(!engine_.receivePcmBoundary(slot)) {failed_=true;return;}
             serviceRequested_=true;
         }
@@ -1435,7 +1394,7 @@ private:
         // Only incoming MIDI, PCM completion or an unfinished transition wakes
         // the controller. PCM itself continues rendering every sample.
         if (!serviceRequested_ && !engine_.clock.ready() && !engine_.runtime.controlPending()
-            && !PCM_HasVoiceBoundary(pcm_) && !engine_.pcmBoundaryPending()) return;
+            && !tone_.hasLoopEvent() && !engine_.pcmBoundaryPending()) return;
         serviceWork();
         serviceRequested_=!engine_.activationWaiting(elapsedCycles_) && (engine_.runtime.startupPending() || tasksPending()
             || engine_.controlEventCaptured() || resetPending()
@@ -1445,8 +1404,8 @@ private:
     void serviceWork() noexcept
     {
         if (failed()) return;
-        const auto load = [&](uint8_t a) { return read(a); };
-        const ControlWriter store{pcm_};
+        const auto load = NoRegisterRead{};
+        const ControlWriter store{tone_};
         if (engine_.runtime.startupPending()) {
             (void)engine_.serviceActivation(elapsedCycles_,load,store);
             // Key-latch/startup attack protection is a different PCM wait:
@@ -1554,7 +1513,7 @@ private:
     bool standby_=false,standbyStopPending_=false;
     bool fastDisplayScroll_=false;
     bool soloEnabled_=false;
-    pcm_t& pcm_;
+    ToneGenerator& tone_;
     NativeVoiceEngine engine_;
     MidiEventQueue<2048> queue_;
     MidiReceiveState receiveState_;

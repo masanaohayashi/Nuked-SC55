@@ -26,17 +26,15 @@ inline int probeSongNotes(const char* path,const auto& rom,const auto& encoded)
         seconds=std::min(seconds,requested);
     }
     const auto end=uint64_t(seconds*32000);
-    const auto& r1=rom[size_t(RomLocation::ROM1)];
-    const auto& r2=rom[size_t(RomLocation::ROM2)];
+    const auto& r1=rom.program;
+    const auto& r2=rom.programExtra;
     sc55::SoundData data;
     if(!data.loadEncoded(encoded)) throw std::runtime_error("Invalid sound data");
-    auto pcm=std::make_unique<pcm_t>();pcm->is_mk1=true;pcm->native_voice_count=limit;
-    std::copy_n(rom[size_t(RomLocation::WAVEROM1)].begin(),0x100000,pcm->waverom1);
-    std::copy_n(rom[size_t(RomLocation::WAVEROM2)].begin(),0x100000,pcm->waverom2);
-    std::copy_n(rom[size_t(RomLocation::WAVEROM3)].begin(),0x100000,pcm->waverom3);
-    sc55::NativeMelodicPlayer player(data,*pcm,sc55::ImportSystemDefaults(r1,r2),
+    auto tone=std::make_unique<sc55::ToneGenerator>(rom.waves[0],
+        rom.waves[1],rom.waves[2],limit);
+    sc55::NativeMelodicPlayer player(data,*tone,sc55::ImportSystemDefaults(r1,r2),
         sc55::ImportRhythmPresets(r1,r2),sc55::ImportMelodicPresets(r1,r2),sc55::ImportEffectsTables(r1,r2));
-    PCM_UseSimulation(*pcm,false);
+    std::array<AudioFrame<int32_t>,128> audio{};
     uint64_t frame=0;
     bool inspectMono=false;
     unsigned monoChecks=0;
@@ -46,7 +44,11 @@ inline int probeSongNotes(const char* path,const auto& rom,const auto& encoded)
     auto until=[&](uint64_t target) {
         while(frame<target) {
             const auto count=unsigned(std::min<uint64_t>(128,target-frame));
-            player.renderFrames(count);frame+=count;
+            std::size_t done=0;
+            player.renderFrames(count,[&](std::size_t n) noexcept {
+                const auto rendered=tone->render(std::span(audio.data()+done,n)); done+=rendered; return rendered;
+            });
+            frame+=count;
             if(player.failed()) throw std::runtime_error("Song control failed");
             const auto levels=player.voiceLevels();
             if(inspectMono && frame-onset>=3200) {
@@ -60,10 +62,10 @@ inline int probeSongNotes(const char* path,const auto& rom,const auto& encoded)
             }
             for(unsigned slot=0;slot<limit;++slot) {
                 if(levels[slot].active) lastPart[slot]=levels[slot].part;
-                const auto gain=PCM_PeekVoiceGainLevels(*pcm,slot);
+                const auto gain=tone->gainLevels(slot);
                 // The two gain stages are serial, not stereo channels.
                 // Either zero silences the voice. Allow the final ramp tail.
-                if(pcm->native_keys.contains(slot) && !levels[slot].active && gain[0] && gain[1]) {
+                if(tone->keys().contains(slot) && !levels[slot].active && gain[0] && gain[1]) {
                     if(!orphanSince[slot]) orphanSince[slot]=frame;
                     if(frame-orphanSince[slot]>32000) {
                         std::fprintf(stderr,"Orphan PCM voice: t=%.6f slot=%u GS-part=%u gains=%u,%u\n",

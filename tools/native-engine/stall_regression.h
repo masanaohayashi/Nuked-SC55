@@ -25,13 +25,12 @@ inline int probeNativeStalls(const auto& rom,const auto& encoded)
         Event{25760,3,{0xb0,84,67}}, Event{25760,3,{0x90,62,46}},
         Event{25800,3,{0x90,63,100}}, Event{25800,3,{0xb0,126,0}}};
     const std::array<std::span<const Event>,3> fixtures{detached,program,staleSource};
-    const auto& r1=rom[size_t(RomLocation::ROM1)];
-    const auto& r2=rom[size_t(RomLocation::ROM2)];
+    const auto& r1=rom.program;
+    const auto& r2=rom.programExtra;
     for(unsigned capacity:{24u,64u,128u}) for(unsigned block:{1u,32u,257u})
     for(unsigned fixture=0;fixture<fixtures.size();++fixture) {
-        sc55::NativeSynth synth(encoded,r1,r2,rom[size_t(RomLocation::WAVEROM1)],
-            rom[size_t(RomLocation::WAVEROM2)],rom[size_t(RomLocation::WAVEROM3)],
-            sc55::NativeSynth::VoiceRendering::referenceChip,capacity);
+        sc55::NativeSynth synth(encoded,r1,r2,rom.waves[0],
+            rom.waves[1],rom.waves[2],capacity);
         std::array<AudioFrame<int32_t>,257> audio{};
         uint64_t frame=0;
         bool varied=false;

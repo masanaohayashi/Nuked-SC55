@@ -375,21 +375,4 @@ inline SampleControl DecodeSampleControl(uint32_t loop, uint8_t descriptorFlags,
             uint8_t(descriptorFlags & 2)};
 }
 
-// The voice slot must already be selected. Does not key on the voice or create
-// envelope/pitch state. Matches the 00:5784..00:57a7 device-write sequence.
-template <class Write>
-void WriteSampleAddressSetup(const SampleAddressSetup& setup, Write&& write)
-{
-    write(0x1e, uint8_t(setup.mode >> 8));
-    write(0x1f, uint8_t(setup.mode));
-    const auto address = [&](uint8_t reg, uint32_t value)
-    {
-        write(reg, uint8_t(value >> 16));
-        write(uint8_t(reg + 1), uint8_t(value >> 8));
-        write(uint8_t(reg + 2), uint8_t(value));
-    };
-    address(0x05, setup.start);
-    address(0x09, setup.loop);
-    address(0x0d, setup.end);
-}
 }

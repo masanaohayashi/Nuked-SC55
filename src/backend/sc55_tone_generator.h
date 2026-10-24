@@ -12,14 +12,14 @@
 // Header-only so the plug-in projects need no new source files.
 
 #include "audio_frame.h"
-#include "pcm_effects.h"
-#include "pcm_interpolation.h"
+#include "sc55_effect_unit.h"
 #include "sc55_audio_buses.h"
 #include "sc55_envelope_ramp.h"
 #include "sc55_voice_render_update.h"
 #include "sc55_voice_set.h"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -35,6 +35,33 @@ namespace tone
 {
 inline int32_t wrap20(int32_t value) noexcept { return int32_t(uint32_t(value) << 12) >> 12; }
 
+// The device interpolates between samples with a smooth 4-point kernel: a
+// cubic B-spline with a little Gaussian mixed in (4:1, sigma 0.66 samples),
+// which matches its measured response within 0.04 dB up to 0.45 fs. Applied
+// to differences: out = value + w0*d0 + w1*d1 + w2*d2, weights in 1/4096, for
+// each of 128 positions between two samples.
+struct Interpolation
+{
+    std::array<std::array<int32_t, 3>, 128> weights{};
+
+    Interpolation()
+    {
+        for (unsigned r = 0; r < 128; ++r) {
+            const double t = r / 128.0;
+            const double spline[4]{(1 - t) * (1 - t) * (1 - t) / 6, (3 * t * t * t - 6 * t * t + 4) / 6,
+                (-3 * t * t * t + 3 * t * t + 3 * t + 1) / 6, t * t * t / 6};
+            double gauss[4], sum = 0;
+            for (int k = 0; k < 4; ++k) sum += gauss[k] = std::exp(-(k - 1 - t) * (k - 1 - t) / (2 * 0.66 * 0.66));
+            double tap[4];
+            for (int k = 0; k < 4; ++k) tap[k] = 0.8 * spline[k] + 0.2 * gauss[k] / sum;
+            // Taps on samples -> weights on the differences that follow them.
+            weights[r] = {int32_t(std::lround((1 - tap[0]) * 4096)), int32_t(std::lround((tap[2] + tap[3]) * 4096)),
+                int32_t(std::lround(tap[3] * 4096))};
+        }
+    }
+};
+inline const Interpolation interpolation;
+
 // Waveform memory, decoded once. The ROM stores each sample as the 8-bit
 // difference from the previous one, scaled by a 4-bit exponent shared by 16
 // samples. Each entry here is the difference a voice adds to its running value.
@@ -45,6 +72,8 @@ public:
 
     void decode(unsigned bank, std::span<const uint8_t> rom)
     {
+        std::fill(headers_[bank].begin(), headers_[bank].end(), uint8_t(0));
+        std::copy_n(rom.begin(), std::min(rom.size(), headers_[bank].size()), headers_[bank].begin());
         auto& out = banks_[bank];
         out.assign(bankSize, 0);
         for (uint32_t address = 0; address < bankSize && address < rom.size(); ++address) {
@@ -64,8 +93,14 @@ public:
         return silent();
     }
 
+    uint8_t headerByte(unsigned bank, uint32_t offset) const noexcept
+    {
+        return bank < headers_.size() && offset < headers_[bank].size() ? headers_[bank][offset] : 0;
+    }
+
 private:
     std::array<std::vector<int32_t>, 3> banks_;
+    std::array<std::array<uint8_t, 256>, 3> headers_{};
 };
 
 // One envelope stage: a level that moves toward a target, either a fixed
@@ -187,9 +222,8 @@ inline VoiceOutput renderVoiceFrame(Voice& v, uint16_t increment, uint16_t frame
     const auto sample = [&](uint32_t position) { return v.wave.data[position & v.wave.mask]; };
     const int32_t d0 = sample(p0), d1 = sample(p1), d2 = sample(p2), d3 = sample(p3);
 
-    const int ratio = v.fraction >> 7;
-    const int32_t interpolated = wrap20(v.value
-        + ((d0 * interp_lut[0][ratio] + d1 * interp_lut[1][ratio] + d2 * interp_lut[2][ratio] + 2048) >> 12));
+    const auto& w = interpolation.weights[v.fraction >> 7];
+    const int32_t interpolated = wrap20(v.value + ((d0 * w[0] + d1 * w[1] + d2 * w[2] + 2048) >> 12));
 
     const bool reachedLoop = v.notifyLoop & !v.notified
         & ((((p0 + ((0u - v.loopStart) & 0xfffff)) & 0x100000) != 0) ^ v.storedBackwards);
@@ -352,7 +386,8 @@ struct VoiceQuad
         alignas(16) uint32_t ratio[4];
         vst1q_u32(ratio, vshrq_n_u32(fraction, 7));
         const auto weight = [&](unsigned k) {
-            const int32_t w[4]{interp_lut[k][ratio[0]], interp_lut[k][ratio[1]], interp_lut[k][ratio[2]], interp_lut[k][ratio[3]]};
+            const auto& table = interpolation.weights;
+            const int32_t w[4]{table[ratio[0]][k], table[ratio[1]][k], table[ratio[2]][k], table[ratio[3]][k]};
             return vld1q_s32(w);
         };
         const I weighted = vmlaq_s32(vmlaq_s32(vmulq_s32(d0, weight(0)), d1, weight(1)), d2, weight(2));
@@ -394,6 +429,7 @@ class ToneGenerator
 public:
     static constexpr unsigned maxVoices = 128;
     static constexpr unsigned blockFrames = 128;
+    static constexpr std::size_t waveBankSize = tone::DecodedWaves::bankSize;
 
     ToneGenerator(std::span<const uint8_t> wave1, std::span<const uint8_t> wave2,
         std::span<const uint8_t> wave3, unsigned voices = 24)
@@ -411,6 +447,10 @@ public:
         random_ = random;
     }
     uint16_t randomWord() const noexcept { return random_; }
+    unsigned voiceCount() const noexcept { return voiceCount_; }
+    // A wave ROM byte by device address (2 MB per bank), for the bank names
+    // the identity reply reports. Only bank headers are kept.
+    uint8_t waveByte(uint32_t address) const noexcept { return waves_.headerByte(address >> 21, address & 0xfffff); }
     uint64_t renderedFrames() const noexcept { return frame_; }
     VoiceSet keys() const noexcept { return keys_; }
 
@@ -520,7 +560,7 @@ public:
 
     // --- effects -------------------------------------------------------------
 
-    PCMEffects& effects() noexcept { return *effects_; }
+    EffectUnit& effects() noexcept { return *effects_; }
     void enableEffects() noexcept { effectsActive_ = true; }
 
     // --- rendering -----------------------------------------------------------
@@ -672,7 +712,7 @@ private:
     std::array<uint16_t, maxVoices> pitch_{};
     unsigned voiceCount_;
     VoiceSet keys_;
-    std::unique_ptr<PCMEffects> effects_ = std::make_unique<PCMEffects>();
+    std::unique_ptr<EffectUnit> effects_ = std::make_unique<EffectUnit>();
     bool effectsActive_ = false, updating_ = false, vectorized_ = true;
     AudioBuses pending_{};
     uint16_t envelopeFrame_ = 0, random_ = 0xffff;

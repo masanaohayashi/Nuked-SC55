@@ -498,25 +498,14 @@ bool SynchronizeVoicePcm(uint8_t channel,EnvelopeRunner& amplitude,
     if (channel >= voiceCapacity) return false;
     const auto stage = amplitude.state().segment.stage;
     if (stage == EnvelopeStage::delay || stage >= EnvelopeStage::finished) return true;
-    if constexpr(requires { write.synchronizeEnvelopes(channel,
-        std::array<uint16_t,3>{},std::array<uint16_t,3>{}); })
-    {
-        const auto current=write.synchronizeEnvelopes(channel,
-            {levels.command16,amplitude.state().pcmWord,levels.command1a},
-            {levels.level32,amplitude.state().level,levels.level36});
-        levels.level32=current[0];
-        amplitude.synchronizePcmLevel(current[1]);
-        levels.level36=current[2];
-        const auto activity=uint8_t(current[1]>>8);
-        release.activity=activity==255 ? 254 : activity;
-        return true;
-    }
-    write(uint8_t(0x3e),channel);
-    levels.level32 = SynchronizePcmRamp(levels.command16,levels.level32,0x16,0x32,read,write);
-    SynchronizeEnvelopePcm(amplitude,read,write);
-    const auto activity = uint8_t(amplitude.state().level>>8);
-    release.activity = activity == 255 ? 254 : activity;
-    levels.level36 = SynchronizePcmRamp(levels.command1a,levels.level36,0x1a,0x36,read,write);
+    const auto current=write.synchronizeEnvelopes(channel,
+        {levels.command16,amplitude.state().pcmWord,levels.command1a},
+        {levels.level32,amplitude.state().level,levels.level36});
+    levels.level32=current[0];
+    amplitude.synchronizePcmLevel(current[1]);
+    levels.level36=current[2];
+    const auto activity=uint8_t(current[1]>>8);
+    release.activity=activity==255 ? 254 : activity;
     return true;
 }
 
@@ -709,14 +698,6 @@ inline std::array<uint16_t,2> ActivateVoiceState(VoiceStopState& state) noexcept
     }
 }
 
-template<class Write>
-void ActivatePreparedVoice(VoiceStopState& state,Write&& write)
-{
-    const auto initial=ActivateVoiceState(state);
-    write(uint8_t(0x18),uint8_t(initial[0]>>8)); write(uint8_t(0x19),uint8_t(initial[0]));
-    write(uint8_t(0x10),uint8_t(initial[1]>>8)); write(uint8_t(0x11),uint8_t(initial[1]));
-}
-
 // Prepared values, not ROM pointers. Register names deliberately avoid assigning
 // unverified synthesis semantics to the firmware's cached control words.
 struct PreparedVoicePcm
@@ -740,18 +721,7 @@ VoicePcmUpdateResult UpdateVoicePcm(uint8_t channel,const VoiceStopState& voice,
         int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12&255),
         int8_t(prepared.pcm14>>8),int8_t(prepared.pcm14&255),
         uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)};
-    if constexpr(requires { write.updateVoice(channel,update); }) {
-        write.updateVoice(channel,update);
-        return VoicePcmUpdateResult::written;
-    }
-    const auto word = [&](uint8_t address,uint16_t value) {
-        write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
-    };
-    write(uint8_t(0x3e),channel);
-    word(0x18,voice.cached18); word(0x16,voice.cached16);
-    word(0x12,prepared.pcm12); word(0x14,prepared.pcm14);
-    word(0x1a,cached1a); word(0x1c,prepared.pcm1c);
-    word(0x10,voice.pcm10);
+    write.updateVoice(channel,update);
     return VoicePcmUpdateResult::written;
 }
 
@@ -810,9 +780,7 @@ bool PrepareReusedVoicePcm(unsigned channel,VoiceStopState& voice,
     PreparedVoicePcm& prepared,VoicePostEnable& post,Write&& write)
 {
     if (channel>=voiceCapacity || (voice.flagMinus3B&128)) return false;
-    if constexpr(requires { write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,uint16_t(0)); })
-        write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,0xb4);
-    else { write(0x3e,uint8_t(channel)); write(0x16,uint8_t(0)); write(0x17,uint8_t(0xb4)); }
+    write.setVoiceRamp(uint8_t(channel),EnvelopeRamp::Stage::firstGain,0xb4);
     voice.cached16=0x00b4;
     voice.cached18=uint16_t((amplitudeLevel&0xff00)|0xaf);
     second.command=uint16_t((second.level&0xff00)|0xaf);
@@ -859,17 +827,7 @@ std::optional<bool> PollVoicePostEnable(unsigned channel,const VoicePostEnable& 
 {
     if (channel >= voiceCapacity) return std::nullopt;
     if (state.field65 != 0) return true;
-    if constexpr(requires { write.completeVoiceEnable(uint8_t(channel),state.level,state.command); })
-        return write.completeVoiceEnable(uint8_t(channel),state.level,state.command);
-    write(0x3e,uint8_t(channel));
-    (void)read(0x1e);
-    const auto hi = read(0x3a); const auto lo = read(0x3b);
-    if ((((uint16_t(hi)<<8)|lo) & 32) == 0) return false;
-    const auto word = [&](uint8_t address,uint16_t value) {
-        write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
-    };
-    word(0x1a,0xff00); word(0x36,uint16_t(state.level>>1)); word(0x1a,state.command);
-    return true;
+    return write.completeVoiceEnable(uint8_t(channel),state.level,state.command);
 }
 
 // 573f..576f: cancellation leaves both the cache and device untouched. Reading
@@ -881,14 +839,7 @@ bool RemovePreparedVoiceKeys(VoiceKeyMask& mask,const VoiceStopState& voice,
 {
     if (voice.pendingOperation != VoiceOperation::none) return false;
     mask.enabled &= ~mask.prepared;
-    if constexpr(requires { write.commitVoiceKeys(mask.enabled); })
-    {
-        write.commitVoiceKeys(mask.enabled);
-        return true;
-    }
-    for (unsigned i = 0; i < 4; ++i)
-        write(uint8_t(i),uint8_t(mask.enabled.lowWord() >> (24-8*i)));
-    (void)read(0);
+    write.commitVoiceKeys(mask.enabled);
     return true;
 }
 
@@ -898,15 +849,7 @@ template<class Read,class Write>
 void EnablePreparedVoiceKeys(VoiceKeyMask& mask,Read&& read,Write&& write)
 {
     mask.enabled |= mask.prepared;
-    if constexpr(requires { write.commitVoiceKeys(mask.enabled); })
-    {
-        write.commitVoiceKeys(mask.enabled);
-        mask.prepared=0;
-        return;
-    }
-    for (unsigned i = 0; i < 4; ++i)
-        write(uint8_t(i),uint8_t(mask.enabled.lowWord() >> (24-8*i)));
-    (void)read(0);
+    write.commitVoiceKeys(mask.enabled);
     mask.prepared = 0;
 }
 
@@ -917,27 +860,14 @@ bool CommitPreparedVoice(unsigned channel,VoiceStopState& state,
     const PreparedVoicePcm& prepared,Write&& write)
 {
     if (channel >= voiceCapacity) return false;
-    const auto word = [&](uint8_t address,uint16_t value) {
-        write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
-    };
     state.fieldC8B3 = state.fieldCB30 = 0;
-    if constexpr(requires { write.installVoice(uint8_t(channel),VoiceRenderStart{}); })
-    {
-        const auto initial=ActivateVoiceState(state);
-        write.installVoice(uint8_t(channel),VoiceRenderStart{
-            prepared.sample.start,prepared.sample.loop,prepared.sample.end,prepared.sample.mode,
-            {initial[1],{state.cached16,initial[0],prepared.pcm1a},
-                int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12),
-                int8_t(prepared.pcm14>>8),int8_t(prepared.pcm14),
-                uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)},prepared.sample.pitchSource});
-        return true;
-    }
-    write(0x3e,uint8_t(channel));
-    WriteSampleAddressSetup(prepared.sample,write);
-    word(0x12,prepared.pcm12); word(0x14,prepared.pcm14);
-    word(0x1c,prepared.pcm1c); word(0x1a,prepared.pcm1a);
-    word(0x16,state.cached16);
-    ActivatePreparedVoice(state,write);
+    const auto initial=ActivateVoiceState(state);
+    write.installVoice(uint8_t(channel),VoiceRenderStart{
+        prepared.sample.start,prepared.sample.loop,prepared.sample.end,prepared.sample.mode,
+        {initial[1],{state.cached16,initial[0],prepared.pcm1a},
+            int8_t(prepared.pcm12>>8),int8_t(prepared.pcm12),
+            int8_t(prepared.pcm14>>8),int8_t(prepared.pcm14),
+            uint8_t(prepared.pcm1c>>8),uint8_t(prepared.pcm1c)},prepared.sample.pitchSource});
     return true;
 }
 

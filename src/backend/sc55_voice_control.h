@@ -70,13 +70,7 @@ bool HandleVoicePcmBoundary(unsigned channel,VoiceControlState& voice,
     voice.pitch.pcmWord=ApplyPitchOffset(conversion.fromDelta(
         pitch.accumulator-inputs.pitchReference-12000u),pitch.correction.offset);
     voice.lifecycle.pcm10=voice.pitch.pcmWord;
-    if constexpr(requires { write.setVoicePitch(uint8_t(channel),voice.pitch.pcmWord); })
-        write.setVoicePitch(uint8_t(channel),voice.pitch.pcmWord);
-    else {
-    write(uint8_t(0x3e),uint8_t(channel));
-    write(uint8_t(0x10),uint8_t(voice.pitch.pcmWord>>8));
-    write(uint8_t(0x11),uint8_t(voice.pitch.pcmWord));
-    }
+    write.setVoicePitch(uint8_t(channel),voice.pitch.pcmWord);
     return true;
 }
 

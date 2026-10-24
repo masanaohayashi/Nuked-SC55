@@ -3,7 +3,6 @@
 #include "sc55_sound_data_import.h"
 #include "sc55_synth_state.h"
 #include "sc55_synth_command.h"
-#include "sc55_signal_renderer.h"
 #include "sc55_tone_generator.h"
 #include <memory>
 #include <stdexcept>
@@ -18,52 +17,22 @@ namespace sc55
 class NativeSynth
 {
 public:
-    enum class VoiceRendering { referenceChip, nativeVoices, independentSignal, toneGenerator };
     NativeSynth(std::span<const uint8_t> encoded,
         const std::vector<uint8_t>& rom1,const std::vector<uint8_t>& rom2,
         std::span<const uint8_t> wave1,std::span<const uint8_t> wave2,
-        std::span<const uint8_t> wave3,VoiceRendering rendering=VoiceRendering::referenceChip,
-        unsigned maximumVoices=24)
-        : pcm_(std::make_unique<pcm_t>())
+        std::span<const uint8_t> wave3,unsigned maximumVoices=24)
     {
         if(!CanImportSoundData(rom1,rom2) || !data_.loadEncoded(encoded))
             throw std::runtime_error("Native synth requires v1.21 sound data");
-        const auto copy=[](auto& destination,std::span<const uint8_t> source) {
-            if(source.size()!=0x100000 || source.size()>sizeof(destination))
-                throw std::runtime_error("Invalid v1.21 waveform data");
-            std::copy(source.begin(),source.end(),std::begin(destination));
-        };
-        copy(pcm_->waverom1,wave1); copy(pcm_->waverom2,wave2); copy(pcm_->waverom3,wave3);
-        pcm_->is_mk1=true;
+        for(const auto wave:{wave1,wave2,wave3})
+            if(wave.size()!=ToneGenerator::waveBankSize) throw std::runtime_error("Invalid v1.21 waveform data");
         if(maximumVoices<24 || maximumVoices>voiceCapacity || maximumVoices%4)
             throw std::runtime_error("Invalid native voice limit");
-        pcm_->native_voice_count=maximumVoices;
-        // Expanded polyphony uses the integer renderer and one shared effect unit.
-        if(maximumVoices>24 && rendering!=VoiceRendering::toneGenerator) rendering=VoiceRendering::referenceChip;
-        pcm_->output_context=this;
-        pcm_->output_sample=[](void* context,const AudioFrame<int32_t>& frame) {
-            auto& synth=*static_cast<NativeSynth*>(context);
-            if(synth.output_ && synth.written_<synth.capacity_)
-                synth.output_[synth.written_++]=frame;
-            else synth.outputFailed_=true;
-        };
-        player_=std::make_unique<NativeMelodicPlayer>(data_,*pcm_,
+        tone_=std::make_unique<ToneGenerator>(wave1,wave2,wave3,maximumVoices);
+        player_=std::make_unique<NativeMelodicPlayer>(data_,*tone_,
             ImportSystemDefaults(rom1,rom2),ImportRhythmPresets(rom1,rom2),
             ImportMelodicPresets(rom1,rom2),ImportEffectsTables(rom1,rom2));
         if(player_->failed()) throw std::runtime_error("Native synth initialization failed");
-        PCM_UseSimulation(*pcm_,rendering!=VoiceRendering::referenceChip && rendering!=VoiceRendering::toneGenerator);
-        if(rendering==VoiceRendering::toneGenerator) {
-            tone_=std::make_unique<ToneGenerator>(wave1,wave2,wave3,maximumVoices);
-            tone_->initializeClock(pcm_->ram2[31][8],pcm_->ram2[30][10]);
-            pcm_->tone_generator=tone_.get();
-        }
-        if(rendering==VoiceRendering::independentSignal) {
-            signal_=std::make_unique<SignalRenderer>();
-            signal_->initializeClock(pcm_->nfs ? pcm_->tv_counter : pcm_->ram2[31][8],pcm_->ram2[30][10],pcm_->cycles/625);
-            pcm_->native_signal=signal_.get();
-            pcm_->effects=&signal_->effects;
-            pcm_->use_float_effects=true;
-        }
     }
     NativeSynth(const NativeSynth&)=delete;
     NativeSynth& operator=(const NativeSynth&)=delete;
@@ -149,8 +118,8 @@ public:
     SynthState state() const noexcept
     {
         SynthState result;
-        result.renderedFrames=tone_ ? tone_->renderedFrames() : signal_ ? signal_->renderedFrames() : pcm_->cycles/625;
-        result.keyedVoices=signal_ ? VoiceSet(signal_->voiceKeys()) : pcm_->native_keys;
+        result.renderedFrames=tone_->renderedFrames();
+        result.keyedVoices=tone_->keys();
         result.activeVoiceMask=result.keyedVoices.lowWord();
         result.failed=failed();
         result.selectedPart=selectedPart_;
@@ -182,38 +151,14 @@ public:
     // host pointers, allocations or firmware execution on this path.
     void render(std::span<AudioFrame<int32_t>> frames) noexcept
     {
-        if(tone_) {
-            std::size_t offset=0;
-            if(!failed()) player_->renderFrames(frames.size(),[&](std::size_t count) noexcept {
-                const auto rendered=tone_->render(frames.subspan(offset,count));
-                offset+=rendered;
-                return rendered;
-            });
-            if(offset!=frames.size()) outputFailed_=true;
-            std::fill(frames.begin()+offset,frames.end(),AudioFrame<int32_t>{});
-            return;
-        }
-        if(signal_) {
-            std::size_t offset=0;
-            if(!failed()) player_->renderFrames(frames.size(),[&](std::size_t count) noexcept {
-                PCM_PrepareIndependentRender(*pcm_);
-                std::size_t rendered=0;
-                do {
-                    frames[offset++]=signal_->nextFrame();
-                    ++rendered;
-                } while(rendered<count && !signal_->hasVoiceBoundary());
-                PCM_PublishIndependentRender(*pcm_);
-                return rendered;
-            });
-            if(offset!=frames.size()) outputFailed_=true;
-            std::fill(frames.begin()+offset,frames.end(),AudioFrame<int32_t>{});
-            return;
-        }
-        output_=frames.data(); capacity_=frames.size(); written_=0;
-        if(!failed()) player_->renderFrames(frames.size());
-        if(written_!=capacity_) outputFailed_=true;
-        std::fill(frames.begin()+written_,frames.end(),AudioFrame<int32_t>{});
-        output_=nullptr; capacity_=written_=0;
+        std::size_t offset=0;
+        if(!failed()) player_->renderFrames(frames.size(),[&](std::size_t count) noexcept {
+            const auto rendered=tone_->render(frames.subspan(offset,count));
+            offset+=rendered;
+            return rendered;
+        });
+        if(offset!=frames.size()) outputFailed_=true;
+        std::fill(frames.begin()+offset,frames.end(),AudioFrame<int32_t>{});
     }
 private:
     static unsigned gsPart(unsigned displayPart) noexcept
@@ -221,12 +166,8 @@ private:
     uint8_t selectedPart_=0;
     bool allSelected_=false;
     SoundData data_;
-    std::unique_ptr<pcm_t> pcm_;
-    std::unique_ptr<SignalRenderer> signal_;
     std::unique_ptr<ToneGenerator> tone_;
     std::unique_ptr<NativeMelodicPlayer> player_;
-    AudioFrame<int32_t>* output_=nullptr;
-    std::size_t capacity_=0,written_=0;
     bool outputFailed_=false;
 };
 }

@@ -7,12 +7,11 @@
 
 inline int probePauseRelease (const auto& rom, const auto& encoded)
 {
-    const auto& rom1 = rom[size_t (RomLocation::ROM1)];
-    const auto& rom2 = rom[size_t (RomLocation::ROM2)];
+    const auto& rom1 = rom.program;
+    const auto& rom2 = rom.programExtra;
     sc55::NativeSynth synth (encoded, rom1, rom2,
-        rom[size_t (RomLocation::WAVEROM1)], rom[size_t (RomLocation::WAVEROM2)],
-        rom[size_t (RomLocation::WAVEROM3)],
-        sc55::NativeSynth::VoiceRendering::referenceChip, 24);
+        rom.waves[0], rom.waves[1],
+        rom.waves[2], 24);
 
     std::array<AudioFrame<int32_t>, 128> audio {};
     auto render = [&] (uint64_t frameCount)

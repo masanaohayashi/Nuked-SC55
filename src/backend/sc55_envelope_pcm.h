@@ -20,18 +20,8 @@ template<class Read,class Write>
 std::optional<VoiceReuseReadiness> PollVoiceReuse(uint8_t channel,bool operationPending,Read&& read,Write&& write)
 {
     if (channel >= voiceCapacity) return std::nullopt;
-    if constexpr(requires { write.voiceGainLevels(channel); })
-    {
-        const auto levels=write.voiceGainLevels(channel);
-        return CheckVoiceReuse(levels[0],levels[1],operationPending);
-    }
-    write(uint8_t(0x3e),channel);
-    const auto level = [&](uint8_t a) {
-        (void)read(a); const auto hi = read(uint8_t(0x3a)); const auto lo = read(uint8_t(0x3b));
-        return uint16_t((hi<<8)|lo);
-    };
-    const auto first = level(0x32), second = level(0x34);
-    return CheckVoiceReuse(first,second,operationPending);
+    const auto levels=write.voiceGainLevels(channel);
+    return CheckVoiceReuse(levels[0],levels[1],operationPending);
 }
 
 struct VoiceStopPlan
@@ -161,30 +151,4 @@ std::optional<EnvelopeTermination> PollEnvelopeTermination(unsigned channel,
     return EnvelopeTermination::notifyAllocator;
 }
 
-// v1.21 31c7..31e5. Caller selects the physical PCM channel and owns its
-// serialized I/O. Read/write callbacks must be bounded and allocation-free.
-// Read 34 first to latch the current level, then obtain its bytes from 3a/3b.
-template<class Read,class Write>
-uint16_t SynchronizePcmRamp(uint16_t command,uint16_t level,uint8_t commandAddress,
-    uint8_t levelAddress,Read&& read,Write&& write)
-{
-    const auto address = command == 0xff00 ? levelAddress : commandAddress;
-    const uint16_t value = command == 0xff00 ? uint16_t(level>>1) : uint16_t(0xff00);
-    write(address,uint8_t(value>>8)); write(uint8_t(address+1),uint8_t(value));
-    if (command != 0xff00)
-    {
-        (void)read(levelAddress);
-        const auto high = read(uint8_t(0x3a));
-        const auto low = read(uint8_t(0x3b));
-        return DecodeEnvelopePcmLevel(uint16_t((high<<8)|low));
-    }
-    return level;
-}
-
-template<class Read,class Write>
-void SynchronizeEnvelopePcm(EnvelopeRunner& runner,Read&& read,Write&& write)
-{
-    runner.synchronizePcmLevel(SynchronizePcmRamp(runner.state().pcmWord,runner.state().level,
-        0x18,0x34,read,write));
-}
 }
