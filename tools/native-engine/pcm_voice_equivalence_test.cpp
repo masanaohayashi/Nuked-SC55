@@ -12,8 +12,13 @@
 // song plays. No ROM needed: the wave banks are filled with noise.
 namespace
 {
-uint32_t random_state = 7163;
-uint32_t next() { random_state = random_state * 1664525u + 1013904223u; return random_state; }
+// xorshift64*: every bit is usable (an LCG's low bits cycle with period 2).
+uint64_t random_state = 0x9e3779b97f4a7c15ull;
+uint32_t next()
+{
+    random_state ^= random_state >> 12; random_state ^= random_state << 25; random_state ^= random_state >> 27;
+    return uint32_t((random_state * 0x2545f4914f6cdd1dull) >> 32);
+}
 
 struct Captured { std::vector<AudioFrame<int32_t>> frames; };
 
@@ -55,12 +60,12 @@ void run(const char* name, unsigned nativeVoices, uint8_t reg_slots, uint8_t con
         pcm->config_reg_3d = config3d;
         pcm->enable_oversampling = false;
     }
-    unsigned keyed = 0;
-    for (unsigned frame = 0; frame < frames; ++frame) {
+    unsigned keyed = 0, stops = 0, raised = 0, frame = 0;
+    for (unsigned call = 0; frame < frames; ++call) {
         // Re-randomize all registers now and then; in between, voices evolve
         // through key-on, loops and releases on their own.
-        if (frame % 256 == 0 || (frame % 32 == 0 && (next() & 3) == 0)) {
-            const bool full = frame % 256 == 0;
+        if (call % 16 == 0 || (next() & 7) == 0) {
+            const bool full = call % 16 == 0;
             const uint32_t mask = (next() & 7) == 0 ? 0 : next();
             sc55::VoiceSet keys;
             for (unsigned slot = 0; slot < 128; ++slot) keys.set(slot, (next() & 3) != 0);
@@ -97,12 +102,22 @@ void run(const char* name, unsigned nativeVoices, uint8_t reg_slots, uint8_t con
                 }
             }
         }
-        PCM_Update(*fast, fast->cycles + 625);
-        PCM_Update(*reference, reference->cycles + 625);
+        // Spans of any length, as the scheduler hands them over, with and
+        // without stopping at a voice IRQ; the IRQ is taken now and then.
+        const uint64_t span = 1 + next() % 300;
+        const bool stop = (next() & 1) != 0;
+        const uint64_t before = fast->cycles;
+        const bool irqBefore = fast->irq_assert;
+        PCM_Update(*fast, fast->cycles + span * 625, stop);
+        PCM_Update(*reference, reference->cycles + span * 625, stop);
+        stops += stop && fast->cycles < before + span * 625;
+        raised += !irqBefore && fast->irq_assert;
+        frame += unsigned((fast->cycles - before) / 625);
+        if (next() & 1) fast->irq_assert = reference->irq_assert = false;
         if (!same(*fast, *reference) || outFast.frames.size() != outReference.frames.size()
             || std::memcmp(outFast.frames.data(), outReference.frames.data(),
                    outFast.frames.size() * sizeof(AudioFrame<int32_t>))) {
-            std::fprintf(stderr, "%s: first difference at frame %u\n", name, frame);
+            std::fprintf(stderr, "%s: first difference in call %u (frame %u)\n", name, call, frame);
             for (unsigned slot = 0; slot < (nativeVoices ? nativeVoices : 32u); ++slot) {
                 for (unsigned i = 0; i < 8; ++i)
                     if (fast->voiceRam1(slot)[i] != reference->voiceRam1(slot)[i])
@@ -115,9 +130,11 @@ void run(const char* name, unsigned nativeVoices, uint8_t reg_slots, uint8_t con
             }
             throw std::runtime_error("Branch-free voice renderer differs from the transcription");
         }
-        keyed += nativeVoices ? fast->native_keys.count() : unsigned(std::popcount(fast->voice_mask & fast->voice_mask_pending));
+        keyed += unsigned((fast->cycles - before) / 625) * (nativeVoices ? std::min(fast->native_keys.count(), nativeVoices)
+            : unsigned(std::popcount(fast->voice_mask & fast->voice_mask_pending & ((1ull << reg_slots) - 1))));
     }
-    std::printf("%s: %u frames, %u keyed voice-frames match\n", name, frames, keyed);
+    std::printf("%s: %u frames, %u keyed voice-frames, %u IRQs (%u stopping a span) match\n",
+        name, frame, keyed, raised, stops);
 }
 }
 

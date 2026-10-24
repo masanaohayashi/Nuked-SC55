@@ -41,7 +41,7 @@
 #include "sc55_effect_parameter.h"
 
 struct mcu_t;
-namespace sc55 { class SignalRenderer; struct ChorusSetup; struct ReverbSetup; }
+namespace sc55 { class SignalRenderer; class ToneGenerator; struct ChorusSetup; struct ReverbSetup; }
 
 struct PCM_Config
 {
@@ -139,6 +139,9 @@ struct pcm_t
     // emulated path stays in place so the two can be compared.
     bool use_simulation = false;
     sc55::SignalRenderer* native_signal = nullptr; // Owned by NativeSynth, not by the chip adapter.
+    // When set, the controller's voice and effect operations go to this tone
+    // generator (owned by NativeSynth); these chip structures are then unused.
+    sc55::ToneGenerator* tone_generator = nullptr;
     bool native_readback_pending = false;
     bool native_readback_update = false;
     // Diagnostic oracle can retain the full inactive-slot pipeline.

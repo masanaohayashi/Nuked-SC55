@@ -4,6 +4,7 @@
 #include "sc55_synth_state.h"
 #include "sc55_synth_command.h"
 #include "sc55_signal_renderer.h"
+#include "sc55_tone_generator.h"
 #include <memory>
 #include <stdexcept>
 #include <algorithm>
@@ -17,7 +18,7 @@ namespace sc55
 class NativeSynth
 {
 public:
-    enum class VoiceRendering { referenceChip, nativeVoices, independentSignal };
+    enum class VoiceRendering { referenceChip, nativeVoices, independentSignal, toneGenerator };
     NativeSynth(std::span<const uint8_t> encoded,
         const std::vector<uint8_t>& rom1,const std::vector<uint8_t>& rom2,
         std::span<const uint8_t> wave1,std::span<const uint8_t> wave2,
@@ -38,7 +39,7 @@ public:
             throw std::runtime_error("Invalid native voice limit");
         pcm_->native_voice_count=maximumVoices;
         // Expanded polyphony uses the integer renderer and one shared effect unit.
-        if(maximumVoices>24) rendering=VoiceRendering::referenceChip;
+        if(maximumVoices>24 && rendering!=VoiceRendering::toneGenerator) rendering=VoiceRendering::referenceChip;
         pcm_->output_context=this;
         pcm_->output_sample=[](void* context,const AudioFrame<int32_t>& frame) {
             auto& synth=*static_cast<NativeSynth*>(context);
@@ -50,7 +51,12 @@ public:
             ImportSystemDefaults(rom1,rom2),ImportRhythmPresets(rom1,rom2),
             ImportMelodicPresets(rom1,rom2),ImportEffectsTables(rom1,rom2));
         if(player_->failed()) throw std::runtime_error("Native synth initialization failed");
-        PCM_UseSimulation(*pcm_,rendering!=VoiceRendering::referenceChip);
+        PCM_UseSimulation(*pcm_,rendering!=VoiceRendering::referenceChip && rendering!=VoiceRendering::toneGenerator);
+        if(rendering==VoiceRendering::toneGenerator) {
+            tone_=std::make_unique<ToneGenerator>(wave1,wave2,wave3,maximumVoices);
+            tone_->initializeClock(pcm_->ram2[31][8],pcm_->ram2[30][10]);
+            pcm_->tone_generator=tone_.get();
+        }
         if(rendering==VoiceRendering::independentSignal) {
             signal_=std::make_unique<SignalRenderer>();
             signal_->initializeClock(pcm_->nfs ? pcm_->tv_counter : pcm_->ram2[31][8],pcm_->ram2[30][10],pcm_->cycles/625);
@@ -143,7 +149,7 @@ public:
     SynthState state() const noexcept
     {
         SynthState result;
-        result.renderedFrames=signal_ ? signal_->renderedFrames() : pcm_->cycles/625;
+        result.renderedFrames=tone_ ? tone_->renderedFrames() : signal_ ? signal_->renderedFrames() : pcm_->cycles/625;
         result.keyedVoices=signal_ ? VoiceSet(signal_->voiceKeys()) : pcm_->native_keys;
         result.activeVoiceMask=result.keyedVoices.lowWord();
         result.failed=failed();
@@ -176,6 +182,17 @@ public:
     // host pointers, allocations or firmware execution on this path.
     void render(std::span<AudioFrame<int32_t>> frames) noexcept
     {
+        if(tone_) {
+            std::size_t offset=0;
+            if(!failed()) player_->renderFrames(frames.size(),[&](std::size_t count) noexcept {
+                const auto rendered=tone_->render(frames.subspan(offset,count));
+                offset+=rendered;
+                return rendered;
+            });
+            if(offset!=frames.size()) outputFailed_=true;
+            std::fill(frames.begin()+offset,frames.end(),AudioFrame<int32_t>{});
+            return;
+        }
         if(signal_) {
             std::size_t offset=0;
             if(!failed()) player_->renderFrames(frames.size(),[&](std::size_t count) noexcept {
@@ -206,6 +223,7 @@ private:
     SoundData data_;
     std::unique_ptr<pcm_t> pcm_;
     std::unique_ptr<SignalRenderer> signal_;
+    std::unique_ptr<ToneGenerator> tone_;
     std::unique_ptr<NativeMelodicPlayer> player_;
     AudioFrame<int32_t>* output_=nullptr;
     std::size_t capacity_=0,written_=0;

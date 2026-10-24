@@ -35,6 +35,7 @@
 #include "pcm_effects.h"
 #include "sc55_audio_buses.h"
 #include "sc55_signal_renderer.h"
+#include "sc55_tone_generator.h"
 #include "pcm_interpolation.h"
 #include "sc55_chorus_oscillator.h"
 #include <algorithm>
@@ -229,6 +230,7 @@ static void PCM_UpdatePitchConsumers(pcm_t& pcm,unsigned channel) noexcept
 
 void PCM_SetVoicePitch(pcm_t& pcm,unsigned channel,uint16_t increment) noexcept
 {
+    if(pcm.tone_generator) { pcm.tone_generator->setPitch(channel,increment); return; }
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 32)) return;
     pcm.voiceRam2(channel)[0]=increment;
     pcm.select_channel=uint8_t(channel);
@@ -242,6 +244,7 @@ void PCM_SetVoicePitch(pcm_t& pcm,unsigned channel,uint16_t increment) noexcept
 
 void PCM_ApplyVoiceUpdate(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderUpdate& update)
 {
+    if(pcm.tone_generator) { pcm.tone_generator->update(channel,update); return; }
     if(!pcm.native_signal) PCM_SynchronizeNativeReadback(pcm);
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return;
     auto* words=pcm.voiceRam2(channel);
@@ -272,16 +275,19 @@ void PCM_ApplyVoiceUpdate(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderUpd
 
 bool PCM_HasVoiceBoundary(const pcm_t& pcm) noexcept
 {
+    if(pcm.tone_generator) return pcm.tone_generator->hasLoopEvent();
     return pcm.native_signal ? pcm.native_signal->hasVoiceBoundary() : pcm.irq_assert;
 }
 
 uint16_t PCM_ControlRandomWord(const pcm_t& pcm) noexcept
 {
+    if(pcm.tone_generator) return pcm.tone_generator->randomWord();
     return pcm.native_signal ? pcm.native_signal->randomWord() : pcm.ram2[30][10];
 }
 
 int PCM_TakeVoiceBoundary(pcm_t& pcm) noexcept
 {
+    if(pcm.tone_generator) return pcm.tone_generator->takeLoopEvent();
     if(pcm.native_signal) return pcm.native_signal->takeVoiceBoundary();
     if(pcm.native_voice_count && pcm.irq_assert) {
         const auto slot=pcm.irq_channel; pcm.irq_assert=false; pcm.postIrq(false); return slot;
@@ -291,6 +297,7 @@ int PCM_TakeVoiceBoundary(pcm_t& pcm) noexcept
 
 void PCM_SetVoiceRamp(pcm_t& pcm,unsigned channel,sc55::EnvelopeRamp::Stage stage,uint16_t command) noexcept
 {
+    if(pcm.tone_generator) { pcm.tone_generator->setRamp(channel,stage,command); return; }
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 32)) return;
     if(!pcm.native_signal) PCM_SynchronizeNativeReadback(pcm);
     const auto index=unsigned(stage);
@@ -307,6 +314,7 @@ void PCM_SetVoiceRamp(pcm_t& pcm,unsigned channel,sc55::EnvelopeRamp::Stage stag
 
 uint16_t PCM_VoiceRampLevel(pcm_t& pcm,unsigned channel,sc55::EnvelopeRamp::Stage stage) noexcept
 {
+    if(pcm.tone_generator) return pcm.tone_generator->rampLevel(channel,stage);
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 32)) return 0;
     pcm.select_channel=uint8_t(channel);
     pcm.read_latch=pcm.native_signal && channel<24 && !(pcm.sim_dirty&(1u<<channel))
@@ -317,6 +325,7 @@ uint16_t PCM_VoiceRampLevel(pcm_t& pcm,unsigned channel,sc55::EnvelopeRamp::Stag
 
 std::array<uint16_t,2> PCM_PeekVoiceGainLevels(const pcm_t& pcm,unsigned channel) noexcept
 {
+    if(pcm.tone_generator) return pcm.tone_generator->gainLevels(channel);
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return {};
     // Before rendering a pending legacy write, that control view is newer.
     // Otherwise the renderer owns the current levels; do not materialize all
@@ -330,6 +339,7 @@ std::array<uint16_t,2> PCM_PeekVoiceGainLevels(const pcm_t& pcm,unsigned channel
 
 void PCM_CommitVoiceKeys(pcm_t& pcm,sc55::VoiceSet enabled)
 {
+    if(pcm.tone_generator) { pcm.native_keys=enabled; pcm.tone_generator->setKeys(enabled); return; }
     if(pcm.native_voice_count) pcm.native_keys=enabled;
     PCM_CommitVoiceKeys(pcm,enabled.lowWord());
 }
@@ -347,6 +357,7 @@ void PCM_CommitVoiceKeys(pcm_t& pcm,uint32_t enabled)
 
 std::array<uint16_t,2> PCM_VoiceGainLevels(pcm_t& pcm,unsigned channel)
 {
+    if(pcm.tone_generator) return pcm.tone_generator->gainLevels(channel);
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return {};
     const auto levels=PCM_PeekVoiceGainLevels(pcm,channel);
     pcm.select_channel=uint8_t(channel);
@@ -356,6 +367,7 @@ std::array<uint16_t,2> PCM_VoiceGainLevels(pcm_t& pcm,unsigned channel)
 
 bool PCM_CompleteVoiceEnable(pcm_t& pcm,unsigned channel,uint16_t level,uint16_t command)
 {
+    if(pcm.tone_generator) return pcm.tone_generator->completeEnable(channel,level,command);
     PCM_SynchronizeNativeReadback(pcm);
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return false;
     pcm.select_channel=uint8_t(channel);
@@ -379,6 +391,7 @@ static void PCM_InstallSimulatedVoice(pcm_t& pcm,unsigned channel,const sc55::Vo
 
 void PCM_InstallVoice(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderStart& start)
 {
+    if(pcm.tone_generator) { pcm.tone_generator->install(channel,start); return; }
     PCM_SynchronizeNativeReadback(pcm);
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return;
     pcm.voiceRam2(channel)[7]=start.mode;
@@ -396,6 +409,7 @@ void PCM_InstallVoice(pcm_t& pcm,unsigned channel,const sc55::VoiceRenderStart& 
 std::array<uint16_t,3> PCM_SynchronizeVoiceEnvelopes(pcm_t& pcm,unsigned channel,
     const std::array<uint16_t,3>& commands,const std::array<uint16_t,3>& levels)
 {
+    if(pcm.tone_generator) return pcm.tone_generator->synchronizeEnvelopes(channel,commands,levels);
     auto result=levels;
     if(channel >= (pcm.native_voice_count ? pcm.native_voice_count : 24)) return result;
     if(pcm.native_signal && !(pcm.sim_dirty&(1u<<channel))) {
@@ -1065,6 +1079,7 @@ static void PCM_SyncFloatEffects(pcm_t& pcm)
 
 void PCM_BeginReverbDrain(pcm_t& pcm) noexcept
 {
+    if(pcm.tone_generator) { pcm.tone_generator->effects().beginReverbDrain(); return; }
     PCM_SynchronizeNativeReadback(pcm);
     if(pcm.use_float_effects) {
         PCM_SyncFloatEffects(pcm); pcm.effects->beginReverbDrain();
@@ -1083,6 +1098,7 @@ void PCM_BeginReverbDrain(pcm_t& pcm) noexcept
 
 void PCM_UpdateEffect(pcm_t& pcm,sc55::EffectParameter parameter,uint16_t value) noexcept
 {
+    if(pcm.tone_generator) { pcm.tone_generator->effects().update(parameter,value); return; }
     PCM_SynchronizeNativeReadback(pcm);
     if(pcm.use_float_effects) {
         PCM_SyncFloatEffects(pcm);
@@ -1110,6 +1126,7 @@ void PCM_UpdateEffect(pcm_t& pcm,sc55::EffectParameter parameter,uint16_t value)
 
 void PCM_SetChorusMix(pcm_t& pcm,const std::array<uint8_t,3>& mix) noexcept
 {
+    if(pcm.tone_generator) { pcm.tone_generator->effects().setChorusMix(mix); return; }
     PCM_SynchronizeNativeReadback(pcm);
     if(pcm.use_float_effects) {
         PCM_SyncFloatEffects(pcm); pcm.effects->setChorusMix(mix);
@@ -1125,6 +1142,7 @@ void PCM_SetChorusMix(pcm_t& pcm,const std::array<uint8_t,3>& mix) noexcept
 
 void PCM_ConfigureReverb(pcm_t& pcm,const sc55::ReverbSetup& setup) noexcept
 {
+    if(pcm.tone_generator) { pcm.tone_generator->effects().configureReverb(setup); return; }
     PCM_SynchronizeNativeReadback(pcm);
     if(pcm.use_float_effects) {
         PCM_SyncFloatEffects(pcm);
@@ -1147,6 +1165,11 @@ void PCM_ConfigureReverb(pcm_t& pcm,const sc55::ReverbSetup& setup) noexcept
 
 void PCM_ConfigureChorus(pcm_t& pcm,const sc55::ChorusSetup& setup) noexcept
 {
+    if(pcm.tone_generator) {
+        pcm.tone_generator->effects().configureChorus(setup);
+        pcm.tone_generator->enableEffects();
+        return;
+    }
     PCM_SynchronizeNativeReadback(pcm);
     if(pcm.use_float_effects) {
         PCM_SyncFloatEffects(pcm); // Submit earlier reverb changes first.
@@ -2030,54 +2053,73 @@ inline void PCM_RenderIdleSlot(uint32_t* ram1, uint16_t* ram2, const PCMRampCloc
 }
 }
 
-// The voice pass of PCM_Update for count >= 3 slots. Effects returns join
-// the buses at fixed slots (rcadd); since the buses wrap, they are added to
-// the totals, and only the final stores reproduce the transcription's order.
-static void PCM_RenderVoicesBranchless(pcm_t& pcm, unsigned count, uint32_t voice_active,
+// Block rendering. Within one PCM_Update span no register changes, and the
+// voices read nothing the effects write: each keyed voice can run the whole
+// block with its state in registers, leaving per-frame bus terms. The frames
+// then run in order -- output, envelope clock, effects -- and close each
+// voice pass from those terms. Bit-exact with the frame-at-a-time order.
+constexpr unsigned kPCMBlockFrames = 128;
+
+struct PCMBlockBuses
+{
+    // Totals over keyed slots, and the slots whose bus stores are the last
+    // ones the transcription leaves behind (see PCM_FinishVoicePass).
+    int32_t left[kPCMBlockFrames], right[kPCMBlockFrames];
+    int32_t reverb[kPCMBlockFrames], chorus[kPCMBlockFrames];
+    int32_t leftPenultimate[kPCMBlockFrames], leftLast[kPCMBlockFrames], rightLast[kPCMBlockFrames];
+    int32_t reverbLast[kPCMBlockFrames], chorusLast[kPCMBlockFrames];
+    int32_t unused[kPCMBlockFrames]; // destination for slots that are neither
+};
+
+// Runs one keyed slot through `frames` passes. Returns the first pass that
+// raises its loop IRQ, or -1.
+static int PCM_RenderVoiceBlock(pcm_t& pcm, unsigned slot, unsigned count, unsigned frames,
+    const PCMWaveBanks& banks, const PCMRampClock* clocks, PCMBlockBuses& buses) noexcept
+{
+    uint32_t* const ram1 = pcm.voiceRam1(slot);
+    uint16_t* const ram2 = pcm.voiceRam2(slot);
+    const uint16_t increment = pcm.native_voice_count ? pcm.voiceRam2(pcm.native_pitch_source[slot])[0]
+        : pcm.ram2[ram2[7] & 31][0];
+    uint32_t r1[8];
+    uint16_t r2[16];
+    std::copy_n(ram1, 8, r1);
+    std::copy_n(ram2, 16, r2);
+
+    const bool penultimate = slot == count - 2, last = slot == count - 1;
+    int32_t* const leftPenultimate = penultimate ? buses.leftPenultimate : buses.unused;
+    int32_t* const leftLast = last ? buses.leftLast : buses.unused;
+    int32_t* const rightLast = last ? buses.rightLast : buses.unused;
+    int32_t* const reverbLast = last ? buses.reverbLast : buses.unused;
+    int32_t* const chorusLast = last ? buses.chorusLast : buses.unused;
+
+    int firstIrq = -1;
+    for (unsigned t = 0; t < frames; ++t) {
+        const PCMVoiceTerms terms = PCM_RenderKeyedVoice(r1, r2, increment, banks, clocks[t]);
+        buses.left[t] += terms.left;
+        buses.right[t] += terms.right;
+        buses.reverb[t] += terms.reverb;
+        buses.chorus[t] += terms.chorus;
+        leftPenultimate[t] = terms.left;
+        leftLast[t] = terms.left;
+        rightLast[t] = terms.right;
+        reverbLast[t] = terms.reverb;
+        chorusLast[t] = terms.chorus;
+        firstIrq = PCM_Select(terms.irq & (firstIrq < 0), int(t), firstIrq);
+    }
+    std::copy_n(r1, 8, ram1);
+    std::copy_n(r2, 16, ram2);
+    return firstIrq;
+}
+
+// Closes one voice pass. Effects returns join the buses at fixed slots
+// (17/18/21/22/23 after slots 16/17/20/21/22 unless last, 31 at the last
+// slot). The buses wrap at 20 bits, so totals are exact; only the stored
+// words need the transcription's order: left after the penultimate slot,
+// right after the last slot's return, accumulators after the last slot.
+static void PCM_FinishVoicePass(pcm_t& pcm, unsigned count, const PCMBlockBuses& buses, unsigned t,
     const int rcadd[6], const int rcadd2[6]) noexcept
 {
-    const PCMWaveBanks banks = PCM_ResolveWaveBanks(pcm);
-    const PCMRampClock clock = PCM_RampClock(pcm.tv_counter);
-    const bool native = pcm.native_voice_count != 0;
-
-    uint8_t keyed[128], idle[128];
-    unsigned keyedCount = 0, idleCount = 0;
-    for (unsigned slot = 0; slot < count; ++slot) {
-        const bool key = native ? pcm.native_keys.contains(slot) : ((voice_active >> slot) & 1) != 0;
-        keyed[keyedCount] = idle[idleCount] = uint8_t(slot);
-        keyedCount += key;
-        idleCount += !key;
-    }
-
-    for (unsigned i = 0; i < idleCount; ++i)
-        PCM_RenderIdleSlot(pcm.voiceRam1(idle[i]), pcm.voiceRam2(idle[i]), clock);
-
-    const unsigned penultimate = count - 2, last = count - 1;
-    int32_t left = 0, right = 0, reverb = 0, chorus = 0;
-    int32_t leftPenultimate = 0, leftLast = 0, rightLast = 0, reverbLast = 0, chorusLast = 0;
-    bool irqAsserted = pcm.irq_assert;
-    uint8_t irqChannel = pcm.irq_channel;
-    for (unsigned i = 0; i < keyedCount; ++i) {
-        const unsigned slot = keyed[i];
-        uint16_t* ram2 = pcm.voiceRam2(slot);
-        const uint16_t increment = native ? pcm.voiceRam2(pcm.native_pitch_source[slot])[0]
-            : pcm.ram2[ram2[7] & 31][0];
-        const PCMVoiceTerms terms = PCM_RenderKeyedVoice(pcm.voiceRam1(slot), ram2, increment, banks, clock);
-        left += terms.left; right += terms.right; reverb += terms.reverb; chorus += terms.chorus;
-        leftPenultimate = slot == penultimate ? terms.left : leftPenultimate;
-        leftLast = slot == last ? terms.left : leftLast;
-        rightLast = slot == last ? terms.right : rightLast;
-        reverbLast = slot == last ? terms.reverb : reverbLast;
-        chorusLast = slot == last ? terms.chorus : chorusLast;
-        // The first voice to raise its loop IRQ on this pass takes the line.
-        const bool take = terms.irq & !irqAsserted;
-        ram2[8] = uint16_t(ram2[8] | (take << 14));
-        irqChannel = take ? uint8_t(slot) : irqChannel;
-        irqAsserted |= take;
-    }
-
-    // Effects returns at slots 17/18/21/22/23 (after slots 16/17/20/21/22,
-    // when those are not the last) and 31 (the last slot).
+    const unsigned penultimate = count - 2;
     const auto at = [&](unsigned slot, int value) { return slot <= penultimate ? PCM_Term(value, 1) : 0; };
     const int32_t leftReturn = at(16, rcadd[0]) + at(20, rcadd[2]) + at(22, rcadd[4]);
     const int32_t rightReturn = at(17, rcadd[1]) + at(21, rcadd[3]);
@@ -2085,22 +2127,634 @@ static void PCM_RenderVoicesBranchless(pcm_t& pcm, unsigned count, uint32_t voic
     const int32_t reverbReturn = at(20, rcadd2[2]) + at(22, rcadd2[4]);
     const int32_t chorusReturn = at(16, rcadd2[0]) + at(17, rcadd2[1]) + at(21, rcadd2[3]) + PCM_Term(rcadd2[5], 1);
 
-    // The last stores of the transcription: left after the penultimate slot,
-    // right after the last slot's return, accumulators after the last slot.
-    const int32_t leftStored = PCM_Wrap20(left - leftPenultimate - leftLast + leftReturn) + leftPenultimate;
-    const int32_t rightStored = PCM_Wrap20(right - rightLast + rightReturn) + rightFinal;
+    const int32_t leftPenultimate = buses.leftPenultimate[t], leftLast = buses.leftLast[t];
+    const int32_t leftStored = PCM_Wrap20(buses.left[t] - leftPenultimate - leftLast + leftReturn) + leftPenultimate;
+    const int32_t rightStored = PCM_Wrap20(buses.right[t] - buses.rightLast[t] + rightReturn) + rightFinal;
     pcm.ram1[31][1] = uint32_t(leftStored);
     pcm.ram1[31][3] = uint32_t(rightStored);
     pcm.accum_l = PCM_Wrap20(leftStored) + leftLast;
-    pcm.accum_r = PCM_Wrap20(rightStored) + rightLast;
-    pcm.rcsum[0] = PCM_Wrap20(reverb - reverbLast + reverbReturn) + reverbLast;
-    pcm.rcsum[1] = PCM_Wrap20(chorus - chorusLast + chorusReturn) + chorusLast;
+    pcm.accum_r = PCM_Wrap20(rightStored) + buses.rightLast[t];
+    pcm.rcsum[0] = PCM_Wrap20(buses.reverb[t] - buses.reverbLast[t] + reverbReturn) + buses.reverbLast[t];
+    pcm.rcsum[1] = PCM_Wrap20(buses.chorus[t] - buses.chorusLast[t] + chorusReturn) + buses.chorusLast[t];
+}
 
-    if (irqAsserted && !pcm.irq_assert) {
-        pcm.irq_assert = true;
-        pcm.irq_channel = irqChannel;
-        pcm.postIrq(true);
+static bool PCM_CanRenderBlock(const pcm_t& pcm, unsigned count) noexcept
+{
+    // An updating mk1 pass. Hardware slot 31 would alias the bus row itself.
+    return !pcm.use_simulation && !pcm.reference_voice_renderer && pcm.skip_inactive_voices
+        && pcm.is_mk1 && !pcm.is_jv880 && pcm.nfs && count >= 3 && (pcm.native_voice_count || count <= 31);
+}
+
+static void PCM_FrameFront(pcm_t& pcm, int rcadd[6], int rcadd2[6]) noexcept;
+
+// Renders up to kPCMBlockFrames passes toward `cycles`. Returns true when a
+// voice IRQ ends the update (stopOnInterrupt), as the frame loop would.
+static bool PCM_RenderBlock(pcm_t& pcm, unsigned count, uint64_t cycles, bool stopOnInterrupt) noexcept
+{
+    const uint64_t frameCycles = uint64_t(pcm.config.reg_slots + 1) * 25;
+    unsigned frames = unsigned(std::min<uint64_t>(kPCMBlockFrames, (cycles - pcm.cycles + frameCycles - 1) / frameCycles));
+    if (stopOnInterrupt && pcm.irq_assert) frames = 1; // the frame loop stops after one pass
+
+    // The envelope clock of every pass in the block.
+    PCMRampClock clocks[kPCMBlockFrames];
+    uint16_t counter = pcm.tv_counter;
+    for (unsigned t = 0; t < frames; ++t) {
+        counter = uint16_t((counter - 1) & 0x3fff);
+        clocks[t] = PCM_RampClock(counter);
     }
+
+    const bool native = pcm.native_voice_count != 0;
+    const uint32_t voice_active = pcm.voice_mask & pcm.voice_mask_pending;
+    // Slots that can raise the IRQ go first: under stopOnInterrupt the block
+    // must end at that pass, and only they need replaying when it does.
+    uint8_t keyed[128], interrupting[128], idle[128];
+    unsigned keyedCount = 0, interruptingCount = 0, idleCount = 0;
+    for (unsigned slot = 0; slot < count; ++slot) {
+        const bool key = native ? pcm.native_keys.contains(slot) : ((voice_active >> slot) & 1) != 0;
+        const bool irqEnabled = (pcm.voiceRam2(slot)[6] & 1) != 0;
+        keyed[keyedCount] = interrupting[interruptingCount] = idle[idleCount] = uint8_t(slot);
+        keyedCount += key & !irqEnabled;
+        interruptingCount += key & irqEnabled;
+        idleCount += !key;
+    }
+
+    const PCMWaveBanks banks = PCM_ResolveWaveBanks(pcm);
+    PCMBlockBuses buses;
+    const auto clear = [&] {
+        for (int32_t* bus : {buses.left, buses.right, buses.reverb, buses.chorus, buses.leftPenultimate,
+                 buses.leftLast, buses.rightLast, buses.reverbLast, buses.chorusLast})
+            std::fill_n(bus, frames, 0);
+    };
+    clear();
+
+    // The first pass with a candidate takes the line, the lowest slot first.
+    int irqFrame = -1;
+    uint8_t irqSlot = 0;
+    const auto renderInterrupting = [&] {
+        irqFrame = -1;
+        for (unsigned i = 0; i < interruptingCount; ++i) {
+            const int frame = PCM_RenderVoiceBlock(pcm, interrupting[i], count, frames, banks, clocks, buses);
+            const bool earlier = frame >= 0 && (irqFrame < 0 || frame < irqFrame);
+            irqSlot = earlier ? interrupting[i] : irqSlot;
+            irqFrame = earlier ? frame : irqFrame;
+        }
+        if (pcm.irq_assert) irqFrame = -1;
+    };
+    if (interruptingCount) {
+        uint32_t saved1[128][8];
+        uint16_t saved2[128][16];
+        for (unsigned i = 0; i < interruptingCount; ++i) {
+            std::copy_n(pcm.voiceRam1(interrupting[i]), 8, saved1[i]);
+            std::copy_n(pcm.voiceRam2(interrupting[i]), 16, saved2[i]);
+        }
+        renderInterrupting();
+        if (stopOnInterrupt && irqFrame >= 0 && unsigned(irqFrame) + 1 < frames) {
+            // Replay the IRQ-capable slots up to the pass that interrupts.
+            for (unsigned i = 0; i < interruptingCount; ++i) {
+                std::copy_n(saved1[i], 8, pcm.voiceRam1(interrupting[i]));
+                std::copy_n(saved2[i], 16, pcm.voiceRam2(interrupting[i]));
+            }
+            frames = unsigned(irqFrame) + 1;
+            clear();
+            renderInterrupting();
+        }
+        // The winner's pending bit survives every later pass of the block.
+        if (irqFrame >= 0) pcm.voiceRam2(irqSlot)[8] |= 0x4000;
+    }
+    for (unsigned i = 0; i < keyedCount; ++i)
+        PCM_RenderVoiceBlock(pcm, keyed[i], count, frames, banks, clocks, buses);
+    // An idle cutoff depends on its command and the clock only: the last pass decides.
+    for (unsigned i = 0; i < idleCount; ++i)
+        PCM_RenderIdleSlot(pcm.voiceRam1(idle[i]), pcm.voiceRam2(idle[i]), clocks[frames - 1]);
+
+    for (unsigned t = 0; t < frames; ++t) {
+        int rcadd[6] = {};
+        int rcadd2[6] = {};
+        PCM_FrameFront(pcm, rcadd, rcadd2);
+        PCM_FinishVoicePass(pcm, count, buses, t, rcadd, rcadd2);
+        if (int(t) == irqFrame) {
+            pcm.irq_assert = true;
+            pcm.irq_channel = irqSlot;
+            pcm.postIrq(true);
+        }
+        pcm.ram2[31][7] |= 0x20;
+        pcm.cycles += frameCycles;
+        if (stopOnInterrupt && pcm.irq_assert) return true;
+    }
+    return false;
+}
+
+// Everything a frame does before its voice pass: the output stage posts the
+// previous pass's mix, the envelope clock steps, and the effects consume the
+// previous pass's sends and produce this pass's returns (rcadd/rcadd2).
+static void PCM_FrameFront(pcm_t& pcm, int rcadd[6], int rcadd2[6]) noexcept
+{
+    // This clock is also read by firmware/native modulation, not just DAC
+    // dither. Advancing it must not depend on the selected voice renderer.
+    int shifter = pcm.ram2[30][10];
+    int xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
+    shifter = (shifter >> 1) | (xr << 15);
+    pcm.ram2[30][10] = (uint16_t)shifter;
+    if (pcm.use_simulation)
+    {
+        // The output stage below squeezes the 20 bit mix into 16 by feeding
+        // the truncation error back and dithering it -- a way to get more
+        // out of a cheap DAC, and a problem that does not exist once the
+        // mix leaves here as float. So: one frame per pass, straight off
+        // the bus, no dither, no DC bias, and no oversampling to carry the
+        // shaped noise. The output rate halves accordingly; see
+        // PCM_GetOutputFrequency.
+        pcm.postSample({pcm.accum_l << 12, pcm.accum_r << 12});
+        if (pcm.enable_oversampling && pcm.config.oversampling)
+        {
+            xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
+            pcm.ram2[30][10] = (uint16_t)((shifter >> 1) | (xr << 15));
+        }
+    }
+    else
+    { // final mixing
+        pcm.accum_l = addclip20(pcm.accum_l, (int32_t)pcm.ram1[30][0], 0);
+        pcm.accum_r = addclip20(pcm.accum_r, (int32_t)pcm.ram1[30][1], 0);
+
+        pcm.ram1[30][2] = (uint32_t)addclip20(pcm.accum_l,
+            (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
+
+        pcm.ram1[30][4] = (uint32_t)addclip20(pcm.accum_r,
+            (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
+
+        pcm.ram1[30][0] = (uint32_t)(pcm.accum_l & pcm.config.write_mask);
+        pcm.ram1[30][1] = (uint32_t)(pcm.accum_r & pcm.config.write_mask);
+        
+
+        int32_t samp_l = (int32_t)((pcm.ram1[30][2] & (uint32_t)(~pcm.config.write_mask)) << 12);
+        int32_t samp_r = (int32_t)((pcm.ram1[30][4] & (uint32_t)(~pcm.config.write_mask)) << 12);
+
+        pcm.postSample({samp_l, samp_r});
+
+        xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
+        shifter = (shifter >> 1) | (xr << 15);
+
+        pcm.accum_l = addclip20(pcm.accum_l, (int32_t)pcm.ram1[30][0], 0);
+        pcm.accum_r = addclip20(pcm.accum_r, (int32_t)pcm.ram1[30][1], 0);
+
+        pcm.ram1[30][3] = (uint32_t)addclip20(pcm.accum_l,
+            (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
+
+        pcm.ram1[30][5] = (uint32_t)addclip20(pcm.accum_r,
+            (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
+
+        if (pcm.enable_oversampling && pcm.config.oversampling) // oversampling
+        {
+            pcm.ram2[30][10] = (uint16_t)shifter;
+
+            pcm.ram1[30][0] = (uint32_t)(pcm.accum_l & pcm.config.write_mask);
+            pcm.ram1[30][1] = (uint32_t)(pcm.accum_r & pcm.config.write_mask);
+
+
+            samp_l = (int32_t)((pcm.ram1[30][3] & (uint32_t)(~pcm.config.write_mask)) << 12);
+            samp_r = (int32_t)((pcm.ram1[30][5] & (uint32_t)(~pcm.config.write_mask)) << 12);
+
+            pcm.postSample({samp_l, samp_r});
+        }
+    }
+
+    { // global counter for envelopes
+        if (!pcm.nfs)
+            pcm.tv_counter = pcm.ram2[31][8]; // fixme
+
+        pcm.tv_counter -= 1;
+
+        pcm.tv_counter &= 0x3fff;
+    }
+
+    // chorus/reverb
+
+    if(!pcm.use_float_effects) { // Legacy interpolation readback.
+        if (pcm.ram2[31][8] & 0x8000)
+            pcm.ram2[31][9] = pcm.ram2[31][8] & 0x7fff;
+        else
+            pcm.ram2[31][10] = pcm.ram2[31][8] & 0x7fff;
+
+        if ((0x4000 - pcm.ram2[31][8]) & 0x8000)
+            pcm.ram2[31][10] = (0x4000 - pcm.ram2[31][8]) & 0x7fff;
+        else
+            pcm.ram2[31][9] = (0x4000 - pcm.ram2[31][8]) & 0x7fff;
+    }
+
+    {
+        int v1 = pcm.ram2[31][1];
+
+        int m1 = multi((int32_t)pcm.ram1[29][1], (int8_t)(v1 >> 8)) >> 5; // 14
+        int m2 = multi(pcm.rcsum[1], (int8_t)(v1 & 255)) >> 5; // 15
+
+        pcm.ram1[29][1] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1); // 16
+    }
+
+    if(!pcm.use_float_effects) {
+        const bool okey = (pcm.ram2[31][7] & 0x20) != 0;
+        const bool key = 1;
+        const bool active = okey && key;
+        sc55::EnvelopeRamp spread{pcm.ram2[30][0],pcm.ram2[30][9]};
+        spread.advance(sc55::EnvelopeRamp::Stage::secondGain,{pcm.tv_counter,pcm.nfs},active);
+        pcm.ram2[30][9]=spread.level;
+    }
+
+    {
+        int v1 = pcm.ram2[30][1];
+        int m1 = multi((int32_t)pcm.ram1[29][0], (int8_t)(v1 >> 8)) >> 5; // 17
+        int m2 = multi(pcm.rcsum[0], (int8_t)(v1 & 255)) >> 5; // 18
+
+        pcm.ram1[29][0] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1); // 19
+    }
+
+    // エフェクトは帰還を持つので、入力が止まっても尾が回り続ける。「入力がゼロ」
+    // だけでは飛ばせない（実際それで音が変わった）。正しい条件は「遅延メモリへの
+    // 書き込みが 1 周ぶんすべてゼロだった」で、tv_counter が 0..0x3fff を巡る
+    // あいだに書きタップは全アドレスを覆うから、そのときメモリ全域がゼロになる。
+    //
+    // ゼロのメモリにゼロを入れれば出力もゼロなので、そこから先は丸ごと飛ばせる。
+    //
+    // これは実機の無駄を削っているのではない。チップ側のエフェクトは回路で、
+    // 入力があろうと無かろうと 32 kHz で動いているだけで、そこに無駄という概念は
+    // 無い。省けるのは「その回路を書き写したこのコードを、結果が必ずゼロだと
+    // 分かっている区間でホスト CPU に実行させること」のほう。
+    //
+    // 効きも限定的で、リバーブを使う曲では遅延メモリがゼロになる瞬間がほぼ無い。
+    // 実測: 送りゼロの素材で 4.4%、リバーブを使う実曲では 0.6〜0.8%。
+    if (pcm.tv_counter == 0)
+    {
+        pcm.eram_silent = pcm.eram_wrote_nonzero ? 0 : 1;
+        pcm.eram_wrote_nonzero = 0;
+    }
+
+    if (pcm.rcsum[0] != 0 || pcm.rcsum[1] != 0)
+        pcm.eram_silent = 0;
+
+    if (pcm.use_float_effects)
+    {
+        float fa[6] = {}, fb[6] = {};
+        PCM_SyncFloatEffects(pcm);
+        auto& fx=*pcm.effects;
+        fx.process({pcm.tv_counter,pcm.nfs},(pcm.ram2[31][7]&0x20)!=0,
+            float(pcm.rcsum[0]),float(pcm.rcsum[1]),fa,fb);
+        PCM_PublishFloatEffects(pcm);
+        for (int i = 0; i < 6; ++i)
+        {
+            rcadd[i]  = (int) lrintf(fa[i]);
+            rcadd2[i] = (int) lrintf(fb[i]);
+        }
+    }
+    else if (!pcm.eram_silent)
+    {
+        {
+            // 1
+            int v1 = pcm.ram2[30][4];
+            int m1 = multi((int32_t)pcm.ram1[29][0], (int8_t)(v1 >> 8)) >> 6;
+            int v2 = 0;
+            int s1 = eram_unpack(pcm, pcm.ram2[28][1] + pcm.tv_counter, 1);
+            int s2 = eram_unpack(pcm, pcm.ram2[28][1] + pcm.tv_counter);
+            if ((v1 & 0x30) != 0)
+            {
+                v2 = s1;
+            }
+            int v3 = addclip20(m1, v2 ^ 0xfffff, 1);
+            pcm.ram1[29][4] = (uint32_t)v3;
+            int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[29][5] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
+        }
+        {
+            // 2
+            int v1 = pcm.ram2[30][4];
+            int v2 = 0;
+            int s1 = eram_unpack(pcm, pcm.ram2[28][2] + pcm.tv_counter, 1);
+            int s2 = eram_unpack(pcm, pcm.ram2[28][2] + pcm.tv_counter);
+            if ((v1 & 0x30) != 0)
+            {
+                v2 = s1;
+            }
+            int v3 = addclip20((int32_t)pcm.ram1[29][5], v2 ^ 0xfffff, 1);
+            pcm.ram1[29][5] = (uint32_t)v3;
+            int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[28][0] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
+        }
+        {
+            // 3
+            int v1 = pcm.ram2[30][4];
+            int v2 = 0;
+            int s1 = eram_unpack(pcm, pcm.ram2[28][3] + pcm.tv_counter, 1);
+            int s2 = eram_unpack(pcm, pcm.ram2[28][3] + pcm.tv_counter);
+            if ((v1 & 0x30) != 0)
+            {
+                v2 = s1;
+            }
+            int v3 = addclip20((int32_t)pcm.ram1[28][0], v2 ^ 0xfffff, 1);
+            pcm.ram1[28][0] = (uint32_t)v3;
+            int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[28][1] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
+
+
+            pcm.ram1[28][2] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][5] + pcm.tv_counter);
+        }
+        {
+            // 4
+            int v1 = pcm.ram2[30][5];
+            int v2 = 0;
+            int s1 = eram_unpack(pcm, pcm.ram2[28][4] + pcm.tv_counter, 1);
+            int s2 = eram_unpack(pcm, pcm.ram2[28][4] + pcm.tv_counter);
+            if ((v1 & 0x30) != 0)
+            {
+                v2 = s1;
+            }
+            int v3 = addclip20((int32_t)pcm.ram1[28][1], v2 ^ 0xfffff, 1);
+            pcm.ram1[28][1] = (uint32_t)v3;
+            int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[28][3] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
+
+
+            pcm.ram1[28][4] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][1] + pcm.tv_counter);
+        }
+        {
+            // 5
+
+            int v1 = pcm.ram2[30][7];
+            int m1 = multi((int32_t)pcm.ram1[29][2], (int8_t)(v1 >> 8)) >> 5;
+            int s1 = eram_unpack(pcm, pcm.ram2[29][0] + pcm.tv_counter);
+            int m2 = multi(s1, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[29][2] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1);
+
+            eram_pack(pcm, pcm.ram2[28][0] + pcm.tv_counter, pcm.ram1[29][4]);
+        }
+        {
+            // 6
+
+            int v1 = pcm.ram2[30][8];
+            int m1 = multi((int32_t)pcm.ram1[29][3], (int8_t)(v1 >> 8)) >> 5;
+            int s1 = eram_unpack(pcm, pcm.ram2[29][8] + pcm.tv_counter);
+            int m2 = multi(s1, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[29][3] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1);
+
+            eram_pack(pcm, pcm.ram2[28][1] + pcm.tv_counter, pcm.ram1[29][5]);
+
+            eram_pack(pcm, pcm.ram2[28][2] + pcm.tv_counter, pcm.ram1[28][0]);
+        }
+        {
+            // 7
+
+            int v1 = pcm.ram2[30][9];
+            int v2 = (int)pcm.ram1[28][3];
+            int m1 = multi((int32_t)pcm.ram1[29][2], (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi((int32_t)pcm.ram1[29][3], (int8_t)(v1 >> 8)) >> 5;
+            pcm.ram1[28][3] = (uint32_t)addclip20(v2, m1 >> 1, m1 & 1);
+            pcm.ram1[28][5] = (uint32_t)addclip20(v2, m2 >> 1, m2 & 1);
+
+            eram_pack(pcm, pcm.ram2[28][3] + pcm.tv_counter, pcm.ram1[28][1]);
+        }
+        {
+            // 8
+
+            int v1 = pcm.ram2[30][6];
+            int m1 = multi((int32_t)pcm.ram1[28][2], (int8_t)(v1 >> 8)) >> 5;
+
+            int v2 = addclip20((int32_t)pcm.ram1[28][3], m1 >> 1, m1 & 1);
+            pcm.ram1[28][3] = (uint32_t)v2;
+            int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[28][2] = (uint32_t)addclip20((int32_t)pcm.ram1[28][2], m2 >> 1, m2 & 1);
+
+
+            pcm.ram1[28][1] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][9] + pcm.tv_counter);
+        }
+        {
+            // 9
+
+            int v1 = pcm.ram2[30][6];
+            int m1 = multi((int32_t)pcm.ram1[28][4], (int8_t)(v1 >> 8)) >> 5;
+
+            int v2 = addclip20((int32_t)pcm.ram1[28][5], m1 >> 1, m1 & 1);
+            pcm.ram1[28][5] = (uint32_t)v2;
+            int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[28][4] = (uint32_t)addclip20((int32_t)pcm.ram1[28][4], m2 >> 1, m2 & 1);
+
+
+            pcm.ram1[29][4] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][5] + pcm.tv_counter);
+        }
+        {
+            // 10
+
+            int v1 = pcm.ram2[30][6];
+            int v2 = (int)pcm.ram1[28][1];
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+            int s1 = eram_unpack(pcm, pcm.ram2[28][8] + pcm.tv_counter);
+            int v3 = addclip20(m1 >> 1, s1, m1 & 1);
+            pcm.ram1[28][1] = (uint32_t)v3;
+            int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[29][5] = (uint32_t)addclip20(m2 >> 1, v2, m2 & 1);
+
+            eram_pack(pcm, pcm.ram2[28][4] + pcm.tv_counter, pcm.ram1[28][3]);
+        }
+        {
+            // 11
+
+            int v1 = pcm.ram2[30][6];
+            int v2 = (int)pcm.ram1[29][4];
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+            int s1 = eram_unpack(pcm, pcm.ram2[29][4] + pcm.tv_counter);
+            int v3 = addclip20(m1 >> 1, s1, m1 & 1);
+            pcm.ram1[29][4] = (uint32_t)v3;
+            int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
+            pcm.ram1[28][0] = (uint32_t)addclip20(m2 >> 1, v2, m2 & 1);
+
+
+            eram_pack(pcm, pcm.ram2[28][5] + pcm.tv_counter, pcm.ram1[28][2]);
+
+            eram_pack(pcm, pcm.ram2[29][0] + pcm.tv_counter, pcm.ram1[28][5]);
+        }
+        {
+            // 12
+
+            pcm.ram1[28][5] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][6] + pcm.tv_counter);
+        }
+
+        {
+            // 13
+
+            int s1 = eram_unpack(pcm, pcm.ram2[28][10] + pcm.tv_counter);
+            pcm.ram1[28][5] = (uint32_t)addclip20((int32_t)pcm.ram1[28][5], s1, 0);
+
+            pcm.ram1[28][2] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][2] + pcm.tv_counter);
+        }
+
+        {
+            // 14
+
+            int s1 = eram_unpack(pcm, pcm.ram2[29][6] + pcm.tv_counter);
+            int t1 = addclip20(s1, (int32_t)pcm.ram1[28][2], 0); // 6
+
+            pcm.ram1[28][5] = (uint32_t)addclip20(t1, (int32_t)pcm.ram1[28][5], 0);
+
+            pcm.ram1[28][2] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][7] + pcm.tv_counter);
+        }
+
+        {
+            // 15
+
+            int s1 = eram_unpack(pcm, pcm.ram2[28][11] + pcm.tv_counter);
+            pcm.ram1[28][2] = (uint32_t)addclip20((int32_t)pcm.ram1[28][2], s1, 0);
+
+            pcm.ram1[28][3] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][3] + pcm.tv_counter);
+        }
+
+        {
+            // 16
+
+            int s1 = eram_unpack(pcm, pcm.ram2[29][7] + pcm.tv_counter);
+            int t1 = addclip20(s1, (int32_t)pcm.ram1[28][2], 0);
+            pcm.ram1[28][2] = (uint32_t)addclip20(t1, (int32_t)pcm.ram1[28][3], 0);
+
+
+            eram_pack(pcm, pcm.ram2[29][1] + pcm.tv_counter, pcm.ram1[28][4]);
+
+            eram_pack(pcm, pcm.ram2[28][8] + pcm.tv_counter, pcm.ram1[28][1]);
+        }
+
+        {
+            // 17
+            int v1 = pcm.ram2[30][2];
+            int v2 = (int)pcm.ram1[28][5];
+
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+
+            rcadd[0] = m1;
+
+            rcadd2[0] = multi(v2, (int8_t)(v1 & 255)) >> 5;
+
+            int t1 = eram_unpack(pcm, pcm.ram2[29][10] + pcm.tv_counter + 1); //? 3a6e
+            eram_pack(pcm, pcm.ram2[28][9] + pcm.tv_counter, pcm.ram1[29][5]);
+            pcm.ram1[29][5] = (uint32_t)t1;
+        }
+
+        {
+            // 18
+            int v1 = pcm.ram2[30][3];
+            int v2 = (int)pcm.ram1[28][2];
+
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+
+            rcadd[1] = m1;
+
+            rcadd2[1] = multi(v2, (int8_t)(v1 & 255)) >> 5;
+
+            pcm.ram1[28][1] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][11] + pcm.tv_counter + 1); //? 3a1e
+        }
+        {
+            // 19
+
+            int v1 = pcm.ram2[31][9];
+
+            int s1 = eram_unpack(pcm, pcm.ram2[29][10] + pcm.tv_counter); //? 3a6d
+
+            eram_pack(pcm, pcm.ram2[29][4] + pcm.tv_counter, pcm.ram1[29][4]);
+
+            int m1 = multi(s1, (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi((int32_t)pcm.ram1[29][5], (int8_t)(v1 >> 8)) >> 5;
+
+            int t2 = addclip20(s1, (m1 >> 1) ^ 0xfffff, 1);
+
+            pcm.ram1[29][5] = (uint32_t)addclip20(t2, m2 >> 1, m2 & 1);
+        }
+        {
+            // 20
+
+            int v1 = pcm.ram2[31][10];
+
+            int s1 = eram_unpack(pcm, pcm.ram2[29][11] + pcm.tv_counter); //? 3a1d
+
+            eram_pack(pcm, pcm.ram2[29][5] + pcm.tv_counter, pcm.ram1[28][0]);
+
+            int m1 = multi(s1, (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi((int32_t)pcm.ram1[28][1], (int8_t)(v1 >> 8)) >> 5;
+
+            int t2 = addclip20(s1, (m1 >> 1) ^ 0xfffff, 1);
+
+            pcm.ram1[28][1] = (uint32_t)addclip20(t2, m2 >> 1, m2 & 1);
+
+            eram_pack(pcm, pcm.ram2[29][9] + pcm.tv_counter, pcm.ram1[29][1]);
+        }
+        {
+            // 21
+
+            int v1 = pcm.ram2[31][2];
+            int v2 = (int)pcm.ram1[29][5];
+
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
+
+            rcadd[2] = m1;
+            rcadd2[2] = m2;
+        }
+        {
+            // 22
+
+            int v1 = pcm.ram2[31][3];
+            int v2 = (int)pcm.ram1[29][5];
+
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
+
+            rcadd[3] = m1;
+            rcadd2[3] = m2;
+        }
+        {
+            // 23
+
+            int v1 = pcm.ram2[31][4];
+            int v2 = (int)pcm.ram1[28][1];
+
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
+
+            rcadd[4] = m1;
+            rcadd2[4] = m2;
+        }
+        {
+            // 31
+
+            int v1 = pcm.ram2[31][5];
+            int v2 = (int)pcm.ram1[28][1];
+
+            int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
+            int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
+
+            rcadd[5] = m1;
+            rcadd2[5] = m2;
+
+        }
+    }
+
+    // コーラスの変調タップを作るアドレス生成器。遅延メモリには触らず、
+    // LFO の位相（ram2[31][8]）を進めるので、鳴り止んでいても止めてはいけない。
+    // ゲートの内側に置いたままだと位相が凍り、音が戻ったときに違う所から再開して
+    // 出力が変わる（実際それでコーラスの試験が 1 件外れた）。
+    if(!pcm.use_float_effects) {
+        sc55::ChorusOscillator oscillator;
+        oscillator.position=pcm.ram1[31][4];
+        oscillator.begin=pcm.ram1[31][2]; oscillator.end=pcm.ram1[31][0];
+        oscillator.phase=pcm.ram2[31][8]&0x3fff;
+        oscillator.increment=pcm.ram2[pcm.ram2[31][7]&31][0];
+        oscillator.descending=(pcm.ram2[31][8]&0x8000)!=0;
+        oscillator.pingPong=(pcm.ram2[31][7]&0x40)!=0;
+        oscillator.reverse=(pcm.ram2[31][7]&0x80)!=0;
+        oscillator.advance(pcm.nfs,(pcm.ram2[31][7]&0x20)!=0);
+        pcm.ram1[31][4]=oscillator.position;
+        pcm.ram2[31][8]=uint16_t((pcm.ram2[31][8]&0x4000)|oscillator.phase
+            |(oscillator.descending?0x8000:0));
+        pcm.ram2[29][10]=oscillator.leftTap();
+        pcm.ram2[29][11]=oscillator.rightTap();
+    }
+
+    pcm.ram1[31][1] = 0;
+    pcm.ram1[31][3] = 0;
+    pcm.rcsum[0] = 0;
+    pcm.rcsum[1] = 0;
 }
 
 void PCM_Update(pcm_t& pcm, uint64_t cycles, bool stopOnInterrupt)
@@ -2114,524 +2768,20 @@ void PCM_Update(pcm_t& pcm, uint64_t cycles, bool stopOnInterrupt)
     }
     while (pcm.cycles < cycles)
     {
+        const unsigned voiceCount=pcm.native_voice_count ? pcm.native_voice_count : pcm.config.reg_slots;
+        if (PCM_CanRenderBlock(pcm, voiceCount))
+        {
+            if (PCM_RenderBlock(pcm, voiceCount, cycles, stopOnInterrupt)) break;
+            continue;
+        }
+
         const uint32_t voice_active = pcm.voice_mask & pcm.voice_mask_pending;
-        // This clock is also read by firmware/native modulation, not just DAC
-        // dither. Advancing it must not depend on the selected voice renderer.
-        int shifter = pcm.ram2[30][10];
-        int xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
-        shifter = (shifter >> 1) | (xr << 15);
-        pcm.ram2[30][10] = (uint16_t)shifter;
-        if (pcm.use_simulation)
-        {
-            // The output stage below squeezes the 20 bit mix into 16 by feeding
-            // the truncation error back and dithering it -- a way to get more
-            // out of a cheap DAC, and a problem that does not exist once the
-            // mix leaves here as float. So: one frame per pass, straight off
-            // the bus, no dither, no DC bias, and no oversampling to carry the
-            // shaped noise. The output rate halves accordingly; see
-            // PCM_GetOutputFrequency.
-            pcm.postSample({pcm.accum_l << 12, pcm.accum_r << 12});
-            if (pcm.enable_oversampling && pcm.config.oversampling)
-            {
-                xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
-                pcm.ram2[30][10] = (uint16_t)((shifter >> 1) | (xr << 15));
-            }
-        }
-        else
-        { // final mixing
-            pcm.accum_l = addclip20(pcm.accum_l, (int32_t)pcm.ram1[30][0], 0);
-            pcm.accum_r = addclip20(pcm.accum_r, (int32_t)pcm.ram1[30][1], 0);
-
-            pcm.ram1[30][2] = (uint32_t)addclip20(pcm.accum_l,
-                (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
-
-            pcm.ram1[30][4] = (uint32_t)addclip20(pcm.accum_r,
-                (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
-
-            pcm.ram1[30][0] = (uint32_t)(pcm.accum_l & pcm.config.write_mask);
-            pcm.ram1[30][1] = (uint32_t)(pcm.accum_r & pcm.config.write_mask);
-            
-
-            int32_t samp_l = (int32_t)((pcm.ram1[30][2] & (uint32_t)(~pcm.config.write_mask)) << 12);
-            int32_t samp_r = (int32_t)((pcm.ram1[30][4] & (uint32_t)(~pcm.config.write_mask)) << 12);
-
-            pcm.postSample({samp_l, samp_r});
-
-            xr = ((shifter >> 0) ^ (shifter >> 1) ^ (shifter >> 7) ^ (shifter >> 12)) & 1;
-            shifter = (shifter >> 1) | (xr << 15);
-
-            pcm.accum_l = addclip20(pcm.accum_l, (int32_t)pcm.ram1[30][0], 0);
-            pcm.accum_r = addclip20(pcm.accum_r, (int32_t)pcm.ram1[30][1], 0);
-
-            pcm.ram1[30][3] = (uint32_t)addclip20(pcm.accum_l,
-                (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
-
-            pcm.ram1[30][5] = (uint32_t)addclip20(pcm.accum_r,
-                (int32_t)(pcm.config.orval | (shifter & pcm.config.noise_mask)), 0);
-
-            if (pcm.enable_oversampling && pcm.config.oversampling) // oversampling
-            {
-                pcm.ram2[30][10] = (uint16_t)shifter;
-
-                pcm.ram1[30][0] = (uint32_t)(pcm.accum_l & pcm.config.write_mask);
-                pcm.ram1[30][1] = (uint32_t)(pcm.accum_r & pcm.config.write_mask);
-
-
-                samp_l = (int32_t)((pcm.ram1[30][3] & (uint32_t)(~pcm.config.write_mask)) << 12);
-                samp_r = (int32_t)((pcm.ram1[30][5] & (uint32_t)(~pcm.config.write_mask)) << 12);
-
-                pcm.postSample({samp_l, samp_r});
-            }
-        }
-
-        { // global counter for envelopes
-            if (!pcm.nfs)
-                pcm.tv_counter = pcm.ram2[31][8]; // fixme
-
-            pcm.tv_counter -= 1;
-
-            pcm.tv_counter &= 0x3fff;
-        }
-
-        // chorus/reverb
-
-        if(!pcm.use_float_effects) { // Legacy interpolation readback.
-            if (pcm.ram2[31][8] & 0x8000)
-                pcm.ram2[31][9] = pcm.ram2[31][8] & 0x7fff;
-            else
-                pcm.ram2[31][10] = pcm.ram2[31][8] & 0x7fff;
-
-            if ((0x4000 - pcm.ram2[31][8]) & 0x8000)
-                pcm.ram2[31][10] = (0x4000 - pcm.ram2[31][8]) & 0x7fff;
-            else
-                pcm.ram2[31][9] = (0x4000 - pcm.ram2[31][8]) & 0x7fff;
-        }
-
-        {
-            int v1 = pcm.ram2[31][1];
-
-            int m1 = multi((int32_t)pcm.ram1[29][1], (int8_t)(v1 >> 8)) >> 5; // 14
-            int m2 = multi(pcm.rcsum[1], (int8_t)(v1 & 255)) >> 5; // 15
-
-            pcm.ram1[29][1] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1); // 16
-        }
-
-        if(!pcm.use_float_effects) {
-            const bool okey = (pcm.ram2[31][7] & 0x20) != 0;
-            const bool key = 1;
-            const bool active = okey && key;
-            sc55::EnvelopeRamp spread{pcm.ram2[30][0],pcm.ram2[30][9]};
-            spread.advance(sc55::EnvelopeRamp::Stage::secondGain,{pcm.tv_counter,pcm.nfs},active);
-            pcm.ram2[30][9]=spread.level;
-        }
-
-        {
-            int v1 = pcm.ram2[30][1];
-            int m1 = multi((int32_t)pcm.ram1[29][0], (int8_t)(v1 >> 8)) >> 5; // 17
-            int m2 = multi(pcm.rcsum[0], (int8_t)(v1 & 255)) >> 5; // 18
-
-            pcm.ram1[29][0] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1); // 19
-        }
-
         int rcadd[6] = {};
         int rcadd2[6] = {};
+        PCM_FrameFront(pcm, rcadd, rcadd2);
 
-        // エフェクトは帰還を持つので、入力が止まっても尾が回り続ける。「入力がゼロ」
-        // だけでは飛ばせない（実際それで音が変わった）。正しい条件は「遅延メモリへの
-        // 書き込みが 1 周ぶんすべてゼロだった」で、tv_counter が 0..0x3fff を巡る
-        // あいだに書きタップは全アドレスを覆うから、そのときメモリ全域がゼロになる。
-        //
-        // ゼロのメモリにゼロを入れれば出力もゼロなので、そこから先は丸ごと飛ばせる。
-        //
-        // これは実機の無駄を削っているのではない。チップ側のエフェクトは回路で、
-        // 入力があろうと無かろうと 32 kHz で動いているだけで、そこに無駄という概念は
-        // 無い。省けるのは「その回路を書き写したこのコードを、結果が必ずゼロだと
-        // 分かっている区間でホスト CPU に実行させること」のほう。
-        //
-        // 効きも限定的で、リバーブを使う曲では遅延メモリがゼロになる瞬間がほぼ無い。
-        // 実測: 送りゼロの素材で 4.4%、リバーブを使う実曲では 0.6〜0.8%。
-        if (pcm.tv_counter == 0)
-        {
-            pcm.eram_silent = pcm.eram_wrote_nonzero ? 0 : 1;
-            pcm.eram_wrote_nonzero = 0;
-        }
-
-        if (pcm.rcsum[0] != 0 || pcm.rcsum[1] != 0)
-            pcm.eram_silent = 0;
-
-        if (pcm.use_float_effects)
-        {
-            float fa[6] = {}, fb[6] = {};
-            PCM_SyncFloatEffects(pcm);
-            auto& fx=*pcm.effects;
-            fx.process({pcm.tv_counter,pcm.nfs},(pcm.ram2[31][7]&0x20)!=0,
-                float(pcm.rcsum[0]),float(pcm.rcsum[1]),fa,fb);
-            PCM_PublishFloatEffects(pcm);
-            for (int i = 0; i < 6; ++i)
-            {
-                rcadd[i]  = (int) lrintf(fa[i]);
-                rcadd2[i] = (int) lrintf(fb[i]);
-            }
-        }
-        else if (!pcm.eram_silent)
-        {
-            {
-                // 1
-                int v1 = pcm.ram2[30][4];
-                int m1 = multi((int32_t)pcm.ram1[29][0], (int8_t)(v1 >> 8)) >> 6;
-                int v2 = 0;
-                int s1 = eram_unpack(pcm, pcm.ram2[28][1] + pcm.tv_counter, 1);
-                int s2 = eram_unpack(pcm, pcm.ram2[28][1] + pcm.tv_counter);
-                if ((v1 & 0x30) != 0)
-                {
-                    v2 = s1;
-                }
-                int v3 = addclip20(m1, v2 ^ 0xfffff, 1);
-                pcm.ram1[29][4] = (uint32_t)v3;
-                int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[29][5] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
-            }
-            {
-                // 2
-                int v1 = pcm.ram2[30][4];
-                int v2 = 0;
-                int s1 = eram_unpack(pcm, pcm.ram2[28][2] + pcm.tv_counter, 1);
-                int s2 = eram_unpack(pcm, pcm.ram2[28][2] + pcm.tv_counter);
-                if ((v1 & 0x30) != 0)
-                {
-                    v2 = s1;
-                }
-                int v3 = addclip20((int32_t)pcm.ram1[29][5], v2 ^ 0xfffff, 1);
-                pcm.ram1[29][5] = (uint32_t)v3;
-                int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[28][0] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
-            }
-            {
-                // 3
-                int v1 = pcm.ram2[30][4];
-                int v2 = 0;
-                int s1 = eram_unpack(pcm, pcm.ram2[28][3] + pcm.tv_counter, 1);
-                int s2 = eram_unpack(pcm, pcm.ram2[28][3] + pcm.tv_counter);
-                if ((v1 & 0x30) != 0)
-                {
-                    v2 = s1;
-                }
-                int v3 = addclip20((int32_t)pcm.ram1[28][0], v2 ^ 0xfffff, 1);
-                pcm.ram1[28][0] = (uint32_t)v3;
-                int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[28][1] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
-
-
-                pcm.ram1[28][2] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][5] + pcm.tv_counter);
-            }
-            {
-                // 4
-                int v1 = pcm.ram2[30][5];
-                int v2 = 0;
-                int s1 = eram_unpack(pcm, pcm.ram2[28][4] + pcm.tv_counter, 1);
-                int s2 = eram_unpack(pcm, pcm.ram2[28][4] + pcm.tv_counter);
-                if ((v1 & 0x30) != 0)
-                {
-                    v2 = s1;
-                }
-                int v3 = addclip20((int32_t)pcm.ram1[28][1], v2 ^ 0xfffff, 1);
-                pcm.ram1[28][1] = (uint32_t)v3;
-                int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[28][3] = (uint32_t)addclip20(m2 >> 1, s2, m2 & 1);
-
-
-                pcm.ram1[28][4] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][1] + pcm.tv_counter);
-            }
-            {
-                // 5
-
-                int v1 = pcm.ram2[30][7];
-                int m1 = multi((int32_t)pcm.ram1[29][2], (int8_t)(v1 >> 8)) >> 5;
-                int s1 = eram_unpack(pcm, pcm.ram2[29][0] + pcm.tv_counter);
-                int m2 = multi(s1, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[29][2] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1);
-
-                eram_pack(pcm, pcm.ram2[28][0] + pcm.tv_counter, pcm.ram1[29][4]);
-            }
-            {
-                // 6
-
-                int v1 = pcm.ram2[30][8];
-                int m1 = multi((int32_t)pcm.ram1[29][3], (int8_t)(v1 >> 8)) >> 5;
-                int s1 = eram_unpack(pcm, pcm.ram2[29][8] + pcm.tv_counter);
-                int m2 = multi(s1, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[29][3] = (uint32_t)addclip20(m1 >> 1, m2 >> 1, (m1 | m2) & 1);
-
-                eram_pack(pcm, pcm.ram2[28][1] + pcm.tv_counter, pcm.ram1[29][5]);
-
-                eram_pack(pcm, pcm.ram2[28][2] + pcm.tv_counter, pcm.ram1[28][0]);
-            }
-            {
-                // 7
-
-                int v1 = pcm.ram2[30][9];
-                int v2 = (int)pcm.ram1[28][3];
-                int m1 = multi((int32_t)pcm.ram1[29][2], (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi((int32_t)pcm.ram1[29][3], (int8_t)(v1 >> 8)) >> 5;
-                pcm.ram1[28][3] = (uint32_t)addclip20(v2, m1 >> 1, m1 & 1);
-                pcm.ram1[28][5] = (uint32_t)addclip20(v2, m2 >> 1, m2 & 1);
-
-                eram_pack(pcm, pcm.ram2[28][3] + pcm.tv_counter, pcm.ram1[28][1]);
-            }
-            {
-                // 8
-
-                int v1 = pcm.ram2[30][6];
-                int m1 = multi((int32_t)pcm.ram1[28][2], (int8_t)(v1 >> 8)) >> 5;
-
-                int v2 = addclip20((int32_t)pcm.ram1[28][3], m1 >> 1, m1 & 1);
-                pcm.ram1[28][3] = (uint32_t)v2;
-                int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[28][2] = (uint32_t)addclip20((int32_t)pcm.ram1[28][2], m2 >> 1, m2 & 1);
-
-
-                pcm.ram1[28][1] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][9] + pcm.tv_counter);
-            }
-            {
-                // 9
-
-                int v1 = pcm.ram2[30][6];
-                int m1 = multi((int32_t)pcm.ram1[28][4], (int8_t)(v1 >> 8)) >> 5;
-
-                int v2 = addclip20((int32_t)pcm.ram1[28][5], m1 >> 1, m1 & 1);
-                pcm.ram1[28][5] = (uint32_t)v2;
-                int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[28][4] = (uint32_t)addclip20((int32_t)pcm.ram1[28][4], m2 >> 1, m2 & 1);
-
-
-                pcm.ram1[29][4] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][5] + pcm.tv_counter);
-            }
-            {
-                // 10
-
-                int v1 = pcm.ram2[30][6];
-                int v2 = (int)pcm.ram1[28][1];
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-                int s1 = eram_unpack(pcm, pcm.ram2[28][8] + pcm.tv_counter);
-                int v3 = addclip20(m1 >> 1, s1, m1 & 1);
-                pcm.ram1[28][1] = (uint32_t)v3;
-                int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[29][5] = (uint32_t)addclip20(m2 >> 1, v2, m2 & 1);
-
-                eram_pack(pcm, pcm.ram2[28][4] + pcm.tv_counter, pcm.ram1[28][3]);
-            }
-            {
-                // 11
-
-                int v1 = pcm.ram2[30][6];
-                int v2 = (int)pcm.ram1[29][4];
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-                int s1 = eram_unpack(pcm, pcm.ram2[29][4] + pcm.tv_counter);
-                int v3 = addclip20(m1 >> 1, s1, m1 & 1);
-                pcm.ram1[29][4] = (uint32_t)v3;
-                int m2 = multi(v3, (int8_t)(v1 & 255)) >> 5;
-                pcm.ram1[28][0] = (uint32_t)addclip20(m2 >> 1, v2, m2 & 1);
-
-
-                eram_pack(pcm, pcm.ram2[28][5] + pcm.tv_counter, pcm.ram1[28][2]);
-
-                eram_pack(pcm, pcm.ram2[29][0] + pcm.tv_counter, pcm.ram1[28][5]);
-            }
-            {
-                // 12
-
-                pcm.ram1[28][5] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][6] + pcm.tv_counter);
-            }
-
-            {
-                // 13
-
-                int s1 = eram_unpack(pcm, pcm.ram2[28][10] + pcm.tv_counter);
-                pcm.ram1[28][5] = (uint32_t)addclip20((int32_t)pcm.ram1[28][5], s1, 0);
-
-                pcm.ram1[28][2] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][2] + pcm.tv_counter);
-            }
-
-            {
-                // 14
-
-                int s1 = eram_unpack(pcm, pcm.ram2[29][6] + pcm.tv_counter);
-                int t1 = addclip20(s1, (int32_t)pcm.ram1[28][2], 0); // 6
-
-                pcm.ram1[28][5] = (uint32_t)addclip20(t1, (int32_t)pcm.ram1[28][5], 0);
-
-                pcm.ram1[28][2] = (uint32_t)eram_unpack(pcm, pcm.ram2[28][7] + pcm.tv_counter);
-            }
-
-            {
-                // 15
-
-                int s1 = eram_unpack(pcm, pcm.ram2[28][11] + pcm.tv_counter);
-                pcm.ram1[28][2] = (uint32_t)addclip20((int32_t)pcm.ram1[28][2], s1, 0);
-
-                pcm.ram1[28][3] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][3] + pcm.tv_counter);
-            }
-
-            {
-                // 16
-
-                int s1 = eram_unpack(pcm, pcm.ram2[29][7] + pcm.tv_counter);
-                int t1 = addclip20(s1, (int32_t)pcm.ram1[28][2], 0);
-                pcm.ram1[28][2] = (uint32_t)addclip20(t1, (int32_t)pcm.ram1[28][3], 0);
-
-
-                eram_pack(pcm, pcm.ram2[29][1] + pcm.tv_counter, pcm.ram1[28][4]);
-
-                eram_pack(pcm, pcm.ram2[28][8] + pcm.tv_counter, pcm.ram1[28][1]);
-            }
-
-            {
-                // 17
-                int v1 = pcm.ram2[30][2];
-                int v2 = (int)pcm.ram1[28][5];
-
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-
-                rcadd[0] = m1;
-
-                rcadd2[0] = multi(v2, (int8_t)(v1 & 255)) >> 5;
-
-                int t1 = eram_unpack(pcm, pcm.ram2[29][10] + pcm.tv_counter + 1); //? 3a6e
-                eram_pack(pcm, pcm.ram2[28][9] + pcm.tv_counter, pcm.ram1[29][5]);
-                pcm.ram1[29][5] = (uint32_t)t1;
-            }
-
-            {
-                // 18
-                int v1 = pcm.ram2[30][3];
-                int v2 = (int)pcm.ram1[28][2];
-
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-
-                rcadd[1] = m1;
-
-                rcadd2[1] = multi(v2, (int8_t)(v1 & 255)) >> 5;
-
-                pcm.ram1[28][1] = (uint32_t)eram_unpack(pcm, pcm.ram2[29][11] + pcm.tv_counter + 1); //? 3a1e
-            }
-            {
-                // 19
-
-                int v1 = pcm.ram2[31][9];
-
-                int s1 = eram_unpack(pcm, pcm.ram2[29][10] + pcm.tv_counter); //? 3a6d
-
-                eram_pack(pcm, pcm.ram2[29][4] + pcm.tv_counter, pcm.ram1[29][4]);
-
-                int m1 = multi(s1, (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi((int32_t)pcm.ram1[29][5], (int8_t)(v1 >> 8)) >> 5;
-
-                int t2 = addclip20(s1, (m1 >> 1) ^ 0xfffff, 1);
-
-                pcm.ram1[29][5] = (uint32_t)addclip20(t2, m2 >> 1, m2 & 1);
-            }
-            {
-                // 20
-
-                int v1 = pcm.ram2[31][10];
-
-                int s1 = eram_unpack(pcm, pcm.ram2[29][11] + pcm.tv_counter); //? 3a1d
-
-                eram_pack(pcm, pcm.ram2[29][5] + pcm.tv_counter, pcm.ram1[28][0]);
-
-                int m1 = multi(s1, (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi((int32_t)pcm.ram1[28][1], (int8_t)(v1 >> 8)) >> 5;
-
-                int t2 = addclip20(s1, (m1 >> 1) ^ 0xfffff, 1);
-
-                pcm.ram1[28][1] = (uint32_t)addclip20(t2, m2 >> 1, m2 & 1);
-
-                eram_pack(pcm, pcm.ram2[29][9] + pcm.tv_counter, pcm.ram1[29][1]);
-            }
-            {
-                // 21
-
-                int v1 = pcm.ram2[31][2];
-                int v2 = (int)pcm.ram1[29][5];
-
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
-
-                rcadd[2] = m1;
-                rcadd2[2] = m2;
-            }
-            {
-                // 22
-
-                int v1 = pcm.ram2[31][3];
-                int v2 = (int)pcm.ram1[29][5];
-
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
-
-                rcadd[3] = m1;
-                rcadd2[3] = m2;
-            }
-            {
-                // 23
-
-                int v1 = pcm.ram2[31][4];
-                int v2 = (int)pcm.ram1[28][1];
-
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
-
-                rcadd[4] = m1;
-                rcadd2[4] = m2;
-            }
-            {
-                // 31
-
-                int v1 = pcm.ram2[31][5];
-                int v2 = (int)pcm.ram1[28][1];
-
-                int m1 = multi(v2, (int8_t)(v1 >> 8)) >> 5;
-                int m2 = multi(v2, (int8_t)(v1 & 255)) >> 5;
-
-                rcadd[5] = m1;
-                rcadd2[5] = m2;
-
-            }
-        }
-
-        // コーラスの変調タップを作るアドレス生成器。遅延メモリには触らず、
-        // LFO の位相（ram2[31][8]）を進めるので、鳴り止んでいても止めてはいけない。
-        // ゲートの内側に置いたままだと位相が凍り、音が戻ったときに違う所から再開して
-        // 出力が変わる（実際それでコーラスの試験が 1 件外れた）。
-        if(!pcm.use_float_effects) {
-            sc55::ChorusOscillator oscillator;
-            oscillator.position=pcm.ram1[31][4];
-            oscillator.begin=pcm.ram1[31][2]; oscillator.end=pcm.ram1[31][0];
-            oscillator.phase=pcm.ram2[31][8]&0x3fff;
-            oscillator.increment=pcm.ram2[pcm.ram2[31][7]&31][0];
-            oscillator.descending=(pcm.ram2[31][8]&0x8000)!=0;
-            oscillator.pingPong=(pcm.ram2[31][7]&0x40)!=0;
-            oscillator.reverse=(pcm.ram2[31][7]&0x80)!=0;
-            oscillator.advance(pcm.nfs,(pcm.ram2[31][7]&0x20)!=0);
-            pcm.ram1[31][4]=oscillator.position;
-            pcm.ram2[31][8]=uint16_t((pcm.ram2[31][8]&0x4000)|oscillator.phase
-                |(oscillator.descending?0x8000:0));
-            pcm.ram2[29][10]=oscillator.leftTap();
-            pcm.ram2[29][11]=oscillator.rightTap();
-        }
-
-        pcm.ram1[31][1] = 0;
-        pcm.ram1[31][3] = 0;
-        pcm.rcsum[0] = 0;
-        pcm.rcsum[1] = 0;
-
-        const unsigned voiceCount=pcm.native_voice_count ? pcm.native_voice_count : pcm.config.reg_slots;
         if (pcm.use_simulation)
             PCM_UpdateVoicesSimulated(pcm, rcadd, rcadd2);
-        // Hardware slot 31 would alias the bus row itself; keep the transcription.
-        else if (!pcm.reference_voice_renderer && pcm.skip_inactive_voices && pcm.is_mk1 && pcm.nfs
-            && voiceCount >= 3 && (pcm.native_voice_count || voiceCount <= 31))
-            PCM_RenderVoicesBranchless(pcm, voiceCount, voice_active, rcadd, rcadd2);
         else
         {
         for (unsigned slot = 0; slot < voiceCount; ++slot)
