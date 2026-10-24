@@ -24,6 +24,10 @@
 #include <memory>
 #include <span>
 #include <vector>
+#if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define SC55_TONE_NEON 1
+#endif
 
 namespace sc55
 {
@@ -53,11 +57,11 @@ public:
 
     // A voice's view of a bank: unpopulated banks read one silent entry.
     struct View { const int32_t* data; uint32_t mask; };
+    static View silent() noexcept { static constexpr int32_t silence = 0; return {&silence, 0}; }
     View bank(unsigned index) const noexcept
     {
-        static constexpr int32_t silence = 0;
         if (index < banks_.size() && !banks_[index].empty()) return {banks_[index].data(), bankSize - 1};
-        return {&silence, 0};
+        return silent();
     }
 
 private:
@@ -124,7 +128,7 @@ enum class LoopMode : uint8_t { forward, pingPong };
 struct Voice
 {
     // Waveform: the bank, the sample that plays next, and the loop.
-    DecodedWaves::View wave{};
+    DecodedWaves::View wave = DecodedWaves::silent();
     uint32_t position = 0, loopStart = 0, loopEnd = 0;
     LoopMode loopMode = LoopMode::forward;
     bool storedBackwards = false; // the sample data runs toward lower addresses
@@ -214,6 +218,175 @@ inline VoiceOutput renderVoiceFrame(Voice& v, uint16_t increment, uint16_t frame
     return {(out * v.panLeft + 32) >> 6, (out * v.panRight + 32) >> 6,
         (out * v.reverbSend + 32) >> 6, (out * v.chorusSend + 32) >> 6, reachedLoop};
 }
+
+#if SC55_TONE_NEON
+// Four voices at once, one per 32-bit lane: renderVoiceFrame step for step,
+// with lane-wise selects for its choices. Results are identical to it (the
+// tone-generator check compares them). Voices here raise no loop events.
+namespace simd
+{
+using I = int32x4_t;
+using U = uint32x4_t; // lane masks are all ones or all zeros
+
+inline I wrap20(I x) noexcept { return vshrq_n_s32(vshlq_n_s32(x, 12), 12); }
+// (x * gain + 8192) >> 14 for 20-bit x and 15-bit gain, as one rounding
+// doubling high multiply: ((x << 11) * (gain << 6) * 2 + 2^31) >> 32.
+inline I scale14(I x, I gain) noexcept { return vqrdmulhq_s32(vshlq_n_s32(x, 11), vshlq_n_s32(gain, 6)); }
+inline I mulRound6(I x, I gain) noexcept { return vrshrq_n_s32(vmulq_s32(x, gain), 6); }
+inline I select(U mask, I a, I b) noexcept { return vbslq_s32(mask, a, b); }
+inline U select(U mask, U a, U b) noexcept { return vbslq_u32(mask, a, b); }
+
+struct RampLanes
+{
+    I level, target, step, shiftRight, intervalMask;
+    U linear;
+
+    I readback() const noexcept { return vandq_s32(vshrq_n_s32(level, 4), vdupq_n_s32(0x7fff)); }
+    void advance(I frame) noexcept
+    {
+        const U update = vceqzq_s32(vandq_s32(frame, intervalMask));
+        const I distance = vsubq_s32(target, level);
+        const I exponential = vaddq_s32(level, vshlq_s32(distance, shiftRight));
+        const U falling = vcltzq_s32(distance);
+        const I signedStep = select(falling, veorq_s32(step, vdupq_n_s32(~0x3f)), step);
+        const I next = vaddq_s32(level, vshlq_s32(signedStep, shiftRight));
+        const U overshoot = select(falling, vcltq_s32(next, target), vcgtq_s32(next, target));
+        const I moved = select(linear, select(overshoot, target, next), exponential);
+        level = select(update, moved, level);
+    }
+};
+
+struct VoiceQuad
+{
+    const int32_t* wave[4];
+    uint32_t waveMask[4];
+    U position, loopStart, loopEnd, fraction, increment;
+    U pingPong, backwards, returning, highPass;
+    I value, low, band, resonance;
+    RampLanes ramps[3];
+    I panLeft, panRight, reverbSend, chorusSend;
+
+    template<class Get> static U lanesU(Get&& get) noexcept
+    { const uint32_t a[4]{get(0), get(1), get(2), get(3)}; return vld1q_u32(a); }
+    template<class Get> static I lanesI(Get&& get) noexcept
+    { const int32_t a[4]{get(0), get(1), get(2), get(3)}; return vld1q_s32(a); }
+    static uint32_t mask(bool b) noexcept { return b ? 0xffffffffu : 0u; }
+
+    void load(Voice* const v[4], const uint16_t increments[4]) noexcept
+    {
+        for (unsigned l = 0; l < 4; ++l) { wave[l] = v[l]->wave.data; waveMask[l] = v[l]->wave.mask; }
+        position = lanesU([&](unsigned l) { return v[l]->position; });
+        loopStart = lanesU([&](unsigned l) { return v[l]->loopStart; });
+        loopEnd = lanesU([&](unsigned l) { return v[l]->loopEnd; });
+        fraction = lanesU([&](unsigned l) { return uint32_t(v[l]->fraction); });
+        increment = lanesU([&](unsigned l) { return uint32_t(increments[l]); });
+        pingPong = lanesU([&](unsigned l) { return mask(v[l]->loopMode == LoopMode::pingPong); });
+        backwards = lanesU([&](unsigned l) { return mask(v[l]->storedBackwards); });
+        returning = lanesU([&](unsigned l) { return mask(v[l]->returning); });
+        highPass = lanesU([&](unsigned l) { return mask(v[l]->highPass); });
+        value = lanesI([&](unsigned l) { return v[l]->value; });
+        low = lanesI([&](unsigned l) { return v[l]->low; });
+        band = lanesI([&](unsigned l) { return v[l]->band; });
+        resonance = lanesI([&](unsigned l) { return v[l]->resonance; });
+        for (unsigned r = 0; r < 3; ++r) {
+            auto& ramp = ramps[r];
+            ramp.level = lanesI([&](unsigned l) { return v[l]->ramps[r].level; });
+            ramp.target = lanesI([&](unsigned l) { return v[l]->ramps[r].target; });
+            ramp.step = lanesI([&](unsigned l) { return v[l]->ramps[r].step; });
+            ramp.shiftRight = lanesI([&](unsigned l) { return -int32_t(v[l]->ramps[r].shift); });
+            ramp.intervalMask = lanesI([&](unsigned l) { return int32_t(v[l]->ramps[r].intervalMask); });
+            ramp.linear = lanesU([&](unsigned l) { return mask(v[l]->ramps[r].linear); });
+        }
+        panLeft = lanesI([&](unsigned l) { return v[l]->panLeft; });
+        panRight = lanesI([&](unsigned l) { return v[l]->panRight; });
+        reverbSend = lanesI([&](unsigned l) { return v[l]->reverbSend; });
+        chorusSend = lanesI([&](unsigned l) { return v[l]->chorusSend; });
+    }
+
+    // Only the state a frame changes goes back.
+    void store(Voice* const v[4]) const noexcept
+    {
+        alignas(16) uint32_t p[4], f[4], back[4];
+        alignas(16) int32_t val[4], lo[4], ba[4], lv[3][4];
+        vst1q_u32(p, position); vst1q_u32(f, fraction); vst1q_u32(back, returning);
+        vst1q_s32(val, value); vst1q_s32(lo, low); vst1q_s32(ba, band);
+        for (unsigned r = 0; r < 3; ++r) vst1q_s32(lv[r], ramps[r].level);
+        for (unsigned l = 0; l < 4; ++l) {
+            v[l]->position = p[l]; v[l]->fraction = uint16_t(f[l]); v[l]->returning = back[l] != 0;
+            v[l]->value = val[l]; v[l]->low = lo[l]; v[l]->band = ba[l];
+            for (unsigned r = 0; r < 3; ++r) v[l]->ramps[r].level = lv[r][l];
+        }
+    }
+
+    U next(U at, U& back) const noexcept
+    {
+        const U atLimit = vceqq_u32(at, select(back, loopStart, loopEnd));
+        const U stepBack = veorq_u32(back, backwards);
+        const U stepped = vandq_u32(vaddq_u32(at, select(stepBack, vdupq_n_u32(0xffffffffu), vdupq_n_u32(1))), vdupq_n_u32(0xfffff));
+        const U wrapped = select(pingPong, at, loopStart);
+        back = vandq_u32(pingPong, veorq_u32(back, atLimit));
+        return select(atLimit, wrapped, stepped);
+    }
+
+    I gather(U at) const noexcept
+    {
+        alignas(16) uint32_t a[4];
+        vst1q_u32(a, at);
+        const int32_t d[4]{wave[0][a[0] & waveMask[0]], wave[1][a[1] & waveMask[1]],
+            wave[2][a[2] & waveMask[2]], wave[3][a[3] & waveMask[3]]};
+        return vld1q_s32(d);
+    }
+
+    struct Buses { int32_t left, right, reverb, chorus; };
+
+    Buses frame(uint16_t phase) noexcept
+    {
+        U back = returning;
+        const U p0 = position;
+        const U p1 = next(p0, back); const U back1 = back;
+        const U p2 = next(p1, back); const U back2 = back;
+        const U p3 = next(p2, back); const U back3 = back;
+        const U p4 = next(p3, back);
+        const I d0 = gather(p0), d1 = gather(p1), d2 = gather(p2), d3 = gather(p3);
+
+        alignas(16) uint32_t ratio[4];
+        vst1q_u32(ratio, vshrq_n_u32(fraction, 7));
+        const auto weight = [&](unsigned k) {
+            const int32_t w[4]{interp_lut[k][ratio[0]], interp_lut[k][ratio[1]], interp_lut[k][ratio[2]], interp_lut[k][ratio[3]]};
+            return vld1q_s32(w);
+        };
+        const I weighted = vmlaq_s32(vmlaq_s32(vmulq_s32(d0, weight(0)), d1, weight(1)), d2, weight(2));
+        const I interpolated = wrap20(vaddq_s32(value, vrshrq_n_s32(weighted, 12)));
+
+        const U phaseSum = vaddq_u32(fraction, increment);
+        const U whole = vandq_u32(vshrq_n_u32(phaseSum, 14), vdupq_n_u32(7));
+        fraction = vandq_u32(phaseSum, vdupq_n_u32(0x3fff));
+        const U reached1 = vcgeq_u32(whole, vdupq_n_u32(1)), reached2 = vcgeq_u32(whole, vdupq_n_u32(2));
+        const U reached3 = vcgeq_u32(whole, vdupq_n_u32(3)), reached4 = vcgeq_u32(whole, vdupq_n_u32(4));
+        const I consumed = vaddq_s32(vaddq_s32(vandq_s32(d0, vreinterpretq_s32_u32(reached1)), vandq_s32(d1, vreinterpretq_s32_u32(reached2))),
+            vaddq_s32(vandq_s32(d2, vreinterpretq_s32_u32(reached3)), vandq_s32(d3, vreinterpretq_s32_u32(reached4))));
+        value = wrap20(vaddq_s32(value, consumed));
+        position = select(reached4, p4, select(reached3, p3, select(reached2, p2, select(reached1, p1, p0))));
+        returning = select(reached3, back3, select(reached2, back2, select(reached1, back1, returning)));
+
+        const I cutoff = ramps[2].readback();
+        low = wrap20(vaddq_s32(low, scale14(band, cutoff)));
+        const I damped = wrap20(vaddq_s32(low, mulRound6(band, resonance)));
+        const I high = wrap20(vsubq_s32(interpolated, damped));
+        band = wrap20(vaddq_s32(band, scale14(high, cutoff)));
+        const I filtered = select(highPass, high, low);
+
+        const I frameLanes = vdupq_n_s32(phase);
+        for (auto& ramp : ramps) ramp.advance(frameLanes);
+        const I evenMask = vdupq_n_s32(0x7ffe);
+        const I amplitude = wrap20(scale14(filtered, vandq_s32(ramps[0].readback(), evenMask)));
+        const I out = wrap20(scale14(amplitude, vandq_s32(ramps[1].readback(), evenMask)));
+        return {vaddvq_s32(mulRound6(out, panLeft)), vaddvq_s32(mulRound6(out, panRight)),
+            vaddvq_s32(mulRound6(out, reverbSend)), vaddvq_s32(mulRound6(out, chorusSend))};
+    }
+};
+}
+#endif
 }
 
 class ToneGenerator
@@ -341,6 +514,10 @@ public:
     bool hasLoopEvent() const noexcept { return loopEvent_ >= 0; }
     int takeLoopEvent() noexcept { const int voice = loopEvent_; loopEvent_ = -1; return voice; }
 
+    // Four voices per instruction where the CPU has NEON. The scalar path is
+    // the definition; the check runs both and requires identical output.
+    void setVectorized(bool enabled) noexcept { vectorized_ = enabled; }
+
     // --- effects -------------------------------------------------------------
 
     PCMEffects& effects() noexcept { return *effects_; }
@@ -397,11 +574,22 @@ private:
             }
             if (eventVoice >= 0) voices_[unsigned(eventVoice)].notified = true;
 
+            // The rest: voices already playing go four at a time; voices
+            // starting this block (their first frame is silent) go alone.
+            uint8_t playing[maxVoices];
+            unsigned playingCount = 0;
             for (unsigned i = 0; i < voiceCount_; ++i) {
                 auto& v = voices_[i];
                 if (!keys_.contains(i)) silence(v);
-                else if (!(v.notifyLoop && !v.notified) && int(i) != eventVoice) renderVoice(i, frames, phases);
+                else if ((v.notifyLoop && !v.notified) || int(i) == eventVoice) continue;
+                else if (!v.started) renderVoice(i, frames, phases);
+                else playing[playingCount++] = uint8_t(i);
             }
+            unsigned k = 0;
+#if SC55_TONE_NEON
+            for (; vectorized_ && k + 4 <= playingCount; k += 4) renderQuad(playing + k, frames, phases);
+#endif
+            for (; k < playingCount; ++k) renderVoice(playing[k], frames, phases);
         } else clearBuses(frames);
 
         for (unsigned t = 0; t < frames; ++t) {
@@ -463,13 +651,29 @@ private:
         return event;
     }
 
+#if SC55_TONE_NEON
+    void renderQuad(const uint8_t* indices, unsigned frames, const uint16_t* phases) noexcept
+    {
+        tone::Voice* const v[4]{&voices_[indices[0]], &voices_[indices[1]], &voices_[indices[2]], &voices_[indices[3]]};
+        const uint16_t increments[4]{pitch_[v[0]->pitchSource], pitch_[v[1]->pitchSource],
+            pitch_[v[2]->pitchSource], pitch_[v[3]->pitchSource]};
+        tone::simd::VoiceQuad quad;
+        quad.load(v, increments);
+        for (unsigned t = 0; t < frames; ++t) {
+            const auto o = quad.frame(phases[t]);
+            left_[t] += o.left; right_[t] += o.right; reverb_[t] += o.reverb; chorus_[t] += o.chorus;
+        }
+        quad.store(v);
+    }
+#endif
+
     tone::DecodedWaves waves_;
     std::array<tone::Voice, maxVoices> voices_{};
     std::array<uint16_t, maxVoices> pitch_{};
     unsigned voiceCount_;
     VoiceSet keys_;
     std::unique_ptr<PCMEffects> effects_ = std::make_unique<PCMEffects>();
-    bool effectsActive_ = false, updating_ = false;
+    bool effectsActive_ = false, updating_ = false, vectorized_ = true;
     AudioBuses pending_{};
     uint16_t envelopeFrame_ = 0, random_ = 0xffff;
     uint64_t frame_ = 0;
