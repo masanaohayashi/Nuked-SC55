@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.2
+  Created with Projucer version: 9.0.4
 
   ------------------------------------------------------------------------------
 
@@ -109,7 +109,14 @@ SettingsComponent::SettingsComponent ()
     toggleOptimization->addListener (this);
     toggleOptimization->setColour (juce::ToggleButton::textColourId, juce::Colour (0x80ffffff));
 
-    toggleOptimization->setBounds (120, 152, 208, 24);
+    toggleOptimization->setBounds (120, 152, 120, 24);
+
+    toggleDipole.reset (new juce::ToggleButton (juce::String()));
+    contentComponent.addAndMakeVisible (toggleDipole.get());
+    toggleDipole->setButtonText (TRANS ("STEREO DIPOLE"));
+    toggleDipole->addListener (this);
+
+    toggleDipole->setBounds (248, 152, 128, 24);
 
     cachedImage_BinaryData_BackPanel_png_1 = juce::ImageCache::getFromMemory (BinaryData::BackPanel_png, BinaryData::BackPanel_pngSize);
 
@@ -144,6 +151,7 @@ SettingsComponent::~SettingsComponent()
     labelVoices = nullptr;
     sliderVoices = nullptr;
     toggleOptimization = nullptr;
+    toggleDipole = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -218,6 +226,13 @@ void SettingsComponent::buttonClicked (juce::Button* buttonThatWasClicked)
         if (onOptimizationChanged)
             onOptimizationChanged (toggleOptimization->getToggleState());
         //[/UserButtonCode_toggleOptimization]
+    }
+    else if (buttonThatWasClicked == toggleDipole.get())
+    {
+        //[UserButtonCode_toggleDipole] -- add your button handler code here..
+        if (onDipoleChanged)
+            onDipoleChanged (toggleDipole->getToggleState());
+        //[/UserButtonCode_toggleDipole]
     }
 
     //[UserbuttonClicked_Post]
@@ -396,9 +411,12 @@ BEGIN_JUCER_METADATA
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
   <TOGGLEBUTTON name="" id="b655948b5f5d1e98" memberName="toggleOptimization"
-                virtualName="" explicitFocusOrder="0" pos="120 152 208 24" txtcol="80ffffff"
+                virtualName="" explicitFocusOrder="0" pos="120 152 120 24" txtcol="80ffffff"
                 buttonText="OPTIMIZATION" connectedEdges="0" needsCallback="1"
                 radioGroupId="0" state="0"/>
+  <TOGGLEBUTTON name="" id="f17b1e8f1410d83f" memberName="toggleDipole" virtualName=""
+                explicitFocusOrder="0" pos="248 152 128 24" buttonText="STEREO DIPOLE"
+                connectedEdges="0" needsCallback="1" radioGroupId="0" state="0"/>
 </JUCER_COMPONENT>
 
 END_JUCER_METADATA

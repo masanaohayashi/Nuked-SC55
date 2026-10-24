@@ -7,7 +7,7 @@
   the "//[xyz]" and "//[/xyz]" sections will be retained when the file is loaded
   and re-saved.
 
-  Created with Projucer version: 9.0.2
+  Created with Projucer version: 9.0.4
 
   ------------------------------------------------------------------------------
 
@@ -96,6 +96,10 @@ public:
             });
     }
     void setOnRomSelected (RomSelectionAction callback) { onRomSelected = std::move (callback); }
+    void setOnDipoleChanged (std::function<void(bool)> callback)
+    { onDipoleChanged = std::move (callback); }
+    void setDipoleEnabled (bool enabled)
+    { toggleDipole->setToggleState (enabled, juce::dontSendNotification); }
     void setOnOptimizationChanged (std::function<void(bool)> callback)
     { onOptimizationChanged = std::move (callback); }
     void setOptimizationEnabled (bool enabled)
@@ -136,6 +140,7 @@ private:
     Action onClose;
     Action onImportRom;
     RomSelectionAction onRomSelected;
+    std::function<void(bool)> onDipoleChanged;
     std::function<void(bool)> onOptimizationChanged;
     std::function<void(unsigned)> onVoicesChanged;
     unsigned shownVoiceLimit = 0;
@@ -154,6 +159,7 @@ private:
     std::unique_ptr<juce::Label> labelVoices;
     std::unique_ptr<juce::Slider> sliderVoices;
     std::unique_ptr<juce::ToggleButton> toggleOptimization;
+    std::unique_ptr<juce::ToggleButton> toggleDipole;
     juce::Image cachedImage_BinaryData_BackPanel_png_1;
 
 

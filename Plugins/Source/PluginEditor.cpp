@@ -765,9 +765,14 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                 "Voice limit change failed", audioProcessor.getUiStatus().error);
     });
+    settingsComponent->setOnDipoleChanged ([this] (bool enabled)
+    {
+        audioProcessor.setDipoleEnabled (enabled);
+    });
     settingsComponent->setOnOptimizationChanged ([this] (bool enabled)
     {
         const bool switched = audioProcessor.setOptimizationEnabled (enabled);
+        settingsComponent->setDipoleEnabled (audioProcessor.isDipoleEnabled());
         settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
         syncFrontPanelIndicators();
         if (! switched)
@@ -1616,6 +1621,7 @@ void NukedSC55AudioProcessorEditor::refreshRomChoices()
         return;
 
     const auto uiStatus = audioProcessor.getUiStatus();
+    settingsComponent->setDipoleEnabled (audioProcessor.isDipoleEnabled());
     settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
     settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
     settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
@@ -1692,6 +1698,7 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
                                    ? juce::String()
                                    : juce::File (uiStatus.romDirectory).getFileName();
         settingsComponent->setSelectedRomName (selectedRomName);
+        settingsComponent->setDipoleEnabled (audioProcessor.isDipoleEnabled());
         settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
         settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
         settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,

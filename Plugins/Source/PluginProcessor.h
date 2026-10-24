@@ -17,6 +17,7 @@
 
 #include <JuceHeader.h>
 
+#include "StereoDipole.h"
 #include "MidiFilePlayer.h"
 #include "NukedSC55Emulator.h"
 
@@ -107,6 +108,8 @@ public:
     bool setOptimizationEnabled (bool enabled);
     bool isOptimizationEnabled() const noexcept { return optimizationAvailable && optimizationEnabled; }
     bool isOptimizationAvailable() const noexcept { return optimizationAvailable; }
+    void setDipoleEnabled (bool enabled);
+    bool isDipoleEnabled() const noexcept { return dipoleEnabled.load (std::memory_order_relaxed); }
     bool setMaximumVoices (unsigned voices);
     unsigned getMaximumVoices() const noexcept { return maximumVoices.load (std::memory_order_relaxed); }
 
@@ -221,6 +224,8 @@ private:
     std::unique_ptr<juce::FileChooser> romChooser;
     std::shared_ptr<int> lifetimeToken { std::make_shared<int> (0) };
     uint64_t processBlockCount = 0;
+    std::atomic<bool> dipoleEnabled { false };
+    sc55dipole::Processor stereoDipole;
 
     // Only prepareToPlay/processBlock access the measurer; the UI uses atomics.
     juce::AudioProcessLoadMeasurer processLoadMeasurer;

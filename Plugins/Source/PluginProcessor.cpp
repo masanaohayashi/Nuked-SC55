@@ -574,6 +574,8 @@ NukedSC55AudioProcessor::NukedSC55AudioProcessor()
      : parameters (*this, nullptr, "PARAMETERS", createParameterLayout())
 #endif
 {
+    dipoleEnabled.store (getUserSettingsDirectory().getChildFile ("stereo-dipole.txt")
+                             .loadFileAsString().trim() == "1");
     logStartupDirectories();
     sc55debug::log ("processor constructed wrapper=%d acceptsMidi=%d",
                     wrapperType, acceptsMidi() ? 1 : 0);
@@ -676,6 +678,13 @@ void NukedSC55AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     midiFilePositionForUi.store (0.0, std::memory_order_release);
     midiPlaybackCommands.fetch_or (midiStopCommand, std::memory_order_release);
 
+    double dipoleSpacingCM = 8.0;
+#if JUCE_IOS
+    // JUCE returns hw.machine on devices and the model identifier in Simulator.
+    if (juce::SystemStats::getDeviceDescription().startsWithIgnoreCase ("iPad"))
+        dipoleSpacingCM = 15.0;
+#endif
+    stereoDipole.prepare (sampleRate, dipoleSpacingCM);
     masterVolumeGain.reset (sampleRate, 0.01);
     const auto* masterVolume = parameters.getRawParameterValue ("masterVolume");
     const auto normalizedVolume = masterVolume != nullptr
@@ -1016,6 +1025,10 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const auto normalizedVolume = masterVolume != nullptr
         ? juce::jlimit (0.0f, 1.0f, masterVolume->load (std::memory_order_relaxed) / 100.0f)
         : 1.0f;
+
+    if (numChannels >= 2)
+        stereoDipole.process (buffer.getWritePointer (0), buffer.getWritePointer (1),
+                              numSamples, isDipoleEnabled());
 
     // Apply the squared amplitude curve to the final mixed output. The target
     // is smoothed in linear-gain space one sample at a time so slider moves
@@ -1518,9 +1531,20 @@ juce::AudioProcessorEditor* NukedSC55AudioProcessor::createEditor()
 }
 
 //==============================================================================
+void NukedSC55AudioProcessor::setDipoleEnabled (bool enabled)
+{
+    dipoleEnabled.store (enabled, std::memory_order_relaxed);
+    const auto directory = getUserSettingsDirectory();
+    if (directory.createDirectory().wasOk())
+        directory.getChildFile ("stereo-dipole.txt").replaceWithText (enabled ? "1" : "0");
+    updateHostDisplay (juce::AudioProcessorListener::ChangeDetails {}
+                           .withNonParameterStateChanged (true));
+}
+
 void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
+    state.setProperty ("stereoDipoleEnabled", isDipoleEnabled(), nullptr);
     state.setProperty ("maximumVoices", int (getMaximumVoices()), nullptr);
     state.setProperty (midiInputStateProperty, int (emulator.savedMidiInputState()), nullptr);
     state.removeProperty ("nativeMidiInputSecondaryV1", nullptr); // Obsolete 2X state.
@@ -1558,6 +1582,8 @@ void NukedSC55AudioProcessor::setStateInformation (const void* data, int sizeInB
     const auto savedVoices = int (state.getProperty ("maximumVoices", 24));
     maximumVoices.store (savedVoices >= 24 && savedVoices <= 128 && savedVoices % 4 == 0
                          ? unsigned (savedVoices) : 24u, std::memory_order_relaxed);
+    dipoleEnabled.store (bool (state.getProperty ("stereoDipoleEnabled", false)),
+                         std::memory_order_relaxed);
     parameters.replaceState (state);
 
     const auto savedRomName = state.getProperty (
