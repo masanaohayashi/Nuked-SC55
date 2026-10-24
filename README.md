@@ -22,6 +22,18 @@ Differences from upstream:
 - The JUCE plug-in accepts a full-resolution, four-colour LCD raster over its
   documented private SysEx extension ([format and encoder](docs/panel-sysex.md)).
 
+## MIDI/RCP playlist (JUCE app and plug-in)
+
+Use **LOAD** to select multiple `.mid`, `.midi`, `.smf`, or `.rcp` files, or
+drop them together onto the panel. Files are appended in selection/drop order;
+the first added track is selected. The playlist below the transport lets you
+select any track; **|<** and **>|** move to the previous and next tracks without
+wrapping. Switching tracks during playback starts the selected track from the
+beginning; while paused or stopped it only loads the track. A failed load leaves
+the current track playing and shows an error. The playlist survives closing and
+reopening the editor, but is not saved across application sessions. Playback
+stops at the end of a track; use **>|** to select the next one.
+
 ## Building
 
 See [BUILDING.md](BUILDING.md).

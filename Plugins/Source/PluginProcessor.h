@@ -130,6 +130,12 @@ public:
     /** Loads a Standard MIDI File or RCP sequence without starting playback. */
     bool loadMidiFile (const juce::File& file);
 
+    // Playlist operations are message-thread only, like loadMidiFile().
+    const juce::Array<juce::File>& getPlaylist() const noexcept { return playlist; }
+    int getPlaylistIndex() const noexcept { return playlistIndex; }
+    void appendPlaylistFiles (const juce::Array<juce::File>& files);
+    bool selectPlaylistTrack (int index);
+
     /** Loads a sequence and starts it immediately for API callers that need it. */
     bool startMidiFile (const juce::File& file);
 
@@ -204,6 +210,8 @@ private:
     double midiFilePosition = 0.0;
     size_t midiFileNext = 0;
     juce::String midiFileName;
+    juce::Array<juce::File> playlist;
+    int playlistIndex = -1;
 
 #if JUCE_STANDALONE_APPLICATION
     std::unique_ptr<WrdDisplayWindow> wrdDisplayWindow;

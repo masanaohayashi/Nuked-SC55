@@ -57,6 +57,8 @@ public:
     void mouseUp (const juce::MouseEvent& event) override;
     void syncPlaybackControls();
     void loadSequenceFile (const juce::File& file);
+    void addSequenceFiles (const juce::Array<juce::File>& files);
+    void selectPlaylistTrack (int index);
     void showSequenceFileChooser();
     void showRomFileChooser();
     void showLogoFileChooser (bool forMakerLogo);
@@ -87,6 +89,9 @@ private:
     NukedSC55AudioProcessor& audioProcessor;
     std::unique_ptr<LcdDisplay> lcdDisplay;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
+    juce::TextButton previousTrackButton { "|<" }, nextTrackButton { ">|" };
+    juce::ComboBox playlistBox;
+    juce::StringArray displayedPlaylist;
     bool fileDragActive = false;
     bool allButtonHeld = false, muteButtonHeld = false;
     bool suppressAllClick = false, suppressMuteClick = false;

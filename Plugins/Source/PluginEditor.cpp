@@ -702,6 +702,19 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
 
 
     //[Constructor] You can add your own custom stuff here..
+    contentComponent.addAndMakeVisible (previousTrackButton);
+    contentComponent.addAndMakeVisible (nextTrackButton);
+    contentComponent.addAndMakeVisible (playlistBox);
+    previousTrackButton.setBounds (16, 174, 30, 20);
+    playlistBox.setBounds (50, 174, 140, 20);
+    nextTrackButton.setBounds (194, 174, 30, 20);
+    previousTrackButton.setTooltip ("Previous track");
+    nextTrackButton.setTooltip ("Next track");
+    playlistBox.setTextWhenNothingSelected ("Playlist");
+    playlistBox.setTooltip ("Select a track. LOAD or drop MIDI/RCP files to add tracks.");
+    previousTrackButton.onClick = [this] { selectPlaylistTrack (audioProcessor.getPlaylistIndex() - 1); };
+    nextTrackButton.onClick = [this] { selectPlaylistTrack (audioProcessor.getPlaylistIndex() + 1); };
+    playlistBox.onChange = [this] { selectPlaylistTrack (playlistBox.getSelectedId() - 1); };
     buttonAll_new->addMouseListener (this, false);
     buttonMute_new->addMouseListener (this, false);
     buttonPower2->addMouseListener (this, false);
@@ -1210,18 +1223,31 @@ void NukedSC55AudioProcessorEditor::mouseUp (const juce::MouseEvent& event)
 
 void NukedSC55AudioProcessorEditor::loadSequenceFile (const juce::File& file)
 {
-    if (file == juce::File {})
+    addSequenceFiles ({ file });
+}
+
+void NukedSC55AudioProcessorEditor::addSequenceFiles (const juce::Array<juce::File>& files)
+{
+    const auto firstNewTrack = audioProcessor.getPlaylist().size();
+    audioProcessor.appendPlaylistFiles (files);
+    if (audioProcessor.getPlaylist().size() > firstNewTrack)
+        selectPlaylistTrack (firstNewTrack);
+    syncPlaybackControls();
+}
+
+void NukedSC55AudioProcessorEditor::selectPlaylistTrack (int index)
+{
+    if (! juce::isPositiveAndBelow (index, audioProcessor.getPlaylist().size()))
         return;
 
-    if (! audioProcessor.loadMidiFile (file))
+    if (! audioProcessor.selectPlaylistTrack (index))
     {
         const auto options = juce::MessageBoxOptions::makeOptionsOk (
             juce::AlertWindow::WarningIcon, "SC-55",
             juce::String::fromUTF8 ("このシーケンスファイルを再生できませんでした:\n")
-                + file.getFileName());
+                + audioProcessor.getPlaylist().getReference (index).getFileName());
         juce::AlertWindow::showAsync (options, nullptr);
     }
-
     syncPlaybackControls();
 }
 
@@ -1232,7 +1258,7 @@ void NukedSC55AudioProcessorEditor::showSequenceFileChooser()
 
 #if JUCE_IOS
     sequenceFileChooser = std::make_unique<juce::FileChooser> (
-        "Load MIDI/RCP file",
+        "Add MIDI/RCP files to playlist",
         juce::File(),
         "*.mid;*.midi;*.smf;*.rcp",
         true,
@@ -1240,13 +1266,14 @@ void NukedSC55AudioProcessorEditor::showSequenceFileChooser()
         this);
 #else
     sequenceFileChooser = std::make_unique<juce::FileChooser> (
-        "Load MIDI/RCP file",
+        "Add MIDI/RCP files to playlist",
         juce::File(),
         "*.mid;*.midi;*.smf;*.rcp");
 #endif
 
     const auto chooserFlags = juce::FileBrowserComponent::openMode
-                             | juce::FileBrowserComponent::canSelectFiles;
+                             | juce::FileBrowserComponent::canSelectFiles
+                             | juce::FileBrowserComponent::canSelectMultipleItems;
     const juce::Component::SafePointer<NukedSC55AudioProcessorEditor> safeThis (this);
     sequenceFileChooser->launchAsync (chooserFlags,
                                       [safeThis] (const juce::FileChooser& chooser)
@@ -1254,19 +1281,18 @@ void NukedSC55AudioProcessorEditor::showSequenceFileChooser()
         if (safeThis == nullptr)
             return;
 
-        juce::File file;
+        juce::Array<juce::File> files;
 #if JUCE_IOS
-        file = copySelectedSequenceUrl (chooser.getURLResult());
-#else
-        file = chooser.getResult();
-#endif
-        if (file == juce::File {})
+        for (const auto& url : chooser.getURLResults())
         {
-            safeThis->sequenceFileChooser = nullptr;
-            return;
+            const auto file = copySelectedSequenceUrl (url);
+            if (file != juce::File {})
+                files.add (file);
         }
-
-        safeThis->loadSequenceFile (file);
+#else
+        files = chooser.getResults();
+#endif
+        safeThis->addSequenceFiles (files);
         safeThis->sequenceFileChooser = nullptr;
     });
 }
@@ -1676,6 +1702,20 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
 
 void NukedSC55AudioProcessorEditor::syncPlaybackControls()
 {
+    juce::StringArray names;
+    for (const auto& file : audioProcessor.getPlaylist())
+        names.add (file.getFileName());
+    if (names != displayedPlaylist)
+    {
+        displayedPlaylist = names;
+        playlistBox.clear (juce::dontSendNotification);
+        for (int i = 0; i < names.size(); ++i)
+            playlistBox.addItem (juce::String (i + 1) + ". " + names[i], i + 1);
+    }
+    const auto index = audioProcessor.getPlaylistIndex();
+    playlistBox.setSelectedId (index + 1, juce::dontSendNotification);
+    previousTrackButton.setEnabled (index > 0);
+    nextTrackButton.setEnabled (index + 1 < names.size());
     const auto hasFile = audioProcessor.hasMidiFile();
     const auto isPlaying = hasFile && audioProcessor.isPlayingMidiFile();
 
@@ -1747,16 +1787,11 @@ void NukedSC55AudioProcessorEditor::filesDropped (const juce::StringArray& files
         }
     }
 
+    juce::Array<juce::File> sequences;
     for (const auto& f : files)
-    {
-        const juce::File file (f);
-        if (! isSequenceFile (f))
-            continue;
-
-        loadSequenceFile (file);
-
-        return;
-    }
+        if (isSequenceFile (f))
+            sequences.add (juce::File (f));
+    addSequenceFiles (sequences);
 }
 
 //[/MiscUserCode]

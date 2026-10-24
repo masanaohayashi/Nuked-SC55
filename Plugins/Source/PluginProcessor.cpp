@@ -1076,6 +1076,7 @@ bool NukedSC55AudioProcessor::loadMidiFile (const juce::File& file)
     if (! publishedFile->wrdParseError.empty())
         sc55debug::log ("WRD companion ignored: %s", publishedFile->wrdParseError.c_str());
 
+    playlistIndex = playlist.indexOf (file);
     midiFileName = file.getFileName();
     midiFilePlaying.store (false, std::memory_order_release);
     midiFilePositionForUi.store (0.0, std::memory_order_release);
@@ -1098,6 +1099,28 @@ bool NukedSC55AudioProcessor::loadMidiFile (const juce::File& file)
             wrdDisplayWindow->hideForPlaybackStop();
     }
 #endif
+    return true;
+}
+
+void NukedSC55AudioProcessor::appendPlaylistFiles (const juce::Array<juce::File>& files)
+{
+    for (const auto& file : files)
+        if (file.hasFileExtension ("mid;midi;smf;rcp"))
+            playlist.add (file);
+}
+
+bool NukedSC55AudioProcessor::selectPlaylistTrack (int index)
+{
+    if (! juce::isPositiveAndBelow (index, playlist.size()))
+        return false;
+
+    const bool resumePlayback = isPlayingMidiFile();
+    if (! loadMidiFile (playlist.getReference (index)))
+        return false;
+
+    playlistIndex = index;
+    if (resumePlayback)
+        playMidiFile();
     return true;
 }
 
