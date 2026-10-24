@@ -143,6 +143,9 @@ struct pcm_t
     bool native_readback_update = false;
     // Diagnostic oracle can retain the full inactive-slot pipeline.
     bool skip_inactive_voices = true;
+    // Diagnostic oracle: render keyed voices with the original slot-by-slot
+    // transcription instead of the branch-free renderer it must match bit for bit.
+    bool reference_voice_renderer = false;
     PCMSimVoices sim{};
 
     // Which voices the firmware has written to since the simulation last read

@@ -1713,6 +1713,396 @@ static void PCM_RenderIntegerVoice(pcm_t& pcm, uint32_t* ram1, uint16_t* ram2,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Branch-free keyed-voice renderer.
+//
+// The same integer arithmetic as PCM_RenderIntegerVoice, bit for bit, without
+// the chip's way of getting there: no per-read bank switch, no per-ramp
+// counter bit gathering, no per-slot bus ordering. Every decision inside a
+// voice is a select, so the body maps onto SIMD lanes later. It assumes an
+// updating pass (nfs) on an mk1; anything else keeps the transcription.
+// Checked against it by tools/native-engine pcm_voice_equivalence_test.cpp.
+
+namespace
+{
+// PCM_ReadROM's bank decode as a table. Absent banks read one zero byte
+// through a zero mask, so every address resolves without a branch.
+struct PCMWaveBank { const uint8_t* data; uint32_t mask; };
+struct PCMWaveBanks { PCMWaveBank bank[8]; unsigned shift; };
+
+const uint8_t pcm_absent_bank = 0;
+
+PCMWaveBanks PCM_ResolveWaveBanks(const pcm_t& pcm) noexcept
+{
+    PCMWaveBanks banks{};
+    banks.shift = (pcm.config_reg_3d & 0x20) ? 21 : 19;
+    for (auto& bank : banks.bank) bank = {&pcm_absent_bank, 0};
+    banks.bank[0] = {pcm.waverom1, pcm.is_mk1 ? 0xfffffu : 0x1fffffu};
+    banks.bank[1] = {pcm.waverom2, pcm.is_jv880 ? 0x1fffffu : 0xfffffu};
+    banks.bank[2] = pcm.is_jv880 ? PCMWaveBank{pcm.waverom_card, 0x1fffff} : PCMWaveBank{pcm.waverom3, 0xfffff};
+    if (pcm.is_jv880)
+        for (unsigned bank = 3; bank <= 6; ++bank)
+            banks.bank[bank] = {pcm.waverom_exp + (bank - 3) * 0x200000, 0x1fffff};
+    return banks;
+}
+
+inline int PCM_ReadWave(const PCMWaveBanks& banks, uint32_t address) noexcept
+{
+    const PCMWaveBank& bank = banks.bank[(address >> banks.shift) & 7];
+    return bank.data[address & bank.mask];
+}
+
+// calc_tv's speed decode for an updating pass. The speed byte alone selects
+// the counter bits, the write cadence, the curve and its shift.
+struct PCMRampSpeed { uint8_t clock; bool linear; uint8_t shift; int32_t step; };
+
+constexpr std::array<PCMRampSpeed, 256> PCM_RampSpeeds() noexcept
+{
+    std::array<PCMRampSpeed, 256> speeds{};
+    for (int speed = 0; speed < 256; ++speed) {
+        const bool w1 = (speed & 0xf0) == 0;
+        const bool w2 = w1 || (speed & 0x10) != 0;
+        const bool w3 = (speed & 0x80) == 0 || ((speed & 0x40) == 0 && (!w2 || (speed & 0x20) == 0));
+        const bool everyFrame = (speed & 0x80) == 0 || (speed & 0x40) == 0;
+        auto& entry = speeds[size_t(speed)];
+        entry.clock = uint8_t(everyFrame ? 4 : (int(w2) | ((speed & 0x20) ? 2 : 0)));
+        entry.linear = w3;
+        entry.shift = uint8_t(w3 ? (10 - (((speed >> 4) & 14) | int(w2))) & 15 : (10 - (speed & 15)) & 15);
+        entry.step = ((speed & 15) << 9) | (w1 ? 0 : 0x2000);
+    }
+    return speeds;
+}
+constexpr auto pcm_ramp_speeds = PCM_RampSpeeds();
+
+// The counter bits every ramp of this pass reads, gathered once instead of
+// per ramp: four reversed nibbles plus the every-frame one, and whether a
+// slowed ramp writes back on this pass.
+struct PCMRampClock { int32_t addlow[5]; bool write[5]; };
+
+PCMRampClock PCM_RampClock(uint16_t counter) noexcept
+{
+    const auto reversed = [](unsigned nibble) {
+        return int32_t(((nibble & 1) << 3) | ((nibble & 2) << 1) | ((nibble & 4) >> 1) | ((nibble & 8) >> 3));
+    };
+    PCMRampClock clock{};
+    constexpr unsigned shifts[5]{2, 4, 6, 8, 0}, masks[4]{3, 15, 63, 127};
+    for (unsigned i = 0; i < 5; ++i) clock.addlow[i] = reversed((counter >> shifts[i]) & 15);
+    for (unsigned i = 0; i < 4; ++i) clock.write[i] = (counter & masks[i]) == 0;
+    clock.write[4] = true;
+    return clock;
+}
+
+// calc_tv on an updating pass. useLevel is false only for an idle cutoff,
+// which then depends on its command alone. Returns the gain readback; holdTarget
+// selects the second gain's readback of a linear ramp that reached its target.
+inline int32_t PCM_StepRamp(const PCMRampClock& clock, uint16_t adjust, uint16_t& levelcur,
+    bool useLevel, bool active, bool holdTarget) noexcept
+{
+    const int32_t level = levelcur & 0x7fff;
+    const PCMRampSpeed& speed = pcm_ramp_speeds[adjust & 0xff];
+    const int32_t target = (adjust >> 8) & 0xff;
+    const int32_t addlow = clock.addlow[speed.clock];
+    const bool write = !active | clock.write[speed.clock];
+    const int32_t target11 = target << 11;
+    const int32_t current = useLevel ? level << 4 : 0;
+    const int32_t sum1 = target11 - current;
+
+    const int32_t exponential = (target11 + addlow + ((sum1 >> speed.shift) - sum1)) >> 4;
+
+    const bool negative = (sum1 & 0x80000) != 0;
+    const int32_t step = negative ? speed.step ^ ~0x3f : speed.step;
+    const int32_t linear = ((step >> speed.shift) + (useLevel ? (current | addlow) : 0)) >> 4;
+    const bool crossed = ((target11 - (linear << 4)) & 0x80000) != 0;
+    const bool approaching = crossed == negative;
+
+    const int32_t linearLevel = approaching ? linear & 0x7fff : target << 7;
+    const int32_t next = speed.linear ? linearLevel : exponential & 0x7fff;
+    levelcur = uint16_t(write ? next : level);
+
+    const int32_t linearGain = (holdTarget & !approaching) ? target << 7 : linear & 0x7ffe;
+    return speed.linear ? linearGain : exponential & 0x7ffe;
+}
+
+// One voice's additions to the four buses, as addclip20 terms (sign-extended
+// 20 bit value plus carry). The buses wrap at 20 bits, so terms can be summed
+// in any order; only the stored representation of the last additions differs.
+struct PCMVoiceTerms { int32_t left, right, reverb, chorus; bool irq; };
+
+inline int32_t PCM_Term(int32_t value, int shift) noexcept
+{
+    return sx20(value >> shift) + ((value >> (shift - 1)) & 1);
+}
+
+inline int32_t PCM_Wrap20(int32_t value) noexcept
+{
+    return int32_t(uint32_t(value) << 12) >> 12;
+}
+
+// A data-dependent choice as a mask (or a conditional select): never a jump.
+inline int32_t PCM_Select(bool condition, int32_t whenTrue, int32_t whenFalse) noexcept
+{
+    const int32_t mask = -int32_t(condition);
+    return (whenTrue & mask) | (whenFalse & ~mask);
+}
+
+// A keyed slot on an updating mk1 pass: PCM_RenderIntegerVoice with key set.
+PCMVoiceTerms PCM_RenderKeyedVoice(uint32_t* ram1, uint16_t* ram2, uint16_t phaseIncrement,
+    const PCMWaveBanks& banks, const PCMRampClock& clock) noexcept
+{
+    const unsigned control = ram2[7];
+    const bool active = (control & 0x20) != 0; // key latched on a previous pass
+    const bool kon = !active;
+    const bool b6 = (control & 0x40) != 0;     // ping-pong
+    const bool b7 = (control & 0x80) != 0;     // stored backwards
+    const uint32_t hiaddr = ((control >> 8) & 15) << 20;
+    const int old_nibble = (control >> 12) & 15;
+    const bool b15 = (ram2[8] & 0x8000) != 0;  // ping-pong currently returning
+
+    const int address = int(ram1[4]);
+    const int address_end = int(ram1[0]);
+    const int address_loop = int(ram1[2]);
+
+    // Block exponent: the nibble of this or the following 16-sample block.
+    const int boundary = b15 ? address_loop : address_end;
+    const bool nibble_cmp1 = ((boundary ^ address) & 0xffff0) == 0;
+    const int irqSum = kon ? boundary + address_loop : address + ((-address_loop) & 0xfffff);
+    const bool irq_flag = ((irqSum & 0x100000) != 0) ^ b7;
+
+    const int nibble_address = (!b6 & nibble_cmp1) ? address_loop : address;
+    const bool address_b4 = (nibble_address & 0x10) != 0;
+    const bool xor2 = address_b4 ^ b7;
+    const bool check1 = xor2 & active;
+    const bool xor1 = b15 ^ !nibble_cmp1;
+    const bool nibble_add = b6 ? (check1 & xor1) : (!nibble_cmp1 & check1);
+    const bool nibble_subtract = b6 & !xor1 & active & !xor2;
+    const int nibble_step = int(nibble_add) - int(nibble_subtract);
+    const int wave_address = ((nibble_address >> 5) + (b7 ? -nibble_step : nibble_step)) & 0xfffff;
+    const int packed = PCM_ReadWave(banks, hiaddr | uint32_t(wave_address));
+    const bool newnibble_sel = address_b4 ^ ((b6 | !nibble_cmp1) & active);
+    const int newnibble = (packed >> (newnibble_sel ? 4 : 0)) & 15;
+
+    int sub_phase = ram2[8] & 0x3fff;
+    const int interp_ratio = (sub_phase >> 7) & 127;
+    sub_phase += phaseIncrement;
+    const int whole = (sub_phase >> 14) & 7; // source samples this pass consumes
+    uint16_t phase_word = uint16_t((ram2[8] & ~0x3fff) | (sub_phase & 0x3fff));
+
+    // The read position, four samples ahead. Each step lands on the loop
+    // start at a non-ping-pong boundary, stands still at a ping-pong turn.
+    bool returning = b15;
+    const auto walk = [&](int position) {
+        const int limit = returning ? address_loop : address_end;
+        const bool at = ((limit ^ position) & 0xfffff) == 0;
+        const bool add = !at & (!b6 | !returning);
+        const bool sub = !at & b6 & returning;
+        const int step = int(add) - int(sub);
+        returning = b6 & (returning ^ at);
+        return (((!b6 & at) ? address_loop : position) + (b7 ? -step : step)) & 0xfffff;
+    };
+    const auto sameBlock = [&](int position) { return ((address ^ position) & 0xffff0) == 0; };
+
+    const int a0 = address;
+    const int a1 = walk(a0);
+    const bool r1 = returning;
+    const int a2 = walk(a1);
+    const bool r2 = returning;
+    const int a3 = walk(a2);
+    const bool r3 = returning;
+    const int a4 = walk(a3);
+
+    const int samp0 = int8_t(PCM_ReadWave(banks, hiaddr | uint32_t(a0)));
+    const int samp1 = int8_t(PCM_ReadWave(banks, hiaddr | uint32_t(a1)));
+    const int samp2 = int8_t(PCM_ReadWave(banks, hiaddr | uint32_t(a2)));
+    const int samp3 = int8_t(PCM_ReadWave(banks, hiaddr | uint32_t(a3)));
+    const bool nibble_cmp3 = sameBlock(a1), nibble_cmp4 = sameBlock(a2);
+    const bool nibble_cmp5 = sameBlock(a3), nibble_cmp6 = sameBlock(a4);
+
+    // Keep the step the phase reached. Mask selects, not a ternary chain:
+    // the compiler lowers that to a branch tree, and `whole` alternates
+    // unpredictably between 0 and 1 at ordinary pitches.
+    const bool reached1 = whole >= 1, reached2 = whole >= 2, reached3 = whole >= 3, reached4 = whole >= 4;
+    int next_address = a0;
+    next_address = PCM_Select(reached1, a1, next_address);
+    next_address = PCM_Select(reached2, a2, next_address);
+    next_address = PCM_Select(reached3, a3, next_address);
+    next_address = PCM_Select(reached4, a4, next_address);
+    const bool usenew = (reached1 & !reached2 & !nibble_cmp3) | (reached2 & !reached3 & !nibble_cmp4)
+        | (reached3 & !reached4 & !nibble_cmp5) | (reached4 & !nibble_cmp6);
+    const bool next_b15 = (!reached1 & b15) | (reached1 & !reached2 & r1) | (reached2 & !reached3 & r2) | (reached3 & r3);
+
+    phase_word = uint16_t((phase_word & ~0x8000) | (next_b15 << 15));
+    ram1[4] = uint32_t(PCM_Select(active, next_address, int(ram1[4])));
+
+    // Differential decode: each consumed delta scaled by its block exponent.
+    // The first sample is always in the current block.
+    const int shift0 = (10 - old_nibble) & 15;
+    const int shift1 = (10 - (nibble_cmp3 ? old_nibble : newnibble)) & 15;
+    const int shift2 = (10 - (nibble_cmp4 ? old_nibble : newnibble)) & 15;
+    const int shift3 = (10 - (nibble_cmp5 ? old_nibble : newnibble)) & 15;
+    const int delta0 = ((samp0 << 10) << 1) >> shift0;
+    const int delta1 = ((samp1 << 10) << 1) >> shift1;
+    const int delta2 = ((samp2 << 10) << 1) >> shift2;
+    const int delta3 = ((samp3 << 10) << 1) >> shift3;
+
+    // All four running sums, then the one the phase reached. An unconsumed
+    // step must leave the stored word untouched (not merely sign-extended).
+    const int sum0 = int(ram1[5]);
+    const int sum1 = addclip20(sum0, delta0 >> 1, delta0 & 1);
+    const int sum2 = addclip20(sum1, delta1 >> 1, delta1 & 1);
+    const int sum3 = addclip20(sum2, delta2 >> 1, delta2 & 1);
+    const int sum4 = addclip20(sum3, delta3 >> 1, delta3 & 1);
+    int reference = sum0;
+    reference = PCM_Select(reached1, sum1, reference);
+    reference = PCM_Select(reached2, sum2, reference);
+    reference = PCM_Select(reached3, sum3, reference);
+    reference = PCM_Select(reached4, sum4, reference);
+
+    // Interpolation from the running sum and the next three deltas.
+    int step0 = multi(interp_lut[0][interp_ratio] << 6, int8_t(samp0)) >> 8;
+    int step1 = multi(interp_lut[1][interp_ratio] << 6, int8_t(samp1)) >> 8;
+    int step2 = multi(interp_lut[2][interp_ratio] << 6, int8_t(samp2)) >> 8;
+    step0 = (step0 << 1) >> shift0;
+    step1 = (step1 << 1) >> shift1;
+    step2 = (step2 << 1) >> shift2;
+    int test = int(ram1[5]);
+    test = addclip20(test, step0 >> 1, step0 & 1);
+    test = addclip20(test, step1 >> 1, step1 & 1);
+    test = addclip20(test, step2 >> 1, step2 & 1);
+
+    // State variable filter (mk1 arithmetic).
+    const int reg1 = int(ram1[1]);
+    const int reg3 = int(ram1[3]);
+    const int resonance = (ram2[6] >> 8) & 127;
+    const int filter = ram2[11];
+    const int mult1 = multi(reg1, int8_t(filter >> 8));
+    const int mult2 = multi(reg1, int8_t((filter >> 1) & 127));
+    const int mult3 = multi(reg1, int8_t(resonance));
+    const int v2 = addclip20(reg3, mult1 >> 6, (mult1 >> 5) & 1);
+    const int v1 = addclip20(v2, mult2 >> 13, (mult2 >> 12) & 1);
+    const int subvar = addclip20(v1, mult3 >> 6, (mult3 >> 5) & 1);
+    const int v3 = addclip20(test, subvar ^ 0xfffff, 1);
+    const int mult4 = multi(v3, int8_t(filter >> 8));
+    const int mult5 = multi(v3, int8_t((filter >> 1) & 127));
+    const int v4 = addclip20(reg1, mult4 >> 6, (mult4 >> 5) & 1);
+    const int v5 = addclip20(v4, mult5 >> 13, (mult5 >> 12) & 1);
+
+    const bool irq = active & ((ram2[6] & 1) != 0) & ((phase_word & 0x4000) == 0) & irq_flag;
+
+    const int volmul1 = PCM_StepRamp(clock, ram2[3], ram2[9], true, active, false);
+    const int volmul2 = PCM_StepRamp(clock, ram2[4], ram2[10], true, active, true);
+    PCM_StepRamp(clock, ram2[5], ram2[11], active, active, false);
+
+    const int sample = (ram2[6] & 2) == 0 ? v1 : v3;
+    const int multiv1 = multi(sample, int8_t(volmul1 >> 8));
+    const int multiv2 = multi(sample, int8_t((volmul1 >> 1) & 127));
+    const int sample2 = addclip20(multiv1 >> 6, multiv2 >> 13, ((multiv2 >> 12) | (multiv1 >> 5)) & 1);
+    const int multiv3 = multi(sample2, int8_t(volmul2 >> 8));
+    const int multiv4 = multi(sample2, int8_t((volmul2 >> 1) & 127));
+    const int sample3 = addclip20(multiv3 >> 6, multiv4 >> 13, ((multiv4 >> 12) | (multiv3 >> 5)) & 1);
+
+    const int on = -int(active); // all ones while the key is latched
+    const int pan = ram2[1] & on;
+    const int rc = ram2[2] & on;
+    const int sampl = multi(sample3, int8_t((pan >> 8) & 255));
+    const int sampr = multi(sample3, int8_t(pan & 255));
+    const int rc0 = multi(sample3, int8_t((rc >> 8) & 255)) >> 5;
+    const int rc1 = multi(sample3, int8_t(rc & 255)) >> 5;
+
+    // Key latch and exponent; a key-on pass leaves no signal history behind.
+    ram2[7] = uint16_t((control & ~0xf020u) | (unsigned(PCM_Select(usenew | kon, newnibble, old_nibble)) << 12) | 0x20u);
+    ram1[1] = uint32_t(v5 & on);
+    ram1[3] = uint32_t(v1 & on);
+    ram1[5] = uint32_t(reference & on);
+    ram2[8] = uint16_t(phase_word & on);
+    ram2[9] = uint16_t(ram2[9] & on);
+    ram2[10] = uint16_t(ram2[10] & on);
+
+    return {PCM_Term(sampl, 6), PCM_Term(sampr, 6), PCM_Term(rc0, 1), PCM_Term(rc1, 1), irq};
+}
+
+// A slot without a key: silent, history cleared, and only the cutoff ramp
+// moves -- toward its target from zero, so it depends on the command alone.
+inline void PCM_RenderIdleSlot(uint32_t* ram1, uint16_t* ram2, const PCMRampClock& clock) noexcept
+{
+    PCM_StepRamp(clock, ram2[5], ram2[11], false, false, false);
+    ram1[1] = ram1[3] = ram1[5] = 0;
+    ram2[8] = ram2[9] = ram2[10] = 0;
+}
+}
+
+// The voice pass of PCM_Update for count >= 3 slots. Effects returns join
+// the buses at fixed slots (rcadd); since the buses wrap, they are added to
+// the totals, and only the final stores reproduce the transcription's order.
+static void PCM_RenderVoicesBranchless(pcm_t& pcm, unsigned count, uint32_t voice_active,
+    const int rcadd[6], const int rcadd2[6]) noexcept
+{
+    const PCMWaveBanks banks = PCM_ResolveWaveBanks(pcm);
+    const PCMRampClock clock = PCM_RampClock(pcm.tv_counter);
+    const bool native = pcm.native_voice_count != 0;
+
+    uint8_t keyed[128], idle[128];
+    unsigned keyedCount = 0, idleCount = 0;
+    for (unsigned slot = 0; slot < count; ++slot) {
+        const bool key = native ? pcm.native_keys.contains(slot) : ((voice_active >> slot) & 1) != 0;
+        keyed[keyedCount] = idle[idleCount] = uint8_t(slot);
+        keyedCount += key;
+        idleCount += !key;
+    }
+
+    for (unsigned i = 0; i < idleCount; ++i)
+        PCM_RenderIdleSlot(pcm.voiceRam1(idle[i]), pcm.voiceRam2(idle[i]), clock);
+
+    const unsigned penultimate = count - 2, last = count - 1;
+    int32_t left = 0, right = 0, reverb = 0, chorus = 0;
+    int32_t leftPenultimate = 0, leftLast = 0, rightLast = 0, reverbLast = 0, chorusLast = 0;
+    bool irqAsserted = pcm.irq_assert;
+    uint8_t irqChannel = pcm.irq_channel;
+    for (unsigned i = 0; i < keyedCount; ++i) {
+        const unsigned slot = keyed[i];
+        uint16_t* ram2 = pcm.voiceRam2(slot);
+        const uint16_t increment = native ? pcm.voiceRam2(pcm.native_pitch_source[slot])[0]
+            : pcm.ram2[ram2[7] & 31][0];
+        const PCMVoiceTerms terms = PCM_RenderKeyedVoice(pcm.voiceRam1(slot), ram2, increment, banks, clock);
+        left += terms.left; right += terms.right; reverb += terms.reverb; chorus += terms.chorus;
+        leftPenultimate = slot == penultimate ? terms.left : leftPenultimate;
+        leftLast = slot == last ? terms.left : leftLast;
+        rightLast = slot == last ? terms.right : rightLast;
+        reverbLast = slot == last ? terms.reverb : reverbLast;
+        chorusLast = slot == last ? terms.chorus : chorusLast;
+        // The first voice to raise its loop IRQ on this pass takes the line.
+        const bool take = terms.irq & !irqAsserted;
+        ram2[8] = uint16_t(ram2[8] | (take << 14));
+        irqChannel = take ? uint8_t(slot) : irqChannel;
+        irqAsserted |= take;
+    }
+
+    // Effects returns at slots 17/18/21/22/23 (after slots 16/17/20/21/22,
+    // when those are not the last) and 31 (the last slot).
+    const auto at = [&](unsigned slot, int value) { return slot <= penultimate ? PCM_Term(value, 1) : 0; };
+    const int32_t leftReturn = at(16, rcadd[0]) + at(20, rcadd[2]) + at(22, rcadd[4]);
+    const int32_t rightReturn = at(17, rcadd[1]) + at(21, rcadd[3]);
+    const int32_t rightFinal = PCM_Term(rcadd[5], 1);
+    const int32_t reverbReturn = at(20, rcadd2[2]) + at(22, rcadd2[4]);
+    const int32_t chorusReturn = at(16, rcadd2[0]) + at(17, rcadd2[1]) + at(21, rcadd2[3]) + PCM_Term(rcadd2[5], 1);
+
+    // The last stores of the transcription: left after the penultimate slot,
+    // right after the last slot's return, accumulators after the last slot.
+    const int32_t leftStored = PCM_Wrap20(left - leftPenultimate - leftLast + leftReturn) + leftPenultimate;
+    const int32_t rightStored = PCM_Wrap20(right - rightLast + rightReturn) + rightFinal;
+    pcm.ram1[31][1] = uint32_t(leftStored);
+    pcm.ram1[31][3] = uint32_t(rightStored);
+    pcm.accum_l = PCM_Wrap20(leftStored) + leftLast;
+    pcm.accum_r = PCM_Wrap20(rightStored) + rightLast;
+    pcm.rcsum[0] = PCM_Wrap20(reverb - reverbLast + reverbReturn) + reverbLast;
+    pcm.rcsum[1] = PCM_Wrap20(chorus - chorusLast + chorusReturn) + chorusLast;
+
+    if (irqAsserted && !pcm.irq_assert) {
+        pcm.irq_assert = true;
+        pcm.irq_channel = irqChannel;
+        pcm.postIrq(true);
+    }
+}
+
 void PCM_Update(pcm_t& pcm, uint64_t cycles, bool stopOnInterrupt)
 {
     if(pcm.native_signal) {
@@ -2235,11 +2625,15 @@ void PCM_Update(pcm_t& pcm, uint64_t cycles, bool stopOnInterrupt)
         pcm.rcsum[0] = 0;
         pcm.rcsum[1] = 0;
 
+        const unsigned voiceCount=pcm.native_voice_count ? pcm.native_voice_count : pcm.config.reg_slots;
         if (pcm.use_simulation)
             PCM_UpdateVoicesSimulated(pcm, rcadd, rcadd2);
+        // Hardware slot 31 would alias the bus row itself; keep the transcription.
+        else if (!pcm.reference_voice_renderer && pcm.skip_inactive_voices && pcm.is_mk1 && pcm.nfs
+            && voiceCount >= 3 && (pcm.native_voice_count || voiceCount <= 31))
+            PCM_RenderVoicesBranchless(pcm, voiceCount, voice_active, rcadd, rcadd2);
         else
         {
-        const auto voiceCount=pcm.native_voice_count ? pcm.native_voice_count : pcm.config.reg_slots;
         for (unsigned slot = 0; slot < voiceCount; ++slot)
             PCM_RenderIntegerVoice(pcm, pcm.voiceRam1(slot), pcm.voiceRam2(slot),
                 pcm.native_voice_count ? pcm.voiceRam2(pcm.native_pitch_source[slot])[0]
