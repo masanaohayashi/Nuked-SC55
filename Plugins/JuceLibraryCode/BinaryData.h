@@ -36,7 +36,7 @@ namespace BinaryData
     const int            GSButton_pngSize = 6083;
 
     extern const char*   Icon_png;
-    const int            Icon_pngSize = 65121;
+    const int            Icon_pngSize = 467471;
 
     extern const char*   IncButton_down_png;
     const int            IncButton_down_pngSize = 4765;

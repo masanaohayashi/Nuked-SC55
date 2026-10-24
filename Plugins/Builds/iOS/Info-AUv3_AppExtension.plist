@@ -48,8 +48,6 @@
       <string>com.apple.AudioUnit-UI</string>
       <key>NSExtensionAttributes</key>
       <dict>
-        <key>AudioComponentBundle</key>
-        <string/>
         <key>AudioComponents</key>
         <array>
           <dict>
