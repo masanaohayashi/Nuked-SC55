@@ -1,5 +1,5 @@
 #include "sc55_patch.h"
-#include "sha256.h"
+#include "sc55_sha256.h"
 
 #include <algorithm>
 #include <cstring>
@@ -61,13 +61,7 @@ bool SC55PatchTable::load(std::span<const uint8_t> rom)
     // from a patch. Apply the verified boundary only to this exact ROM image.
     if (rom.size() == 0x40000)
     {
-        SHA256Context context;
-        SHA256_Digest digest{};
-        if (SHA256Reset(&context) != shaSuccess
-            || SHA256Input(&context, rom.data(), unsigned(rom.size())) != shaSuccess
-            || SHA256Result(&context, digest.data()) != shaSuccess)
-            return false;
-        if (digest == SHA256_ToDigest("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1"))
+        if (sc55::sha256(rom) == sc55::sha256Hex("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1"))
             return loadRecords(rom, 0x10000, 224);
     }
 

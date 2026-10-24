@@ -19,7 +19,7 @@
 
 #include "StereoDipole.h"
 #include "MidiFilePlayer.h"
-#include "NukedSC55Emulator.h"
+#include "GS55Engine.h"
 
 #if JUCE_STANDALONE_APPLICATION
 class WrdDisplayWindow;
@@ -38,7 +38,7 @@ public:
         double sampleRate = 0.0;
         juce::String romDirectory;
         juce::String error;
-        NukedSC55Emulator::DebugState emulator;
+        GS55Engine::DebugState engine;
         bool hasNativeState = false;
         sc55::SynthState nativeState;
     };
@@ -104,10 +104,6 @@ public:
     /** Selects one of the ROM folders returned by getStoredRomNames(). */
     bool selectStoredRom (const juce::String& name);
 
-    // Message-thread comparison switch; per instance, not a host parameter.
-    bool setOptimizationEnabled (bool enabled);
-    bool isOptimizationEnabled() const noexcept { return optimizationAvailable && optimizationEnabled; }
-    bool isOptimizationAvailable() const noexcept { return optimizationAvailable; }
     void setDipoleEnabled (bool enabled);
     bool isDipoleEnabled() const noexcept { return dipoleEnabled.load (std::memory_order_relaxed); }
     bool setMaximumVoices (unsigned voices);
@@ -120,7 +116,7 @@ public:
     static juce::File getRomStorageDirectory();
 
     /** Sends one momentary press through the SC-55's physical front-panel matrix. */
-    void pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button);
+    void pressFrontPanelButton (GS55Engine::FrontPanelButton button);
 
     /** Queues the Roland GS reset SysEx used by the SC-55 reset path. */
     void requestGsReset();
@@ -164,10 +160,11 @@ public:
     }
     void resetMaximumProcessLoad() noexcept { processLoadResetRequested.store (true); }
 
-    /** Copies the current SC-55 LCD segment mask into a row-major buffer. */
-    bool copyLcdDisplay (uint8_t* destination, size_t destinationStride,
-                         bool* contentChanged = nullptr, bool* isRasterOverlay = nullptr,
-                         bool forceRasterCopy = false);
+    /** Message thread: the LCD's current contents. */
+    bool getLcdFrame (GS55Engine::LcdFrame& destination) const { return engine.getLcdFrame (destination); }
+    /** Message thread: the private SysEx panel image, when one is shown. */
+    bool copyPanelImage (uint8_t* destination, size_t stride, bool* contentChanged, bool forceCopy) const
+    { return engine.copyPanelRaster (destination, stride, contentChanged, forceCopy); }
 
     /** Returns the immutable WRD data and audio-clock snapshot for the window. */
     WrdDisplayState getWrdDisplayState() const noexcept;
@@ -186,10 +183,7 @@ private:
     void sendResetAllControllers() noexcept;
 
     juce::AudioProcessorValueTreeState parameters;
-    NukedSC55Emulator emulator;
-    bool optimizationEnabled = NukedSC55Emulator::usesNativeEngine (
-        NukedSC55Emulator::EngineMode::environment);
-    bool optimizationAvailable = false; // Updated only when selecting/loading ROMs.
+    GS55Engine engine;
     std::atomic<unsigned> maximumVoices { 24 };
     std::atomic<bool> audioReady { false };
     std::atomic<bool> romSelectionRequested { false };

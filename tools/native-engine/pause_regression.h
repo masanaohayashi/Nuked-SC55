@@ -13,7 +13,7 @@ inline int probePauseRelease (const auto& rom, const auto& encoded)
         rom.waves[0], rom.waves[1],
         rom.waves[2], 24);
 
-    std::array<AudioFrame<int32_t>, 128> audio {};
+    std::array<sc55::Frame, 128> audio {};
     auto render = [&] (uint64_t frameCount)
     {
         while (frameCount > 0)

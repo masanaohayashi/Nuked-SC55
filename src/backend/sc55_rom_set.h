@@ -17,10 +17,7 @@
 #include <system_error>
 #include <vector>
 
-extern "C"
-{
-#include "sha/sha.h"
-}
+#include "sc55_sha256.h"
 
 namespace sc55
 {
@@ -35,36 +32,16 @@ struct RomSet
 
 namespace rom
 {
-using Digest = std::array<uint8_t, 32>;
-
-constexpr Digest digest(const char (&hex)[65])
-{
-    const auto nibble = [](char c) { return uint8_t(c <= '9' ? c - '0' : c - 'a' + 10); };
-    Digest out{};
-    for (std::size_t i = 0; i < out.size(); ++i) out[i] = uint8_t((nibble(hex[2 * i]) << 4) | nibble(hex[2 * i + 1]));
-    return out;
-}
-
 enum class Part { program, programExtra, waveA, waveB, waveC };
 
-struct Known { Digest digest; Part part; };
+struct Known { Sha256 digest; Part part; };
 inline constexpr std::array<Known, 5> v121{{
-    {digest("7e1bacd1d7c62ed66e465ba05597dcd60dfc13fc23de0287fdbce6cf906c6544"), Part::program},
-    {digest("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1"), Part::programExtra},
-    {digest("5655509a531804f97ea2d7ef05b8fec20ebf46216b389a84c44169257a4d2007"), Part::waveA},
-    {digest("c655b159792d999b90df9e4fa782cf56411ba1eaa0bb3ac2bdaf09e1391006b1"), Part::waveB},
-    {digest("334b2d16be3c2362210fdbec1c866ad58badeb0f84fd9bf5d0ac599baf077cc2"), Part::waveC},
+    {sha256Hex("7e1bacd1d7c62ed66e465ba05597dcd60dfc13fc23de0287fdbce6cf906c6544"), Part::program},
+    {sha256Hex("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1"), Part::programExtra},
+    {sha256Hex("5655509a531804f97ea2d7ef05b8fec20ebf46216b389a84c44169257a4d2007"), Part::waveA},
+    {sha256Hex("c655b159792d999b90df9e4fa782cf56411ba1eaa0bb3ac2bdaf09e1391006b1"), Part::waveB},
+    {sha256Hex("334b2d16be3c2362210fdbec1c866ad58badeb0f84fd9bf5d0ac599baf077cc2"), Part::waveC},
 }};
-
-inline Digest sha256(std::span<const uint8_t> bytes)
-{
-    SHA256Context context;
-    SHA256Reset(&context);
-    SHA256Input(&context, bytes.data(), unsigned(bytes.size()));
-    Digest out{};
-    SHA256Result(&context, out.data());
-    return out;
-}
 
 // Where each ROM line meets the chip: chip address bit n comes from ROM
 // address bit addressLine[n], chip data bit n from ROM data bit dataLine[n].
@@ -111,7 +88,7 @@ inline std::optional<RomSet> LoadRomSet(const std::filesystem::path& directory, 
         if (!entry.is_regular_file(code) || entry.file_size(code) > 4 * RomSet::waveSize) continue;
         auto bytes = rom::readFile(entry.path());
         if (!bytes) continue;
-        const auto hash = rom::sha256(*bytes);
+        const auto hash = sha256(*bytes);
         for (const auto& known : rom::v121)
             if (known.digest == hash) found[std::size_t(known.part)] = std::move(*bytes);
     }

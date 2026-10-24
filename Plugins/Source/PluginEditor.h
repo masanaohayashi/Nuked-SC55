@@ -22,7 +22,7 @@
 //[Headers]     -- You can add your own extra header files here --
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-class LcdDisplay;
+class GS55Lcd;
 class SettingsComponent;
 //[/Headers]
 
@@ -72,7 +72,7 @@ public:
     bool isPointOnScLogo (int x, int y);
     void setSettingsVisible (bool shouldBeVisible);
     void refreshRomChoices();
-    void updateRomLogo (NukedSC55Emulator::RomFamily romFamily);
+    void updateRomLogo (bool romLoaded);
     //[/UserMethods]
 
     void paint (juce::Graphics& g) override;
@@ -87,7 +87,7 @@ private:
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     NukedSC55AudioProcessor& audioProcessor;
-    std::unique_ptr<LcdDisplay> lcdDisplay;
+    std::unique_ptr<GS55Lcd> lcdDisplay;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterVolumeAttachment;
     juce::TextButton previousTrackButton { "|<" }, nextTrackButton { ">|" };
     juce::ComboBox playlistBox;
@@ -100,7 +100,7 @@ private:
     std::unique_ptr<juce::FileChooser> romFileChooser;
     std::unique_ptr<juce::FileChooser> logoFileChooser;
     std::unique_ptr<SettingsComponent> settingsComponent;
-    NukedSC55Emulator::RomFamily displayedRomFamily = NukedSC55Emulator::RomFamily::unknown;
+    bool displayedRomLoaded = false;
     bool romLogoInitialised = false;
     juce::Rectangle<float> cachedSafeEditorBounds;
     //[/UserVariables]

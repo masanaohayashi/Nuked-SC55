@@ -34,7 +34,7 @@ inline int probeSongNotes(const char* path,const auto& rom,const auto& encoded)
         rom.waves[1],rom.waves[2],limit);
     sc55::NativeMelodicPlayer player(data,*tone,sc55::ImportSystemDefaults(r1,r2),
         sc55::ImportRhythmPresets(r1,r2),sc55::ImportMelodicPresets(r1,r2),sc55::ImportEffectsTables(r1,r2));
-    std::array<AudioFrame<int32_t>,128> audio{};
+    std::array<sc55::Frame,128> audio{};
     uint64_t frame=0;
     bool inspectMono=false;
     unsigned monoChecks=0;

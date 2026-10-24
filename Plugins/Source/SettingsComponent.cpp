@@ -103,20 +103,12 @@ SettingsComponent::SettingsComponent ()
 
     sliderVoices->setBounds (120, 112, 208, 24);
 
-    toggleOptimization.reset (new juce::ToggleButton (juce::String()));
-    contentComponent.addAndMakeVisible (toggleOptimization.get());
-    toggleOptimization->setButtonText (TRANS ("OPTIMIZATION"));
-    toggleOptimization->addListener (this);
-    toggleOptimization->setColour (juce::ToggleButton::textColourId, juce::Colour (0x80ffffff));
-
-    toggleOptimization->setBounds (120, 152, 120, 24);
-
     toggleDipole.reset (new juce::ToggleButton (juce::String()));
     contentComponent.addAndMakeVisible (toggleDipole.get());
     toggleDipole->setButtonText (TRANS ("STEREO DIPOLE"));
     toggleDipole->addListener (this);
 
-    toggleDipole->setBounds (248, 152, 128, 24);
+    toggleDipole->setBounds (120, 152, 128, 24);
 
     cachedImage_BinaryData_BackPanel_png_1 = juce::ImageCache::getFromMemory (BinaryData::BackPanel_png, BinaryData::BackPanel_pngSize);
 
@@ -127,10 +119,9 @@ SettingsComponent::SettingsComponent ()
 
 
     //[Constructor] You can add your own custom stuff here..
-    toggleOptimization->setTooltip ("ON: C++ engine. OFF: H8 emulation. Switching resets the sound engine; restart playback from the beginning.");
     sliderVoices->setValue (24, juce::dontSendNotification);
     sliderVoices->setChangeNotificationOnlyOnRelease (true);
-    sliderVoices->setTooltip ("C++ engine polyphony: 24–128 voices. Changing this resets the sound engine; restart playback from the beginning. H8 remains at 24 voices.");
+    sliderVoices->setTooltip ("Polyphony: 24–128 voices. Changing this resets the sound engine; restart playback from the beginning.");
     viewport->setVisible (false);
 
     labelCurrentRomCaption->setColour (juce::Label::textColourId,
@@ -150,7 +141,6 @@ SettingsComponent::~SettingsComponent()
     viewport = nullptr;
     labelVoices = nullptr;
     sliderVoices = nullptr;
-    toggleOptimization = nullptr;
     toggleDipole = nullptr;
 
 
@@ -219,13 +209,6 @@ void SettingsComponent::buttonClicked (juce::Button* buttonThatWasClicked)
         if (onClose)
             onClose();
         //[/UserButtonCode_buttonClose]
-    }
-    else if (buttonThatWasClicked == toggleOptimization.get())
-    {
-        //[UserButtonCode_toggleOptimization] -- add your button handler code here..
-        if (onOptimizationChanged)
-            onOptimizationChanged (toggleOptimization->getToggleState());
-        //[/UserButtonCode_toggleOptimization]
     }
     else if (buttonThatWasClicked == toggleDipole.get())
     {
@@ -410,12 +393,8 @@ BEGIN_JUCER_METADATA
           int="4.0" style="LinearHorizontal" textBoxPos="TextBoxRight"
           textBoxEditable="1" textBoxWidth="80" textBoxHeight="20" skewFactor="1.0"
           needsCallback="1" filmstripImage="" filmstripFrames="1" filmstripVertical="1"/>
-  <TOGGLEBUTTON name="" id="b655948b5f5d1e98" memberName="toggleOptimization"
-                virtualName="" explicitFocusOrder="0" pos="120 152 120 24" txtcol="80ffffff"
-                buttonText="OPTIMIZATION" connectedEdges="0" needsCallback="1"
-                radioGroupId="0" state="0"/>
   <TOGGLEBUTTON name="" id="f17b1e8f1410d83f" memberName="toggleDipole" virtualName=""
-                explicitFocusOrder="0" pos="248 152 128 24" buttonText="STEREO DIPOLE"
+                explicitFocusOrder="0" pos="120 152 128 24" buttonText="STEREO DIPOLE"
                 connectedEdges="0" needsCallback="1" radioGroupId="0" state="0"/>
 </JUCER_COMPONENT>
 

@@ -31,10 +31,10 @@ inline int probeNativeStalls(const auto& rom,const auto& encoded)
     for(unsigned fixture=0;fixture<fixtures.size();++fixture) {
         sc55::NativeSynth synth(encoded,r1,r2,rom.waves[0],
             rom.waves[1],rom.waves[2],capacity);
-        std::array<AudioFrame<int32_t>,257> audio{};
+        std::array<sc55::Frame,257> audio{};
         uint64_t frame=0;
         bool varied=false;
-        std::optional<AudioFrame<int32_t>> previous;
+        std::optional<sc55::Frame> previous;
         auto until=[&](uint64_t end) {
             while(frame<end) {
                 const auto count=std::min<uint64_t>(block,end-frame);

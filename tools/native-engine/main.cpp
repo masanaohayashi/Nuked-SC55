@@ -38,7 +38,7 @@ int main(int argc,char** argv)
             sc55::NativeSynth synth(encoded,rom1,rom2,
                 rom.waves[0],rom.waves[1],
                 rom.waves[2],128);
-            std::array<AudioFrame<int32_t>,257> audio{};
+            std::array<sc55::Frame,257> audio{};
             uint64_t frame=0;unsigned maximum=0;
             auto renderUntil=[&](uint64_t until) {
                 while(frame<until) {
@@ -70,7 +70,7 @@ int main(int argc,char** argv)
                 rom.waves[2],limit); };
             for(unsigned program=0;program<128;++program) {
             auto baseline=make(24),expanded=make(128);
-            std::array<AudioFrame<int32_t>,257> a{},b{};
+            std::array<sc55::Frame,257> a{},b{};
             auto render=[&] { baseline->render(a);expanded->render(b); };
             for(unsigned ch=1;ch<=8;++ch) {
                 const uint8_t setup[]{uint8_t(0xc0|ch),16,uint8_t(0xb0|ch),7,0,91,0,93,0};
@@ -110,7 +110,7 @@ int main(int argc,char** argv)
                 rom.waves[0],rom.waves[1],
                 rom.waves[2],limit); };
             auto baseline=make(24), expanded=make(128);
-            std::array<AudioFrame<int32_t>,257> a{},b{};
+            std::array<sc55::Frame,257> a{},b{};
             for(unsigned program=0;program<128;++program) {
                 const uint8_t reset[]{0xf0,0x7e,0x7f,0x09,0x01,0xf7};
                 baseline->push(reset); expanded->push(reset);
@@ -170,7 +170,7 @@ int main(int argc,char** argv)
                 sc55::NativeSynth poly(encoded,rom1,rom2,
                     rom.waves[0],rom.waves[1],
                     rom.waves[2],limit);
-                std::array<AudioFrame<int32_t>,257> audio{};
+                std::array<sc55::Frame,257> audio{};
                 auto render=[&] { poly.render(audio); if(poly.failed()) throw std::runtime_error("Polyphony engine failed"); };
                 for(unsigned i=0;i<16;++i) render();
                 for(unsigned ch=0;ch<9;++ch) {
@@ -245,7 +245,7 @@ int main(int argc,char** argv)
         sc55::NativeSynth synth(encoded,rom1,rom2,
             rom.waves[0],rom.waves[1],
             rom.waves[2]);
-        std::array<AudioFrame<int32_t>,257> frames{};
+        std::array<sc55::Frame,257> frames{};
         uint64_t checksum=14695981039346656037ull,nonzero=0;
         for(unsigned block=0;block<128;++block) {
             if(block==64 || block==96) {

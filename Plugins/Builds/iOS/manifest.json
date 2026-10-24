@@ -93,7 +93,6 @@
     "../3rdparty/JUCE/modules",
     "../3rdparty/R2JUCE/modules",
     "../src/backend",
-    "../src/common",
     "../3rdparty/Utf8Main",
     "../3rdparty/JUCE/modules/juce_audio_plugin_client/AU"
   ],
@@ -122,7 +121,7 @@
       "language": "c++"
     },
     {
-      "file": "Source/NukedSC55Emulator.cpp",
+      "file": "Source/GS55Engine.cpp",
       "language": "c++"
     },
     {
@@ -138,76 +137,12 @@
       "language": "c++"
     },
     {
-      "file": "../src/backend/diagnostics.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/emu.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/file_hashing.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/file_io.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/lcd.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/mcu_interrupt.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/mcu_opcodes.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/mcu_timer.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/mcu.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/pcm.cpp",
-      "language": "c++"
-    },
-    {
       "file": "../src/backend/sc55_patch.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/pcm_sim.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/rom.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/rom_io.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/standard_romsets.cpp",
-      "language": "c++"
-    },
-    {
-      "file": "../src/backend/submcu.cpp",
       "language": "c++"
     },
     {
       "file": "../src/backend/sha/sha224-256.c",
       "language": "c"
-    },
-    {
-      "file": "../src/common/rom_loader.cpp",
-      "language": "c++"
     },
     {
       "file": "JuceLibraryCode/BinaryData.cpp",

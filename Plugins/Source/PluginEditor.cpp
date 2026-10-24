@@ -22,8 +22,7 @@
 #include <functional>
 #include <utility>
 #include "BinaryData.h"
-#include "SC55Lcd.h"
-#include "SC55LcdRenderer.h"
+#include "GS55Lcd.h"
 #include "SC55Debug.h"
 #include "SettingsComponent.h"
 #if JUCE_STANDALONE_APPLICATION
@@ -35,138 +34,6 @@
 
 
 //[MiscUserDefs] You can add your own user definitions and misc code here...
-class LcdDisplay final : public juce::Component,
-                         private juce::Timer
-{
-public:
-    explicit LcdDisplay (NukedSC55AudioProcessor& processorToUse,
-                         std::function<void()> refreshCallbackToUse = {})
-        : processor (processorToUse),
-          refreshCallback (std::move (refreshCallbackToUse)),
-          background (juce::Image::RGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, false),
-          noRomBackground (juce::Image::RGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, false),
-          glyphLayer (juce::Image::ARGB, LCD_DISPLAY_WIDTH, LCD_DISPLAY_HEIGHT, true)
-    {
-        setOpaque (true);
-        loadBackground();
-        refreshDisplay();
-        startTimerHz (30);
-    }
-
-    ~LcdDisplay() override
-    {
-        stopTimer();
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        g.fillAll (romLoaded ? juce::Colour (0xffff6f0f)
-                            : juce::Colour (0xff707070));
-        renderer.paint (g, getLocalBounds().toFloat());
-    }
-
-private:
-    void timerCallback() override
-    {
-        refreshDisplay();
-    }
-
-    void loadBackground()
-    {
-        const auto* source = reinterpret_cast<const uint8_t*> (BinaryData::back_data);
-        if (source == nullptr
-            || BinaryData::back_dataSize < LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT * 4)
-        {
-            background.clear (background.getBounds(), juce::Colour (0xffff6f0f));
-            noRomBackground.clear (noRomBackground.getBounds(), juce::Colour (0xff707070));
-            return;
-        }
-
-        juce::Image::BitmapData pixels (background,
-                                       juce::Image::BitmapData::writeOnly);
-        juce::Image::BitmapData noRomPixels (noRomBackground,
-                                            juce::Image::BitmapData::writeOnly);
-        for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
-        {
-            for (int x = 0; x < LCD_DISPLAY_WIDTH; ++x)
-            {
-                const auto offset = (y * LCD_DISPLAY_WIDTH + x) * 4;
-                const auto colour = juce::Colour::fromRGBA (
-                    source[offset + 0], source[offset + 1],
-                    source[offset + 2], source[offset + 3]);
-                pixels.setPixelColour (x, y, colour);
-                noRomPixels.setPixelColour (x, y,
-                                            colour == juce::Colour (0xffff6f0f)
-                                                ? juce::Colour (0xff707070)
-                                                : colour);
-            }
-        }
-    }
-
-    void refreshDisplay()
-    {
-        const auto previousRomLoaded = romLoaded;
-        romLoaded = processor.getUiStatus().audioReady;
-        bool contentChanged = true;
-        bool isRasterOverlay = false;
-        displayEnabled = processor.copyLcdDisplay (displayMask.data(), LCD_DISPLAY_WIDTH,
-                                                   &contentChanged, &isRasterOverlay,
-                                                   ! rasterCached);
-        // A committed SysEx raster is immutable until the next COMMIT/CLEAR.
-        // Avoid decoding and compositing its 198K pixels on every UI timer tick.
-        if (displayEnabled && isRasterOverlay)
-        {
-            if (rasterCached && ! contentChanged && previousRomLoaded == romLoaded)
-            {
-                if (refreshCallback)
-                    refreshCallback();
-                return;
-            }
-            rasterCached = true;
-        }
-        else
-            rasterCached = false;
-
-        {
-            juce::Image::BitmapData pixels (glyphLayer,
-                                           juce::Image::BitmapData::writeOnly);
-            for (int y = 0; y < LCD_DISPLAY_HEIGHT; ++y)
-            {
-                for (int x = 0; x < LCD_DISPLAY_WIDTH; ++x)
-                {
-                    const auto value = displayMask[static_cast<size_t> (y)
-                                                   * LCD_DISPLAY_WIDTH + x];
-                    const auto colour = value == 1
-                                      ? juce::Colours::black
-                                      : value == 2
-                                        ? juce::Colour (0xffc85000)
-                                        : value == 3
-                                          ? juce::Colours::white
-                                          : juce::Colours::transparentBlack;
-                    pixels.setPixelColour (x, y, colour);
-                }
-            }
-        }
-
-        renderer.setFrame (romLoaded ? background : noRomBackground,
-                           glyphLayer, displayEnabled);
-        repaint();
-        if (refreshCallback)
-            refreshCallback();
-    }
-
-    NukedSC55AudioProcessor& processor;
-    std::function<void()> refreshCallback;
-    juce::Image background;
-    juce::Image noRomBackground;
-    juce::Image glyphLayer;
-    SC55LcdRenderer renderer;
-    std::array<uint8_t, LCD_DISPLAY_WIDTH * LCD_DISPLAY_HEIGHT> displayMask {};
-    bool romLoaded = false;
-    bool displayEnabled = false;
-    bool rasterCached = false;
-};
-
 namespace
 {
 constexpr const char* makerLogoFileName = "MakerLogo.png";
@@ -737,8 +604,12 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     if (auto* constrainer = getConstrainer())
         constrainer->setFixedAspectRatio (editorDesignWidth / editorDesignHeight);
 #endif
-    lcdDisplay.reset (new LcdDisplay (audioProcessor,
-                                      [this] { syncFrontPanelIndicators(); }));
+    lcdDisplay.reset (new GS55Lcd ({
+        [this] (GS55Engine::LcdFrame& frame) { return audioProcessor.getLcdFrame (frame); },
+        [this] (uint8_t* pixels, size_t stride, bool* changed, bool force)
+            { return audioProcessor.copyPanelImage (pixels, stride, changed, force); },
+        [this] { return audioProcessor.getUiStatus().audioReady; },
+        [this] { syncFrontPanelIndicators(); } }));
     lcd->addAndMakeVisible (lcdDisplay.get());
     lcdDisplay->setBounds (lcd->getLocalBounds());
     setMakerLogoImage (loadMakerLogoImage());
@@ -758,8 +629,7 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     settingsComponent->setOnVoicesChanged ([this] (unsigned voices)
     {
         const bool changed = audioProcessor.setMaximumVoices (voices);
-        settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
-                                          audioProcessor.isOptimizationEnabled(), true);
+        settingsComponent->setVoiceLimit (audioProcessor.getMaximumVoices(), true, true);
         syncFrontPanelIndicators();
         if (! changed)
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
@@ -768,16 +638,6 @@ NukedSC55AudioProcessorEditor::NukedSC55AudioProcessorEditor (NukedSC55AudioProc
     settingsComponent->setOnDipoleChanged ([this] (bool enabled)
     {
         audioProcessor.setDipoleEnabled (enabled);
-    });
-    settingsComponent->setOnOptimizationChanged ([this] (bool enabled)
-    {
-        const bool switched = audioProcessor.setOptimizationEnabled (enabled);
-        settingsComponent->setDipoleEnabled (audioProcessor.isDipoleEnabled());
-        settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
-        syncFrontPanelIndicators();
-        if (! switched)
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                "Engine switch failed", audioProcessor.getUiStatus().error);
     });
     settingsComponent->setOnRomSelected ([this] (const juce::String& name)
     {
@@ -1002,25 +862,25 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     else if (buttonThatWasClicked == buttonPartDec2.get())
     {
         //[UserButtonCode_buttonPartDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::partDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::partDec);
         //[/UserButtonCode_buttonPartDec2]
     }
     else if (buttonThatWasClicked == buttonPartInc2.get())
     {
         //[UserButtonCode_buttonPartInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::partInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::partInc);
         //[/UserButtonCode_buttonPartInc2]
     }
     else if (buttonThatWasClicked == buttonInstDec2.get())
     {
         //[UserButtonCode_buttonInstDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::instrumentDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::instrumentDec);
         //[/UserButtonCode_buttonInstDec2]
     }
     else if (buttonThatWasClicked == buttonInstInc2.get())
     {
         //[UserButtonCode_buttonInstInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::instrumentInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::instrumentInc);
         //[/UserButtonCode_buttonInstInc2]
     }
     else if (buttonThatWasClicked == buttonMakerLogo.get())
@@ -1044,7 +904,7 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     {
         //[UserButtonCode_buttonAll_new] -- add your button handler code here..
         if (! suppressAllClick)
-            audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::all);
+            audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::all);
         suppressAllClick = false;
         syncFrontPanelIndicators();
         //[/UserButtonCode_buttonAll_new]
@@ -1053,7 +913,7 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     {
         //[UserButtonCode_buttonMute_new] -- add your button handler code here..
         if (! suppressMuteClick)
-            audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::mute);
+            audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::mute);
         suppressMuteClick = false;
         syncFrontPanelIndicators();
         //[/UserButtonCode_buttonMute_new]
@@ -1068,73 +928,73 @@ void NukedSC55AudioProcessorEditor::buttonClicked (juce::Button* buttonThatWasCl
     else if (buttonThatWasClicked == buttonLevelDec2.get())
     {
         //[UserButtonCode_buttonLevelDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::levelDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::levelDec);
         //[/UserButtonCode_buttonLevelDec2]
     }
     else if (buttonThatWasClicked == buttonLevelInc2.get())
     {
         //[UserButtonCode_buttonLevelInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::levelInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::levelInc);
         //[/UserButtonCode_buttonLevelInc2]
     }
     else if (buttonThatWasClicked == buttonPanDec2.get())
     {
         //[UserButtonCode_buttonPanDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::panDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::panDec);
         //[/UserButtonCode_buttonPanDec2]
     }
     else if (buttonThatWasClicked == buttonPanInc2.get())
     {
         //[UserButtonCode_buttonPanInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::panInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::panInc);
         //[/UserButtonCode_buttonPanInc2]
     }
     else if (buttonThatWasClicked == buttonReverbDec2.get())
     {
         //[UserButtonCode_buttonReverbDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::reverbDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::reverbDec);
         //[/UserButtonCode_buttonReverbDec2]
     }
     else if (buttonThatWasClicked == buttonReverbInc2.get())
     {
         //[UserButtonCode_buttonReverbInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::reverbInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::reverbInc);
         //[/UserButtonCode_buttonReverbInc2]
     }
     else if (buttonThatWasClicked == buttonChorusDec2.get())
     {
         //[UserButtonCode_buttonChorusDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::chorusDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::chorusDec);
         //[/UserButtonCode_buttonChorusDec2]
     }
     else if (buttonThatWasClicked == buttonChorusInc2.get())
     {
         //[UserButtonCode_buttonChorusInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::chorusInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::chorusInc);
         //[/UserButtonCode_buttonChorusInc2]
     }
     else if (buttonThatWasClicked == buttonKeyShiftDec2.get())
     {
         //[UserButtonCode_buttonKeyShiftDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::keyShiftDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::keyShiftDec);
         //[/UserButtonCode_buttonKeyShiftDec2]
     }
     else if (buttonThatWasClicked == buttonKeyShiftInc2.get())
     {
         //[UserButtonCode_buttonKeyShiftInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::keyShiftInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::keyShiftInc);
         //[/UserButtonCode_buttonKeyShiftInc2]
     }
     else if (buttonThatWasClicked == buttonMidiChDec2.get())
     {
         //[UserButtonCode_buttonMidiChDec2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::midiChannelDec);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::midiChannelDec);
         //[/UserButtonCode_buttonMidiChDec2]
     }
     else if (buttonThatWasClicked == buttonMidiChInc2.get())
     {
         //[UserButtonCode_buttonMidiChInc2] -- add your button handler code here..
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::midiChannelInc);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::midiChannelInc);
         //[/UserButtonCode_buttonMidiChInc2]
     }
     else if (buttonThatWasClicked == buttonLoad.get())
@@ -1177,21 +1037,21 @@ void NukedSC55AudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
         suppressPowerClick = event.mods.isPopupMenu();
         if (suppressPowerClick)
         {
-            const auto state = audioProcessor.getUiStatus().emulator;
+            const auto state = audioProcessor.getUiStatus().engine;
             juce::PopupMenu menu;
-            menu.addItem (1, "Standby", state.nativeEngine && state.ready, state.standby);
+            menu.addItem (1, "Standby", state.ready, state.standby);
             menu.addItem (2, "Fast display scroll (standby only)",
-                          state.nativeEngine && state.ready && state.standby, state.fastDisplayScroll);
+                          state.ready && state.standby, state.fastDisplayScroll);
             menu.addSeparator();
-            menu.addItem (3, "Receive SysEx", state.nativeEngine && state.ready, state.receiveExclusive);
-            menu.addItem (4, "Receive GM / GS Reset", state.nativeEngine && state.ready, state.receiveReset);
-            menu.addItem (5, "Ignore SysEx checksum", state.nativeEngine && state.ready, state.ignoreChecksum);
-            menu.addItem (6, "Receive Program Change", state.nativeEngine && state.ready, state.receiveProgramChanges);
+            menu.addItem (3, "Receive SysEx", state.ready, state.receiveExclusive);
+            menu.addItem (4, "Receive GM / GS Reset", state.ready, state.receiveReset);
+            menu.addItem (5, "Ignore SysEx checksum", state.ready, state.ignoreChecksum);
+            menu.addItem (6, "Receive Program Change", state.ready, state.receiveProgramChanges);
             menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (buttonPower2.get()),
                 [safe = juce::Component::SafePointer<NukedSC55AudioProcessorEditor> (this), state] (int choice)
                 {
                     if (safe == nullptr) return;
-                    using Button = NukedSC55Emulator::FrontPanelButton;
+                    using Button = GS55Engine::FrontPanelButton;
                     if (choice == 1) safe->audioProcessor.pressFrontPanelButton (state.standby ? Button::standbyOff : Button::standbyOn);
                     if (choice == 2) safe->audioProcessor.pressFrontPanelButton (state.fastDisplayScroll ? Button::fastScrollOff : Button::fastScrollOn);
                     if (choice == 3) safe->audioProcessor.pressFrontPanelButton (state.receiveExclusive ? Button::exclusiveOff : Button::exclusiveOn);
@@ -1214,7 +1074,7 @@ void NukedSC55AudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
     {
         suppressAllClick = allButtonHeld;
         suppressMuteClick = muteButtonHeld;
-        audioProcessor.pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton::solo);
+        audioProcessor.pressFrontPanelButton (GS55Engine::FrontPanelButton::solo);
     }
 }
 
@@ -1515,44 +1375,21 @@ void NukedSC55AudioProcessorEditor::replaceScLogoFromFile (const juce::File& fil
     setScLogoImage (image);
 }
 
-void NukedSC55AudioProcessorEditor::updateRomLogo (NukedSC55Emulator::RomFamily romFamily)
+void NukedSC55AudioProcessorEditor::updateRomLogo (bool romLoaded)
 {
     if (buttonMk2 == nullptr)
         return;
-
-    if (romLogoInitialised && displayedRomFamily == romFamily)
+    if (romLogoInitialised && displayedRomLoaded == romLoaded)
         return;
-
-    juce::Image logo;
-    switch (romFamily)
-    {
-        case NukedSC55Emulator::RomFamily::sc55:
-            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_SC55_png,
-                                                    BinaryData::Logo_SC55_pngSize);
-            break;
-
-        case NukedSC55Emulator::RomFamily::sc55mk2:
-            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_SC55mk2_png,
-                                                    BinaryData::Logo_SC55mk2_pngSize);
-            break;
-
-        case NukedSC55Emulator::RomFamily::sc155:
-            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_SC155_png,
-                                                    BinaryData::Logo_SC155_pngSize);
-            break;
-
-        case NukedSC55Emulator::RomFamily::unknown:
-        case NukedSC55Emulator::RomFamily::other:
-            logo = juce::ImageCache::getFromMemory (BinaryData::Logo_GS_png,
-                                                    BinaryData::Logo_GS_pngSize);
-            break;
-    }
-
+    // The SC-55 logo once its ROMs are loaded, the GS logo before.
+    const auto logo = romLoaded
+        ? juce::ImageCache::getFromMemory (BinaryData::Logo_SC55_png, BinaryData::Logo_SC55_pngSize)
+        : juce::ImageCache::getFromMemory (BinaryData::Logo_GS_png, BinaryData::Logo_GS_pngSize);
     buttonMk2->setImages (false, true, true,
                           logo, 1.000f, juce::Colour (0x00000000),
                           juce::Image(), 1.000f, juce::Colour (0x00000000),
                           juce::Image(), 1.000f, juce::Colour (0x00000000));
-    displayedRomFamily = romFamily;
+    displayedRomLoaded = romLoaded;
     romLogoInitialised = true;
 }
 
@@ -1622,10 +1459,7 @@ void NukedSC55AudioProcessorEditor::refreshRomChoices()
 
     const auto uiStatus = audioProcessor.getUiStatus();
     settingsComponent->setDipoleEnabled (audioProcessor.isDipoleEnabled());
-    settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
-    settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
-    settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
-                                      audioProcessor.isOptimizationEnabled());
+    settingsComponent->setVoiceLimit (audioProcessor.getMaximumVoices(), true);
     const auto selectedRomName = uiStatus.romDirectory.isEmpty()
                                ? juce::String()
                                : juce::File (uiStatus.romDirectory).getFileName();
@@ -1659,14 +1493,14 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
     labelProcess->setText ("Max: " + juce::String (audioProcessor.getMaximumProcessLoadPercent(), 1)
                               + "%", juce::dontSendNotification);
     const auto uiStatus = audioProcessor.getUiStatus();
-    const auto& state = uiStatus.emulator;
+    const auto& state = uiStatus.engine;
     // Read only the published snapshot on the message thread. PCM key bits
     // can remain set after retirement and are not a live voice count.
     juce::String voiceCountText ("0");
     if (uiStatus.audioReady && state.ready && ! state.standby)
     {
         voiceCountText = juce::String::fromUTF8 ("\xe2\x80\x94");
-        if (state.nativeEngine && uiStatus.hasNativeState)
+        if (uiStatus.hasNativeState)
         {
             unsigned voices = 0;
             for (const auto& part : uiStatus.nativeState.parts)
@@ -1675,7 +1509,7 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
         }
     }
     labelNumVoices->setText (voiceCountText, juce::dontSendNotification);
-    updateRomLogo (state.romFamily);
+    updateRomLogo (uiStatus.audioReady && state.ready);
     const auto syncIndicatorState = [] (juce::ImageButton* button, bool isLit)
     {
         if (button == nullptr)
@@ -1699,10 +1533,7 @@ void NukedSC55AudioProcessorEditor::syncFrontPanelIndicators()
                                    : juce::File (uiStatus.romDirectory).getFileName();
         settingsComponent->setSelectedRomName (selectedRomName);
         settingsComponent->setDipoleEnabled (audioProcessor.isDipoleEnabled());
-        settingsComponent->setOptimizationEnabled (audioProcessor.isOptimizationEnabled());
-        settingsComponent->setOptimizationAvailable (audioProcessor.isOptimizationAvailable());
-        settingsComponent->setVoiceLimit (audioProcessor.isOptimizationEnabled() ? audioProcessor.getMaximumVoices() : 24,
-                                          audioProcessor.isOptimizationEnabled());
+        settingsComponent->setVoiceLimit (audioProcessor.getMaximumVoices(), true);
     }
     syncPlaybackControls();
 }

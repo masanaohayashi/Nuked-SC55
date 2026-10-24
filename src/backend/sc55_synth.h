@@ -149,7 +149,7 @@ public:
 
     // Always fills the destination, silencing only a failed suffix. No retained
     // host pointers, allocations or firmware execution on this path.
-    void render(std::span<AudioFrame<int32_t>> frames) noexcept
+    void render(std::span<sc55::Frame> frames) noexcept
     {
         std::size_t offset=0;
         if(!failed()) player_->renderFrames(frames.size(),[&](std::size_t count) noexcept {
@@ -158,7 +158,7 @@ public:
             return rendered;
         });
         if(offset!=frames.size()) outputFailed_=true;
-        std::fill(frames.begin()+offset,frames.end(),AudioFrame<int32_t>{});
+        std::fill(frames.begin()+offset,frames.end(),sc55::Frame{});
     }
 private:
     static unsigned gsPart(unsigned displayPart) noexcept

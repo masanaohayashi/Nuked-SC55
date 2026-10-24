@@ -8,9 +8,6 @@
 
 namespace BinaryData
 {
-    extern const char*   back_data;
-    const int            back_dataSize = 794352;
-
     extern const char*   Background_png;
     const int            Background_pngSize = 437586;
 
@@ -111,7 +108,7 @@ namespace BinaryData
     const int            DotGothic16Regular_ttfSize = 2027048;
 
     // Number of elements in the namedResourceList and originalFileNames arrays.
-    const int namedResourceListSize = 34;
+    const int namedResourceListSize = 33;
 
     // Points to the start of a list of resource names.
     extern const char* namedResourceList[];

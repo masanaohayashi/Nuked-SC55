@@ -11,7 +11,7 @@
 //
 // Header-only so the plug-in projects need no new source files.
 
-#include "audio_frame.h"
+#include "sc55_frame.h"
 #include "sc55_effect_unit.h"
 #include "sc55_audio_buses.h"
 #include "sc55_envelope_ramp.h"
@@ -567,7 +567,7 @@ public:
 
     // Renders up to out.size() frames; stops after a frame that raised a loop
     // event (or after one frame while one is pending). Returns frames written.
-    std::size_t render(std::span<AudioFrame<int32_t>> out) noexcept
+    std::size_t render(std::span<sc55::Frame> out) noexcept
     {
         std::size_t done = 0;
         while (done < out.size()) {
@@ -579,7 +579,7 @@ public:
     }
 
 private:
-    std::size_t renderBlock(std::span<AudioFrame<int32_t>> out) noexcept
+    std::size_t renderBlock(std::span<sc55::Frame> out) noexcept
     {
         // One frame at a time while an event waits for the controller, and
         // for the very first frame, which only settles the clocks.

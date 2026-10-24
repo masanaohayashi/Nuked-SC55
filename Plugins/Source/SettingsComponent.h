@@ -100,12 +100,6 @@ public:
     { onDipoleChanged = std::move (callback); }
     void setDipoleEnabled (bool enabled)
     { toggleDipole->setToggleState (enabled, juce::dontSendNotification); }
-    void setOnOptimizationChanged (std::function<void(bool)> callback)
-    { onOptimizationChanged = std::move (callback); }
-    void setOptimizationEnabled (bool enabled)
-    { toggleOptimization->setToggleState (enabled, juce::dontSendNotification); }
-    void setOptimizationAvailable (bool available)
-    { toggleOptimization->setEnabled (available); }
     void setOnVoicesChanged (std::function<void(unsigned)> callback)
     { onVoicesChanged = std::move (callback); }
     void setVoiceLimit (unsigned voices, bool available, bool force = false)
@@ -141,7 +135,6 @@ private:
     Action onImportRom;
     RomSelectionAction onRomSelected;
     std::function<void(bool)> onDipoleChanged;
-    std::function<void(bool)> onOptimizationChanged;
     std::function<void(unsigned)> onVoicesChanged;
     unsigned shownVoiceLimit = 0;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> audioDeviceSettings;
@@ -158,7 +151,6 @@ private:
     std::unique_ptr<juce::Viewport> viewport;
     std::unique_ptr<juce::Label> labelVoices;
     std::unique_ptr<juce::Slider> sliderVoices;
-    std::unique_ptr<juce::ToggleButton> toggleOptimization;
     std::unique_ptr<juce::ToggleButton> toggleDipole;
     juce::Image cachedImage_BinaryData_BackPanel_png_1;
 

@@ -5,28 +5,19 @@
 #include "sc55_preset.h"
 #include "sc55_system_defaults.h"
 #include "sc55_effects_control.h"
-#include "sha256.h"
+#include "sc55_sha256.h"
 #include <set>
 #include <stdexcept>
 
 namespace sc55
 {
 // Exact ROM identity is required: the offsets below are specific to SC-55 v1.21.
-inline SHA256_Digest SoundDataDigest(std::span<const uint8_t> bytes)
-{
-    SHA256Context context;
-    SHA256_Digest digest{};
-    if (SHA256Reset(&context) != shaSuccess
-        || SHA256Input(&context, bytes.data(), unsigned(bytes.size())) != shaSuccess
-        || SHA256Result(&context, digest.data()) != shaSuccess)
-        throw std::runtime_error("Sound-data SHA256 failed");
-    return digest;
-}
+inline Sha256 SoundDataDigest(std::span<const uint8_t> bytes) { return sha256(bytes); }
 inline bool CanImportSoundData(const std::vector<uint8_t>& rom1, const std::vector<uint8_t>& rom2)
 {
     return rom1.size() == 32768 && rom2.size() == 262144
-        && SoundDataDigest(rom1) == SHA256_ToDigest("7e1bacd1d7c62ed66e465ba05597dcd60dfc13fc23de0287fdbce6cf906c6544")
-        && SoundDataDigest(rom2) == SHA256_ToDigest("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1");
+        && SoundDataDigest(rom1) == sha256Hex("7e1bacd1d7c62ed66e465ba05597dcd60dfc13fc23de0287fdbce6cf906c6544")
+        && SoundDataDigest(rom2) == sha256Hex("effc6132d68f7e300aaef915ccdd08aba93606c22d23e580daf9ea6617913af1");
 }
 
 // Setup-only extraction of 03:8000 /8080 /d168. Separate owned configuration
@@ -88,7 +79,7 @@ inline MelodicPresetTable ImportMelodicPresets(const std::vector<uint8_t>& rom1,
 inline bool IsCurrentSoundData(std::span<const uint8_t> bytes)
 {
     return bytes.size() == 184480
-        && SoundDataDigest(bytes) == SHA256_ToDigest("1c73f4e219a58e422e14f78e3dd2f068e0bf834567cf7038121ea80ce26d9b3e");
+        && SoundDataDigest(bytes) == sha256Hex("1c73f4e219a58e422e14f78e3dd2f068e0bf834567cf7038121ea80ce26d9b3e");
 }
 
 namespace sound_data_import_detail

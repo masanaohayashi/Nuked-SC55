@@ -55,7 +55,7 @@ void run(unsigned voices, unsigned blocks)
         tg->effects().update(P::reverbOutput, 0x4040);
         tg->effects().update(P::chorusInput, 0x3040);
     }
-    std::vector<AudioFrame<int32_t>> a(300), b(300);
+    std::vector<sc55::Frame> a(300), b(300);
     unsigned frames = 0, events = 0;
     int64_t peak = 0;
     for (unsigned block = 0; block < blocks; ++block) {

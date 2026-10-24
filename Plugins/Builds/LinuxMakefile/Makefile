@@ -39,7 +39,7 @@ ifeq ($(CONFIG),Debug)
     TARGET_ARCH := 
   endif
 
-  JUCE_CPPFLAGS := $(DEPFLAGS) "-DLINUX=1" "-DDEBUG=1" "-D_DEBUG=1" "-DJUCE_PROJUCER_VERSION=0x90004" "-DJUCE_MODULE_AVAILABLE_juce_audio_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_devices=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_formats=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_plugin_client=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_utils=1" "-DJUCE_MODULE_AVAILABLE_juce_core=1" "-DJUCE_MODULE_AVAILABLE_juce_data_structures=1" "-DJUCE_MODULE_AVAILABLE_juce_events=1" "-DJUCE_MODULE_AVAILABLE_juce_graphics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_extra=1" "-DJUCE_MODULE_AVAILABLE_R2JUCE=1" "-DJUCE_WEBVIEW_INTEROP_LIBRARY_VERSION=\"1.0.0\"" "-DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1" "-DJUCE_VST3_CAN_REPLACE_VST2=0" "-DJUCE_STRICT_REFCOUNTEDPOINTER=1" "-DJucePlugin_Build_VST=0" "-DJucePlugin_Build_VST3=1" "-DJucePlugin_Build_AU=0" "-DJucePlugin_Build_AUv3=1" "-DJucePlugin_Build_AAX=0" "-DJucePlugin_Build_Standalone=1" "-DJucePlugin_Build_Unity=0" "-DJucePlugin_Build_LV2=0" "-DJucePlugin_Enable_IAA=0" "-DJucePlugin_Enable_ARA=0" "-DJucePlugin_Name=\"GS-55\"" "-DJucePlugin_Desc=\"GS-55\"" "-DJucePlugin_Manufacturer=\"STUDIO-R\"" "-DJucePlugin_ManufacturerWebsite=\"studio-r.tokyo\"" "-DJucePlugin_ManufacturerEmail=\"\"" "-DJucePlugin_ManufacturerCode=0x52696e32" "-DJucePlugin_PluginCode=0x53633535" "-DJucePlugin_IsSynth=1" "-DJucePlugin_WantsMidiInput=1" "-DJucePlugin_ProducesMidiOutput=0" "-DJucePlugin_IsMidiEffect=0" "-DJucePlugin_EditorRequiresKeyboardFocus=0" "-DJucePlugin_Version=0.0.11" "-DJucePlugin_VersionCode=0xb" "-DJucePlugin_VersionString=\"0.0.11\"" "-DJucePlugin_VSTUniqueID=JucePlugin_PluginCode" "-DJucePlugin_VSTCategory=kPlugCategSynth" "-DJucePlugin_LV2PluginClass=InstrumentPlugin" "-DJucePlugin_Vst3Category=\"Instrument|Synth\"" "-DJucePlugin_AUMainType='aumu'" "-DJucePlugin_AUSubType=JucePlugin_PluginCode" "-DJucePlugin_AUExportPrefix=SC55AU" "-DJucePlugin_AUExportPrefixQuoted=\"SC55AU\"" "-DJucePlugin_AUManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_CFBundleIdentifier=tokyo.studio-r.sc55" "-DJucePlugin_AAXIdentifier=com.STUDIOR.SC55" "-DJucePlugin_AAXManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_AAXProductId=JucePlugin_PluginCode" "-DJucePlugin_AAXCategory=2048" "-DJucePlugin_AAXDisableBypass=0" "-DJucePlugin_AAXDisableMultiMono=0" "-DJucePlugin_IAAType=0x61757269" "-DJucePlugin_IAASubType=JucePlugin_PluginCode" "-DJucePlugin_IAAName=\"STUDIO-R: GS-55\"" "-DJucePlugin_VSTNumMidiInputs=16" "-DJucePlugin_VSTNumMidiOutputs=16" "-DJucePlugin_ARAContentTypes=0" "-DJucePlugin_ARATransformationFlags=0" "-DJucePlugin_ARAFactoryID=\"com.STUDIOR.SC55.factory\"" "-DJucePlugin_ARADocumentArchiveID=\"com.STUDIOR.SC55.aradocumentarchive.0.0.10\"" "-DJucePlugin_ARACompatibleArchiveIDs=\"\"" "-DJucePlugin_MaxNumInputChannels=0" "-DJucePlugin_MaxNumOutputChannels=2" "-DJucePlugin_PreferredChannelConfigurations={0,2}" "-DJUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone" "-DNUKED_SC55_NO_MAIN=1" "-DJUCER_LINUX_MAKE_6D53C8B4=1" "-DJUCE_APP_VERSION=0.0.11" "-DJUCE_APP_VERSION_HEX=0xb" "-DJUCE_USE_EXTERNAL_TEMPORARY_SUBPROCESS=1" $(shell $(PKG_CONFIG) --cflags $(shell ($(PKG_CONFIG) --exists webkit2gtk-4.1 && echo webkit2gtk-4.1) || echo webkit2gtk-4.0) alsa freetype2 fontconfig libcurl gtk+-x11-3.0) -pthread -I../../../3rdparty/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK -I../../JuceLibraryCode -Ipre_build -I../../../3rdparty/JUCE/modules -I../../../3rdparty/R2JUCE/modules -I../../../src/backend -I../../../src/common -I../../../3rdparty/Utf8Main $(CPPFLAGS)
+  JUCE_CPPFLAGS := $(DEPFLAGS) "-DLINUX=1" "-DDEBUG=1" "-D_DEBUG=1" "-DJUCE_PROJUCER_VERSION=0x90004" "-DJUCE_MODULE_AVAILABLE_juce_audio_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_devices=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_formats=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_plugin_client=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_utils=1" "-DJUCE_MODULE_AVAILABLE_juce_core=1" "-DJUCE_MODULE_AVAILABLE_juce_data_structures=1" "-DJUCE_MODULE_AVAILABLE_juce_events=1" "-DJUCE_MODULE_AVAILABLE_juce_graphics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_extra=1" "-DJUCE_MODULE_AVAILABLE_R2JUCE=1" "-DJUCE_WEBVIEW_INTEROP_LIBRARY_VERSION=\"1.0.0\"" "-DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1" "-DJUCE_VST3_CAN_REPLACE_VST2=0" "-DJUCE_STRICT_REFCOUNTEDPOINTER=1" "-DJucePlugin_Build_VST=0" "-DJucePlugin_Build_VST3=1" "-DJucePlugin_Build_AU=0" "-DJucePlugin_Build_AUv3=1" "-DJucePlugin_Build_AAX=0" "-DJucePlugin_Build_Standalone=1" "-DJucePlugin_Build_Unity=0" "-DJucePlugin_Build_LV2=0" "-DJucePlugin_Enable_IAA=0" "-DJucePlugin_Enable_ARA=0" "-DJucePlugin_Name=\"GS-55\"" "-DJucePlugin_Desc=\"GS-55\"" "-DJucePlugin_Manufacturer=\"STUDIO-R\"" "-DJucePlugin_ManufacturerWebsite=\"studio-r.tokyo\"" "-DJucePlugin_ManufacturerEmail=\"\"" "-DJucePlugin_ManufacturerCode=0x52696e32" "-DJucePlugin_PluginCode=0x53633535" "-DJucePlugin_IsSynth=1" "-DJucePlugin_WantsMidiInput=1" "-DJucePlugin_ProducesMidiOutput=0" "-DJucePlugin_IsMidiEffect=0" "-DJucePlugin_EditorRequiresKeyboardFocus=0" "-DJucePlugin_Version=0.0.11" "-DJucePlugin_VersionCode=0xb" "-DJucePlugin_VersionString=\"0.0.11\"" "-DJucePlugin_VSTUniqueID=JucePlugin_PluginCode" "-DJucePlugin_VSTCategory=kPlugCategSynth" "-DJucePlugin_LV2PluginClass=InstrumentPlugin" "-DJucePlugin_Vst3Category=\"Instrument|Synth\"" "-DJucePlugin_AUMainType='aumu'" "-DJucePlugin_AUSubType=JucePlugin_PluginCode" "-DJucePlugin_AUExportPrefix=SC55AU" "-DJucePlugin_AUExportPrefixQuoted=\"SC55AU\"" "-DJucePlugin_AUManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_CFBundleIdentifier=tokyo.studio-r.sc55" "-DJucePlugin_AAXIdentifier=com.STUDIOR.SC55" "-DJucePlugin_AAXManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_AAXProductId=JucePlugin_PluginCode" "-DJucePlugin_AAXCategory=2048" "-DJucePlugin_AAXDisableBypass=0" "-DJucePlugin_AAXDisableMultiMono=0" "-DJucePlugin_IAAType=0x61757269" "-DJucePlugin_IAASubType=JucePlugin_PluginCode" "-DJucePlugin_IAAName=\"STUDIO-R: GS-55\"" "-DJucePlugin_VSTNumMidiInputs=16" "-DJucePlugin_VSTNumMidiOutputs=16" "-DJucePlugin_ARAContentTypes=0" "-DJucePlugin_ARATransformationFlags=0" "-DJucePlugin_ARAFactoryID=\"com.STUDIOR.SC55.factory\"" "-DJucePlugin_ARADocumentArchiveID=\"com.STUDIOR.SC55.aradocumentarchive.0.0.10\"" "-DJucePlugin_ARACompatibleArchiveIDs=\"\"" "-DJucePlugin_MaxNumInputChannels=0" "-DJucePlugin_MaxNumOutputChannels=2" "-DJucePlugin_PreferredChannelConfigurations={0,2}" "-DJUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone" "-DNUKED_SC55_NO_MAIN=1" "-DJUCER_LINUX_MAKE_6D53C8B4=1" "-DJUCE_APP_VERSION=0.0.11" "-DJUCE_APP_VERSION_HEX=0xb" "-DJUCE_USE_EXTERNAL_TEMPORARY_SUBPROCESS=1" $(shell $(PKG_CONFIG) --cflags $(shell ($(PKG_CONFIG) --exists webkit2gtk-4.1 && echo webkit2gtk-4.1) || echo webkit2gtk-4.0) alsa freetype2 fontconfig libcurl gtk+-x11-3.0) -pthread -I../../../3rdparty/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK -I../../JuceLibraryCode -Ipre_build -I../../../3rdparty/JUCE/modules -I../../../3rdparty/R2JUCE/modules -I../../../src/backend -I../../../3rdparty/Utf8Main $(CPPFLAGS)
 
   JUCE_CPPFLAGS_VST3 := 
   JUCE_CFLAGS_VST3 := -fPIC -fvisibility=hidden
@@ -78,7 +78,7 @@ ifeq ($(CONFIG),Release)
     TARGET_ARCH := 
   endif
 
-  JUCE_CPPFLAGS := $(DEPFLAGS) "-DLINUX=1" "-DNDEBUG=1" "-DJUCE_PROJUCER_VERSION=0x90004" "-DJUCE_MODULE_AVAILABLE_juce_audio_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_devices=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_formats=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_plugin_client=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_utils=1" "-DJUCE_MODULE_AVAILABLE_juce_core=1" "-DJUCE_MODULE_AVAILABLE_juce_data_structures=1" "-DJUCE_MODULE_AVAILABLE_juce_events=1" "-DJUCE_MODULE_AVAILABLE_juce_graphics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_extra=1" "-DJUCE_MODULE_AVAILABLE_R2JUCE=1" "-DJUCE_WEBVIEW_INTEROP_LIBRARY_VERSION=\"1.0.0\"" "-DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1" "-DJUCE_VST3_CAN_REPLACE_VST2=0" "-DJUCE_STRICT_REFCOUNTEDPOINTER=1" "-DJucePlugin_Build_VST=0" "-DJucePlugin_Build_VST3=1" "-DJucePlugin_Build_AU=0" "-DJucePlugin_Build_AUv3=1" "-DJucePlugin_Build_AAX=0" "-DJucePlugin_Build_Standalone=1" "-DJucePlugin_Build_Unity=0" "-DJucePlugin_Build_LV2=0" "-DJucePlugin_Enable_IAA=0" "-DJucePlugin_Enable_ARA=0" "-DJucePlugin_Name=\"GS-55\"" "-DJucePlugin_Desc=\"GS-55\"" "-DJucePlugin_Manufacturer=\"STUDIO-R\"" "-DJucePlugin_ManufacturerWebsite=\"studio-r.tokyo\"" "-DJucePlugin_ManufacturerEmail=\"\"" "-DJucePlugin_ManufacturerCode=0x52696e32" "-DJucePlugin_PluginCode=0x53633535" "-DJucePlugin_IsSynth=1" "-DJucePlugin_WantsMidiInput=1" "-DJucePlugin_ProducesMidiOutput=0" "-DJucePlugin_IsMidiEffect=0" "-DJucePlugin_EditorRequiresKeyboardFocus=0" "-DJucePlugin_Version=0.0.11" "-DJucePlugin_VersionCode=0xb" "-DJucePlugin_VersionString=\"0.0.11\"" "-DJucePlugin_VSTUniqueID=JucePlugin_PluginCode" "-DJucePlugin_VSTCategory=kPlugCategSynth" "-DJucePlugin_LV2PluginClass=InstrumentPlugin" "-DJucePlugin_Vst3Category=\"Instrument|Synth\"" "-DJucePlugin_AUMainType='aumu'" "-DJucePlugin_AUSubType=JucePlugin_PluginCode" "-DJucePlugin_AUExportPrefix=SC55AU" "-DJucePlugin_AUExportPrefixQuoted=\"SC55AU\"" "-DJucePlugin_AUManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_CFBundleIdentifier=tokyo.studio-r.sc55" "-DJucePlugin_AAXIdentifier=com.STUDIOR.SC55" "-DJucePlugin_AAXManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_AAXProductId=JucePlugin_PluginCode" "-DJucePlugin_AAXCategory=2048" "-DJucePlugin_AAXDisableBypass=0" "-DJucePlugin_AAXDisableMultiMono=0" "-DJucePlugin_IAAType=0x61757269" "-DJucePlugin_IAASubType=JucePlugin_PluginCode" "-DJucePlugin_IAAName=\"STUDIO-R: GS-55\"" "-DJucePlugin_VSTNumMidiInputs=16" "-DJucePlugin_VSTNumMidiOutputs=16" "-DJucePlugin_ARAContentTypes=0" "-DJucePlugin_ARATransformationFlags=0" "-DJucePlugin_ARAFactoryID=\"com.STUDIOR.SC55.factory\"" "-DJucePlugin_ARADocumentArchiveID=\"com.STUDIOR.SC55.aradocumentarchive.0.0.10\"" "-DJucePlugin_ARACompatibleArchiveIDs=\"\"" "-DJucePlugin_MaxNumInputChannels=0" "-DJucePlugin_MaxNumOutputChannels=2" "-DJucePlugin_PreferredChannelConfigurations={0,2}" "-DJUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone" "-DNUKED_SC55_NO_MAIN=1" "-DJUCER_LINUX_MAKE_6D53C8B4=1" "-DJUCE_APP_VERSION=0.0.11" "-DJUCE_APP_VERSION_HEX=0xb" "-DJUCE_USE_EXTERNAL_TEMPORARY_SUBPROCESS=1" $(shell $(PKG_CONFIG) --cflags $(shell ($(PKG_CONFIG) --exists webkit2gtk-4.1 && echo webkit2gtk-4.1) || echo webkit2gtk-4.0) alsa freetype2 fontconfig libcurl gtk+-x11-3.0) -pthread -I../../../3rdparty/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK -I../../JuceLibraryCode -Ipre_build -I../../../3rdparty/JUCE/modules -I../../../3rdparty/R2JUCE/modules -I../../../src/backend -I../../../src/common -I../../../3rdparty/Utf8Main $(CPPFLAGS)
+  JUCE_CPPFLAGS := $(DEPFLAGS) "-DLINUX=1" "-DNDEBUG=1" "-DJUCE_PROJUCER_VERSION=0x90004" "-DJUCE_MODULE_AVAILABLE_juce_audio_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_devices=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_formats=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_plugin_client=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1" "-DJUCE_MODULE_AVAILABLE_juce_audio_utils=1" "-DJUCE_MODULE_AVAILABLE_juce_core=1" "-DJUCE_MODULE_AVAILABLE_juce_data_structures=1" "-DJUCE_MODULE_AVAILABLE_juce_events=1" "-DJUCE_MODULE_AVAILABLE_juce_graphics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_basics=1" "-DJUCE_MODULE_AVAILABLE_juce_gui_extra=1" "-DJUCE_MODULE_AVAILABLE_R2JUCE=1" "-DJUCE_WEBVIEW_INTEROP_LIBRARY_VERSION=\"1.0.0\"" "-DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1" "-DJUCE_VST3_CAN_REPLACE_VST2=0" "-DJUCE_STRICT_REFCOUNTEDPOINTER=1" "-DJucePlugin_Build_VST=0" "-DJucePlugin_Build_VST3=1" "-DJucePlugin_Build_AU=0" "-DJucePlugin_Build_AUv3=1" "-DJucePlugin_Build_AAX=0" "-DJucePlugin_Build_Standalone=1" "-DJucePlugin_Build_Unity=0" "-DJucePlugin_Build_LV2=0" "-DJucePlugin_Enable_IAA=0" "-DJucePlugin_Enable_ARA=0" "-DJucePlugin_Name=\"GS-55\"" "-DJucePlugin_Desc=\"GS-55\"" "-DJucePlugin_Manufacturer=\"STUDIO-R\"" "-DJucePlugin_ManufacturerWebsite=\"studio-r.tokyo\"" "-DJucePlugin_ManufacturerEmail=\"\"" "-DJucePlugin_ManufacturerCode=0x52696e32" "-DJucePlugin_PluginCode=0x53633535" "-DJucePlugin_IsSynth=1" "-DJucePlugin_WantsMidiInput=1" "-DJucePlugin_ProducesMidiOutput=0" "-DJucePlugin_IsMidiEffect=0" "-DJucePlugin_EditorRequiresKeyboardFocus=0" "-DJucePlugin_Version=0.0.11" "-DJucePlugin_VersionCode=0xb" "-DJucePlugin_VersionString=\"0.0.11\"" "-DJucePlugin_VSTUniqueID=JucePlugin_PluginCode" "-DJucePlugin_VSTCategory=kPlugCategSynth" "-DJucePlugin_LV2PluginClass=InstrumentPlugin" "-DJucePlugin_Vst3Category=\"Instrument|Synth\"" "-DJucePlugin_AUMainType='aumu'" "-DJucePlugin_AUSubType=JucePlugin_PluginCode" "-DJucePlugin_AUExportPrefix=SC55AU" "-DJucePlugin_AUExportPrefixQuoted=\"SC55AU\"" "-DJucePlugin_AUManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_CFBundleIdentifier=tokyo.studio-r.sc55" "-DJucePlugin_AAXIdentifier=com.STUDIOR.SC55" "-DJucePlugin_AAXManufacturerCode=JucePlugin_ManufacturerCode" "-DJucePlugin_AAXProductId=JucePlugin_PluginCode" "-DJucePlugin_AAXCategory=2048" "-DJucePlugin_AAXDisableBypass=0" "-DJucePlugin_AAXDisableMultiMono=0" "-DJucePlugin_IAAType=0x61757269" "-DJucePlugin_IAASubType=JucePlugin_PluginCode" "-DJucePlugin_IAAName=\"STUDIO-R: GS-55\"" "-DJucePlugin_VSTNumMidiInputs=16" "-DJucePlugin_VSTNumMidiOutputs=16" "-DJucePlugin_ARAContentTypes=0" "-DJucePlugin_ARATransformationFlags=0" "-DJucePlugin_ARAFactoryID=\"com.STUDIOR.SC55.factory\"" "-DJucePlugin_ARADocumentArchiveID=\"com.STUDIOR.SC55.aradocumentarchive.0.0.10\"" "-DJucePlugin_ARACompatibleArchiveIDs=\"\"" "-DJucePlugin_MaxNumInputChannels=0" "-DJucePlugin_MaxNumOutputChannels=2" "-DJucePlugin_PreferredChannelConfigurations={0,2}" "-DJUCE_STANDALONE_APPLICATION=JucePlugin_Build_Standalone" "-DNUKED_SC55_NO_MAIN=1" "-DJUCER_LINUX_MAKE_6D53C8B4=1" "-DJUCE_APP_VERSION=0.0.11" "-DJUCE_APP_VERSION_HEX=0xb" "-DJUCE_USE_EXTERNAL_TEMPORARY_SUBPROCESS=1" $(shell $(PKG_CONFIG) --cflags $(shell ($(PKG_CONFIG) --exists webkit2gtk-4.1 && echo webkit2gtk-4.1) || echo webkit2gtk-4.0) alsa freetype2 fontconfig libcurl gtk+-x11-3.0) -pthread -I../../../3rdparty/JUCE/modules/juce_audio_processors_headless/format_types/VST3_SDK -I../../JuceLibraryCode -Ipre_build -I../../../3rdparty/JUCE/modules -I../../../3rdparty/R2JUCE/modules -I../../../src/backend -I../../../3rdparty/Utf8Main $(CPPFLAGS)
 
   JUCE_CPPFLAGS_VST3 := 
   JUCE_CFLAGS_VST3 := -fPIC -fvisibility=hidden
@@ -121,28 +121,12 @@ OBJECTS_SHARED_CODE := \
   $(JUCE_OBJDIR)/RcpFilePlayer_571fba9d.o \
   $(JUCE_OBJDIR)/WrdFilePlayer_ebb415a7.o \
   $(JUCE_OBJDIR)/WrdDisplayWindow_ce17b6f2.o \
-  $(JUCE_OBJDIR)/NukedSC55Emulator_67e5b429.o \
+  $(JUCE_OBJDIR)/GS55Engine_230cf457.o \
   $(JUCE_OBJDIR)/PluginEditor_94d4fb09.o \
   $(JUCE_OBJDIR)/SC55Component_90ef6eee.o \
   $(JUCE_OBJDIR)/SettingsComponent_119b047b.o \
-  $(JUCE_OBJDIR)/diagnostics_fb30d38c.o \
-  $(JUCE_OBJDIR)/emu_d076a52d.o \
-  $(JUCE_OBJDIR)/file_hashing_8e7deebb.o \
-  $(JUCE_OBJDIR)/file_io_bc4b6ba9.o \
-  $(JUCE_OBJDIR)/lcd_30c23e2d.o \
-  $(JUCE_OBJDIR)/mcu_interrupt_313b4b63.o \
-  $(JUCE_OBJDIR)/mcu_opcodes_75d009a5.o \
-  $(JUCE_OBJDIR)/mcu_timer_cf3c80c5.o \
-  $(JUCE_OBJDIR)/mcu_669808ff.o \
-  $(JUCE_OBJDIR)/pcm_4d9feba.o \
   $(JUCE_OBJDIR)/sc55_patch_31e01fe3.o \
-  $(JUCE_OBJDIR)/pcm_sim_1a5f9452.o \
-  $(JUCE_OBJDIR)/rom_83209cb0.o \
-  $(JUCE_OBJDIR)/rom_io_9a3dba1f.o \
-  $(JUCE_OBJDIR)/standard_romsets_f787db89.o \
-  $(JUCE_OBJDIR)/submcu_6c238e89.o \
   $(JUCE_OBJDIR)/sha224-256_4a635ffb.o \
-  $(JUCE_OBJDIR)/rom_loader_874e73e1.o \
   $(JUCE_OBJDIR)/BinaryData_ce4232d4.o \
   $(JUCE_OBJDIR)/include_juce_audio_basics_8a4e984a.o \
   $(JUCE_OBJDIR)/include_juce_audio_devices_63111d02.o \
@@ -265,9 +249,9 @@ $(JUCE_OBJDIR)/WrdDisplayWindow_ce17b6f2.o: ../../Source/WrdDisplayWindow.cpp
 	@echo "Compiling WrdDisplayWindow.cpp"
 	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
 
-$(JUCE_OBJDIR)/NukedSC55Emulator_67e5b429.o: ../../Source/NukedSC55Emulator.cpp
+$(JUCE_OBJDIR)/GS55Engine_230cf457.o: ../../Source/GS55Engine.cpp
 	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling NukedSC55Emulator.cpp"
+	@echo "Compiling GS55Engine.cpp"
 	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
 
 $(JUCE_OBJDIR)/PluginEditor_94d4fb09.o: ../../Source/PluginEditor.cpp
@@ -285,95 +269,15 @@ $(JUCE_OBJDIR)/SettingsComponent_119b047b.o: ../../Source/SettingsComponent.cpp
 	@echo "Compiling SettingsComponent.cpp"
 	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
 
-$(JUCE_OBJDIR)/diagnostics_fb30d38c.o: ../../../src/backend/diagnostics.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling diagnostics.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/emu_d076a52d.o: ../../../src/backend/emu.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling emu.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/file_hashing_8e7deebb.o: ../../../src/backend/file_hashing.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling file_hashing.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/file_io_bc4b6ba9.o: ../../../src/backend/file_io.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling file_io.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/lcd_30c23e2d.o: ../../../src/backend/lcd.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling lcd.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/mcu_interrupt_313b4b63.o: ../../../src/backend/mcu_interrupt.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling mcu_interrupt.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/mcu_opcodes_75d009a5.o: ../../../src/backend/mcu_opcodes.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling mcu_opcodes.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/mcu_timer_cf3c80c5.o: ../../../src/backend/mcu_timer.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling mcu_timer.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/mcu_669808ff.o: ../../../src/backend/mcu.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling mcu.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/pcm_4d9feba.o: ../../../src/backend/pcm.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling pcm.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
 $(JUCE_OBJDIR)/sc55_patch_31e01fe3.o: ../../../src/backend/sc55_patch.cpp
 	-$(V_AT)mkdir -p $(@D)
 	@echo "Compiling sc55_patch.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/pcm_sim_1a5f9452.o: ../../../src/backend/pcm_sim.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling pcm_sim.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/rom_83209cb0.o: ../../../src/backend/rom.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling rom.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/rom_io_9a3dba1f.o: ../../../src/backend/rom_io.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling rom_io.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/standard_romsets_f787db89.o: ../../../src/backend/standard_romsets.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling standard_romsets.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/submcu_6c238e89.o: ../../../src/backend/submcu.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling submcu.cpp"
 	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
 
 $(JUCE_OBJDIR)/sha224-256_4a635ffb.o: ../../../src/backend/sha/sha224-256.c
 	-$(V_AT)mkdir -p $(@D)
 	@echo "Compiling sha224-256.c"
 	$(V_AT)$(CC) $(JUCE_CFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
-
-$(JUCE_OBJDIR)/rom_loader_874e73e1.o: ../../../src/common/rom_loader.cpp
-	-$(V_AT)mkdir -p $(@D)
-	@echo "Compiling rom_loader.cpp"
-	$(V_AT)$(CXX) $(JUCE_CXXFLAGS) $(JUCE_CPPFLAGS_SHARED_CODE) $(JUCE_CFLAGS_SHARED_CODE) -o "$@" -c "$<"
 
 $(JUCE_OBJDIR)/BinaryData_ce4232d4.o: ../../JuceLibraryCode/BinaryData.cpp
 	-$(V_AT)mkdir -p $(@D)

@@ -86,7 +86,7 @@ juce::File getAppGroupUserSettingsDirectory()
 bool containsRomSet (const juce::File& directory)
 {
     return directory.isDirectory()
-        && NukedSC55Emulator::hasRomSet (directory.getFullPathName().toStdString());
+        && GS55Engine::hasRomSet (directory.getFullPathName().toStdString());
 }
 
 // ROM libraries are commonly organised as one folder containing several
@@ -312,7 +312,7 @@ juce::File importRomDirectoryFromFile (const juce::File& sourceDirectory)
              + "\" staging=\""
              + stagingDirectory.getFullPathName()
              + "\" copiedFiles=" + juce::String (copiedFiles));
-        NukedSC55Emulator::logRomSetDiagnostics (stagingDirectory.getFullPathName().toStdString());
+        GS55Engine::logRomSetDiagnostics (stagingDirectory.getFullPathName().toStdString());
         stagingDirectory.deleteRecursively();
         return {};
     }
@@ -448,7 +448,7 @@ juce::File importRomDirectoryFromUrl (const juce::URL& sourceDirectoryUrl)
              + "\" staging=\""
              + stagingDirectory.getFullPathName()
              + "\" copiedFiles=" + juce::String (copiedFiles));
-        NukedSC55Emulator::logRomSetDiagnostics (stagingDirectory.getFullPathName().toStdString());
+        GS55Engine::logRomSetDiagnostics (stagingDirectory.getFullPathName().toStdString());
         stagingDirectory.deleteRecursively();
         return {};
     }
@@ -702,8 +702,8 @@ NukedSC55AudioProcessor::UiStatus NukedSC55AudioProcessor::getUiStatus() const
     status.sampleRate = currentSampleRate.load (std::memory_order_acquire);
     status.romDirectory = selectedRomDirectory.getFullPathName();
     status.error = uiError;
-    status.emulator = emulator.getDebugState();
-    status.hasNativeState = emulator.getNativeState (status.nativeState);
+    status.engine = engine.getDebugState();
+    status.hasNativeState = engine.getNativeState (status.nativeState);
     return status;
 }
 
@@ -743,7 +743,7 @@ bool NukedSC55AudioProcessor::setMaximumVoices (unsigned voices)
     if (previous == voices)
         return true;
     maximumVoices.store (voices, std::memory_order_relaxed);
-    if (! isOptimizationEnabled() || selectedRomDirectory == juce::File())
+    if (selectedRomDirectory == juce::File())
         return true;
     stopMidiFile();
     resetMaximumProcessLoad();
@@ -753,33 +753,6 @@ bool NukedSC55AudioProcessor::setMaximumVoices (unsigned voices)
     maximumVoices.store (previous, std::memory_order_relaxed);
     const bool restored = initialiseRomDirectory (selectedRomDirectory);
     uiError = restored ? changeError : changeError + "\nRestore failed: " + uiError;
-    return false;
-}
-
-bool NukedSC55AudioProcessor::setOptimizationEnabled (bool enabled)
-{
-    jassert (juce::MessageManager::getInstance()->isThisTheMessageThread());
-    if (enabled && ! optimizationAvailable)
-    {
-        uiError = "Optimization requires SC-55 v1.21 ROMs";
-        return false;
-    }
-    if (optimizationEnabled == enabled)
-        return true;
-
-    const bool previous = optimizationEnabled;
-    optimizationEnabled = enabled;
-    stopMidiFile();
-    resetMaximumProcessLoad();
-    if (selectedRomDirectory == juce::File())
-        return true;
-    if (initialiseRomDirectory (selectedRomDirectory))
-        return true;
-
-    const auto switchError = uiError;
-    optimizationEnabled = previous;
-    const bool restored = initialiseRomDirectory (selectedRomDirectory);
-    uiError = restored ? switchError : switchError + "\nRestore failed: " + uiError;
     return false;
 }
 
@@ -802,7 +775,7 @@ bool NukedSC55AudioProcessor::selectStoredRomInternal (const juce::String& name,
     {
         uiError = "The stored ROM folder is not usable";
         sc55debug::log ("stored ROM rejected: \"%s\"", directory.getFullPathName().toRawUTF8());
-        NukedSC55Emulator::logRomSetDiagnostics (directory.getFullPathName().toStdString());
+        GS55Engine::logRomSetDiagnostics (directory.getFullPathName().toStdString());
         return false;
     }
 
@@ -832,14 +805,6 @@ NukedSC55AudioProcessor::WrdDisplayState NukedSC55AudioProcessor::getWrdDisplayS
     return state;
 }
 
-bool NukedSC55AudioProcessor::copyLcdDisplay (uint8_t* destination, size_t destinationStride,
-                                               bool* contentChanged, bool* isRasterOverlay,
-                                               bool forceRasterCopy)
-{
-    return emulator.copyLcdDisplay (destination, destinationStride,
-                                   contentChanged, isRasterOverlay, forceRasterCopy);
-}
-
 void NukedSC55AudioProcessor::releaseResources()
 {
     sc55debug::log ("releaseResources");
@@ -847,13 +812,13 @@ void NukedSC55AudioProcessor::releaseResources()
     const juce::ScopedLock callbackLock (getCallbackLock());
     const bool wasReady = audioReady.load (std::memory_order_acquire);
     audioReady.store (false, std::memory_order_release);
-    emulator.release();
+    engine.release();
 
     // Keep MIDI received while no ROM is selected, but discard bytes belonging
     // to an already-running instance when the host tears that instance down.
     if (wasReady)
     {
-        emulator.clearPendingMidi();
+        engine.clearPendingMidi();
     }
 }
 
@@ -904,7 +869,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                         static_cast<unsigned long long> (processBlockCount), numSamples,
                         numChannels, midiEventCount,
                         audioReady.load (std::memory_order_acquire) ? 1 : 0,
-                        emulator.isReady() ? 1 : 0);
+                        engine.isReady() ? 1 : 0);
     }
 
     for (int channel = 0; channel < numChannels; ++channel)
@@ -991,7 +956,7 @@ void NukedSC55AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         const int segmentSamples = nextRenderPosition - renderedSamples;
         if (ready && left != nullptr && segmentSamples > 0)
         {
-            emulator.render (left + renderedSamples,
+            engine.render (left + renderedSamples,
                              right != nullptr ? right + renderedSamples : nullptr,
                              segmentSamples);
         }
@@ -1277,9 +1242,9 @@ bool NukedSC55AudioProcessor::loadRomSelection (const juce::URL& selection)
     return false;
 }
 
-void NukedSC55AudioProcessor::pressFrontPanelButton (NukedSC55Emulator::FrontPanelButton button)
+void NukedSC55AudioProcessor::pressFrontPanelButton (GS55Engine::FrontPanelButton button)
 {
-    emulator.pressFrontPanelButton (button);
+    engine.pressFrontPanelButton (button);
 }
 
 void NukedSC55AudioProcessor::requestGsReset()
@@ -1287,10 +1252,9 @@ void NukedSC55AudioProcessor::requestGsReset()
     sc55debug::log ("GS reset requested by GS button");
     std::array<uint8_t, sizeof (gsResetMessage)> message;
     std::copy (std::begin (gsResetMessage), std::end (gsResetMessage), message.begin());
-    if (emulator.getDebugState().nativeEngine)
-        message[2] = NativeMidiInputState::decode (emulator.savedMidiInputState())->deviceId;
+    message[2] = NativeMidiInputState::decode (engine.savedMidiInputState())->deviceId;
     // Roland's checksum covers address/data, not the device identifier.
-    emulator.sendMidi (message.data(), int (message.size()));
+    engine.sendMidi (message.data(), int (message.size()));
 }
 
 void NukedSC55AudioProcessor::requestGmReset()
@@ -1302,7 +1266,7 @@ void NukedSC55AudioProcessor::requestGmReset()
 void NukedSC55AudioProcessor::sendMidiToEmulator (const uint8_t* data, int size) noexcept
 {
     if (data != nullptr && size > 0)
-        emulator.sendMidi (data, size);
+        engine.sendMidi (data, size);
 }
 
 void NukedSC55AudioProcessor::handleAsyncUpdate()
@@ -1359,9 +1323,7 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
     const auto isStoredDirectory = isStoredRomDirectoryForProcessor (directory);
     const auto directoryIsValid = directory.isDirectory()
                                && (isStoredDirectory || canUseExternalRomDirectoryForProcessor());
-    bool supportsNative = false;
-    const auto hasRomSet = directoryIsValid && NukedSC55Emulator::hasRomSet (
-        directory.getFullPathName().toStdString(), &supportsNative);
+    const auto hasRomSet = directoryIsValid && GS55Engine::hasRomSet (directory.getFullPathName().toStdString());
     DBG ("[DEBUG-SC55] initialiseRomDirectory path=\"" + directory.getFullPathName()
          + "\" isDirectory=" + juce::String (directoryIsValid ? 1 : 0)
          + " inAppGroup=" + juce::String (isStoredDirectory ? 1 : 0)
@@ -1369,14 +1331,13 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
 
     if (! directoryIsValid || ! hasRomSet)
     {
-        uiError = "The selected folder does not contain a usable SC-55 ROM set";
+        uiError = "The selected folder does not contain the SC-55 (v1.21) ROMs";
         sc55debug::log ("ROM directory rejected: \"%s\"", directory.getFullPathName().toRawUTF8());
-        NukedSC55Emulator::logRomSetDiagnostics (directory.getFullPathName().toStdString());
+        GS55Engine::logRomSetDiagnostics (directory.getFullPathName().toStdString());
         return false;
     }
 
     selectedRomDirectory = directory;
-    optimizationAvailable = supportsNative;
     const auto sampleRate = currentSampleRate.load (std::memory_order_acquire);
     if (sampleRate <= 0.0)
     {
@@ -1396,17 +1357,15 @@ bool NukedSC55AudioProcessor::initialiseRomDirectory (const juce::File& director
         ~Suspension() { processor.suspendProcessing (previous); }
     } suspension (*this);
     audioReady.store (false, std::memory_order_release);
-    const auto mode = isOptimizationEnabled() ? NukedSC55Emulator::EngineMode::native
-                                          : NukedSC55Emulator::EngineMode::h8;
     const auto settingsDirectory = getUserSettingsDirectory();
     const auto nativeCacheDirectory = settingsDirectory.isDirectory()
         ? settingsDirectory.getChildFile ("NativeSoundData").getFullPathName().toStdString()
         : std::string();
-    if (! emulator.initialise (directory.getFullPathName().toStdString(), sampleRate,
-                               nativeCacheDirectory, mode, getMaximumVoices()))
+    if (! engine.initialise (directory.getFullPathName().toStdString(), sampleRate,
+                               nativeCacheDirectory, getMaximumVoices()))
     {
-        uiError = juce::String (emulator.getError());
-        sc55debug::log ("ROM directory initialisation failed: %s", emulator.getError().c_str());
+        uiError = juce::String (engine.getError());
+        sc55debug::log ("ROM directory initialisation failed: %s", engine.getError().c_str());
         return false;
     }
 
@@ -1504,8 +1463,8 @@ void NukedSC55AudioProcessor::launchRomChooser()
             "sc55_waverom2.bin, sc55_waverom3.bin\n"
         "SC-55mkII: rom1.bin, rom2.bin, waverom1.bin, waverom2.bin, rom_sm.bin";
 
-        if (! emulator.getError().empty())
-            message += "\n\n" + juce::String (emulator.getError());
+        if (! engine.getError().empty())
+            message += "\n\n" + juce::String (engine.getError());
 
         const auto options = juce::MessageBoxOptions::makeOptionsOk (
             juce::AlertWindow::WarningIcon,
@@ -1546,7 +1505,7 @@ void NukedSC55AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     auto state = parameters.copyState();
     state.setProperty ("stereoDipoleEnabled", isDipoleEnabled(), nullptr);
     state.setProperty ("maximumVoices", int (getMaximumVoices()), nullptr);
-    state.setProperty (midiInputStateProperty, int (emulator.savedMidiInputState()), nullptr);
+    state.setProperty (midiInputStateProperty, int (engine.savedMidiInputState()), nullptr);
     state.removeProperty ("nativeMidiInputSecondaryV1", nullptr); // Obsolete 2X state.
     const auto selectedRomIsStored = selectedRomDirectory.isDirectory()
                                   && selectedRomDirectory.getParentDirectory()
@@ -1578,7 +1537,7 @@ void NukedSC55AudioProcessor::setStateInformation (const void* data, int sizeInB
         return parsed ? int64_t (*parsed) : fallback;
     };
     const auto primaryInput = inputValue (midiInputStateProperty, NativeMidiInputState::defaultValue);
-    emulator.restoreMidiInputState (primaryInput);
+    engine.restoreMidiInputState (primaryInput);
     const auto savedVoices = int (state.getProperty ("maximumVoices", 24));
     maximumVoices.store (savedVoices >= 24 && savedVoices <= 128 && savedVoices % 4 == 0
                          ? unsigned (savedVoices) : 24u, std::memory_order_relaxed);
